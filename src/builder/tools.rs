@@ -243,7 +243,7 @@ fn run_tools_command(
                 let html_content = tools_graph_html(&tool_map);
                 let html_path = std::env::temp_dir().join("rsconstruct_tools_graph.html");
                 std::fs::write(&html_path, &html_content)
-                    .map_err(|e| anyhow::anyhow!("Failed to write HTML file: {e}"))?;
+                    .with_context(|| format!("Failed to write HTML file: {}", html_path.display()))?;
                 if let Some(b) = builder {
                     b.open_file(&html_path)?;
                     println!("Opened tools graph in browser: {}", html_path.display());
@@ -459,9 +459,11 @@ fn run_tools_command(
 
             if !install_yes {
                 print!("Proceed? [y/N] ");
-                std::io::stdout().flush()?;
+                std::io::stdout().flush()
+                    .context("Failed to flush stdout before install prompt")?;
                 let mut answer = String::new();
-                std::io::stdin().read_line(&mut answer)?;
+                std::io::stdin().read_line(&mut answer)
+                    .context("Failed to read install prompt answer")?;
                 let answer = answer.trim().to_lowercase();
                 if answer != "y" && answer != "yes" {
                     println!("Aborted.");
@@ -618,9 +620,11 @@ fn run_tools_command(
             if !yes {
                 use std::io::Write;
                 print!("Proceed? [y/N] ");
-                std::io::stdout().flush()?;
+                std::io::stdout().flush()
+                    .context("Failed to flush stdout before dependency install prompt")?;
                 let mut answer = String::new();
-                std::io::stdin().read_line(&mut answer)?;
+                std::io::stdin().read_line(&mut answer)
+                    .context("Failed to read dependency install prompt answer")?;
                 if !matches!(answer.trim().to_lowercase().as_str(), "y" | "yes") {
                     println!("Aborted.");
                     return Ok(());
@@ -806,13 +810,15 @@ fn tools_graph_svg(tool_map: &BTreeMap<String, Vec<String>>) -> Result<String> {
     log_command(&cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|_| anyhow::anyhow!("Graphviz 'dot' command not found. Install Graphviz to use SVG format"))?;
+        .map_err(|e| anyhow::anyhow!("Graphviz 'dot' command not found. Install Graphviz to use SVG format: {e}"))?;
 
     child.stdin.take()
         .context("stdin was not piped to dot command")?
-        .write_all(dot_content.as_bytes())?;
+        .write_all(dot_content.as_bytes())
+        .context("Failed to write DOT graph to dot stdin")?;
 
-    let output = child.wait_with_output()?;
+    let output = child.wait_with_output()
+        .context("Failed to wait for dot command")?;
     check_command_output(&output, "dot")?;
 
     Ok(String::from_utf8(output.stdout)?)

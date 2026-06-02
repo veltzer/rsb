@@ -52,7 +52,7 @@ impl Builder {
                 let html_path = temp_dir.join("rsconstruct_graph.html");
                 let html_content = graph.to_html();
                 fs::write(&html_path, html_content)
-                    .context("Failed to write HTML file")?;
+                    .with_context(|| format!("Failed to write HTML file: {}", html_path.display()))?;
 
                 // Open in browser
                 self.open_file(&html_path)?;
@@ -74,7 +74,7 @@ impl Builder {
                 // Write DOT file
                 let dot_content = graph.to_dot();
                 fs::write(&dot_path, dot_content)
-                    .context("Failed to write DOT file")?;
+                    .with_context(|| format!("Failed to write DOT file: {}", dot_path.display()))?;
 
                 // Convert to SVG
                 let mut dot_cmd = Command::new("dot");
@@ -323,7 +323,7 @@ fn collect_unreferenced(
     out: &mut Vec<PathBuf>,
 ) -> Result<()> {
     for entry in fs::read_dir(dir).with_context(|| format!("Failed to read dir {}", dir.display()))? {
-        let entry = entry?;
+        let entry = entry.with_context(|| format!("Failed to read entry in {}", dir.display()))?;
         let path = entry.path();
         if path.is_dir() {
             // Skip hidden directories and common non-project dirs

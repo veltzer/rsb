@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crate::cli::{BuildOptions, BuildPhase, DisplayOptions};
 use crate::color;
 use crate::tables;
@@ -632,7 +632,9 @@ fn write_trace_file(path: &str, stats: &BuildStats) -> Result<()> {
     }
 
     let trace = serde_json::json!({ "traceEvents": events });
-    crate::errors::ctx(std::fs::write(path, serde_json::to_string_pretty(&trace)?), &format!("Failed to write trace file: {path}"))?;
+    let trace_json = serde_json::to_string_pretty(&trace)?;
+    std::fs::write(path, trace_json)
+        .with_context(|| format!("Failed to write trace file: {path}"))?;
     if !crate::runtime_flags::quiet() {
         println!("Wrote trace to {}", color::bold(path));
     }

@@ -274,7 +274,7 @@ impl Builder {
                     let deps_file = PathBuf::from(".rsconstruct/deps.redb");
                     if deps_file.exists() {
                         fs::remove_file(&deps_file)
-                            .context("Failed to remove dependency cache")?;
+                            .with_context(|| format!("Failed to remove dependency cache: {}", deps_file.display()))?;
                         println!("Dependency cache cleared.");
                     } else {
                         println!("Dependency cache is already empty.");

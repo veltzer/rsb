@@ -67,7 +67,7 @@ fn install_dir(source_dir: &Path, target_root: &Path, source_root: &Path) -> Res
         .with_context(|| format!("Failed to read directory: {}", source_dir.display()))?;
 
     for entry in entries {
-        let entry = entry?;
+        let entry = entry.with_context(|| format!("Failed to read entry in directory: {}", source_dir.display()))?;
         let source_path = entry.path();
         let relative = source_path.strip_prefix(source_root)
             .context("Failed to compute relative path")?;

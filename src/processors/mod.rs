@@ -55,7 +55,7 @@ thread_local! {
 
 /// Set the declared tools for the current thread (debug builds only).
 #[cfg(debug_assertions)]
-pub(crate) fn set_declared_tools(tools: Option<Vec<String>>) {
+pub fn set_declared_tools(tools: Option<Vec<String>>) {
     DECLARED_TOOLS.with(|dt| {
         *dt.borrow_mut() = tools;
     });
@@ -68,7 +68,7 @@ pub fn set_declared_tools(_tools: Option<Vec<String>>) {}
 /// Temporarily suspend the declared-tools check for user-specified commands.
 /// Returns a guard that restores the previous value when dropped.
 #[cfg(debug_assertions)]
-pub(crate) fn suspend_tool_check() -> ToolCheckGuard {
+pub fn suspend_tool_check() -> ToolCheckGuard {
     let prev = DECLARED_TOOLS.with(|dt| dt.borrow_mut().take());
     ToolCheckGuard { prev }
 }
@@ -81,7 +81,7 @@ pub const fn suspend_tool_check() -> ToolCheckGuard {
 
 /// RAII guard that restores the declared tools when dropped.
 #[cfg(debug_assertions)]
-pub(crate) struct ToolCheckGuard {
+pub struct ToolCheckGuard {
     prev: Option<Vec<String>>,
 }
 
@@ -1754,13 +1754,11 @@ mod tests {
                 }
                 assert!(
                     tool_install_command(&tool).is_some(),
-                    "Processor '{}' requires tool '{}' which has no install command in TOOLS",
-                    proc_name, tool
+                    "Processor '{proc_name}' requires tool '{tool}' which has no install command in TOOLS"
                 );
                 assert!(
                     tool_runtime(&tool).is_some(),
-                    "Processor '{}' requires tool '{}' which has no runtime category in TOOLS",
-                    proc_name, tool
+                    "Processor '{proc_name}' requires tool '{tool}' which has no runtime category in TOOLS"
                 );
             }
         }

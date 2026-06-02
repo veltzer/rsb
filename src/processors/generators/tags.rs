@@ -1921,7 +1921,7 @@ mod tests {
 
     #[test]
     fn tag_allowed_exact() {
-        let allowed: HashSet<String> = ["docker", "python"].iter().map(|s| s.to_string()).collect();
+        let allowed: HashSet<String> = ["docker", "python"].iter().map(ToString::to_string).collect();
         assert!(tag_matches_allowed("docker", &allowed));
         assert!(!tag_matches_allowed("rust", &allowed));
     }
