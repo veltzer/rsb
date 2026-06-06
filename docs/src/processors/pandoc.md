@@ -67,7 +67,7 @@ Notes:
 - `pdf_engine` only affects products whose output format is `pdf`. For other
   formats (html, docx, etc.) the field is silently ignored.
 - The configured engine is added to the processor's required-tools list, so
-  `rsconstruct doctor` and `rsconstruct tools list` will flag it as missing if
+  `rsconstruct doctor` and `rsconstruct tools list-configured` will flag it as missing if
   it isn't installed.
 - Changing `pdf_engine` invalidates the cache for affected products (it is
   part of the config-change checksum), so a rebuild is triggered automatically.

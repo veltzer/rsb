@@ -627,8 +627,14 @@ pub enum ToolsAction {
         #[arg(long)]
         no_eatmydata: bool,
     },
-    /// List all required external tools (uses config if available)
+    /// List all tools known to rsconstruct, from the central registry (no config needed)
     List {
+        /// Show all available installation methods for each tool
+        #[arg(short = 'M', long)]
+        methods: bool,
+    },
+    /// List external tools required by this project's processors (uses config if available)
+    ListConfigured {
         /// Include tools from disabled processors too
         #[arg(short, long)]
         all: bool,

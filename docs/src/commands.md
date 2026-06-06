@@ -404,8 +404,10 @@ List or check external tools required by declared processors. All subcommands us
 | `graph` | Uses config if available |
 
 ```bash
-rsconstruct tools list              # List required tools and which processor needs them
-rsconstruct tools list -a           # Include tools from disabled processors
+rsconstruct tools list              # List all tools known to rsconstruct (from the central registry)
+rsconstruct tools list -M           # ...with every install method for each tool
+rsconstruct tools list-configured   # List tools this project's processors require, and which needs them
+rsconstruct tools list-configured -a   # Include tools from disabled processors
 rsconstruct tools check             # Verify tool versions against .tools.versions lock file
 rsconstruct tools lock              # Lock tool versions to .tools.versions
 rsconstruct tools install           # Install all missing external tools

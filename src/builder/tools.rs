@@ -102,8 +102,9 @@ fn run_tools_command(
     verbose: bool,
     builder: Option<&Builder>,
 ) -> Result<()> {
-    let show_all = matches!(&action, ToolsAction::List { all: true, .. });
-    let show_methods = matches!(&action, ToolsAction::List { methods: true, .. });
+    let show_all = matches!(&action, ToolsAction::ListConfigured { all: true, .. });
+    let show_methods = matches!(&action,
+        ToolsAction::ListConfigured { methods: true, .. } | ToolsAction::List { methods: true });
     let install_yes = matches!(&action, ToolsAction::Install { yes: true, .. });
     let install_no_eatmydata = matches!(&action, ToolsAction::Install { no_eatmydata: true, .. });
     // eatmydata speeds up apt/dnf/pacman by no-op'ing fsync; the trade-off
@@ -131,6 +132,51 @@ fn run_tools_command(
 
     match action {
         ToolsAction::List { .. } => {
+            // Registry-wide list: every tool rsconstruct knows how to install,
+            // independent of which processors are configured. Mirrors
+            // `processors list`, which shows all built-in processors.
+            if crate::json_output::is_json_mode() {
+                let entries: Vec<json_output::ToolListEntry> = crate::processors::TOOLS.iter()
+                    .map(|info| json_output::ToolListEntry {
+                        tool: info.name.to_string(),
+                        installed: which::which(info.name).is_ok(),
+                        runtime: info.runtime.to_string(),
+                        processors: Vec::new(),
+                        install_methods: info.install_methods.iter().map(|m| {
+                            json_output::ToolInstallMethodEntry {
+                                method: m.method.to_string(),
+                                command: m.command(),
+                            }
+                        }).collect(),
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&entries)?);
+                return Ok(());
+            }
+
+            let mut tools: Vec<&crate::processors::ToolInfo> = crate::processors::TOOLS.iter().collect();
+            tools.sort_by_key(|t| t.name);
+            for info in tools {
+                let installed = if which::which(info.name).is_ok() {
+                    color::green("installed")
+                } else {
+                    color::red("missing")
+                };
+                let install_str = if show_methods {
+                    let methods: Vec<String> = info.install_methods.iter()
+                        .map(|m| format!("{}: {}", m.method, m.command()))
+                        .collect();
+                    if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
+                } else {
+                    info.install_methods.first()
+                        .map(super::super::processors::InstallMethod::command)
+                        .unwrap_or_else(|| "?".to_string())
+                };
+                println!("{} [{}] [{}] — {}",
+                    info.name, installed, info.runtime, color::dim(&install_str));
+            }
+        }
+        ToolsAction::ListConfigured { .. } => {
             if crate::json_output::is_json_mode() {
                 let entries: Vec<json_output::ToolListEntry> = tool_map.iter()
                     .map(|(tool, procs)| {
@@ -442,7 +488,7 @@ fn run_tools_command(
             println!("Missing {} tool(s), grouped by install method:", missing_tools.len());
             println!();
 
-            let method_order = &["pip", "apt", "npm", "cargo", "gem", "snap", "binary", "manual"];
+            let method_order = &["pip", "apt", "brew", "npm", "cargo", "gem", "snap", "binary", "manual"];
             let ctx = crate::processors::InstallCtx {
                 verbose,
                 use_eatmydata: install_use_eatmydata,

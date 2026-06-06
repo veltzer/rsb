@@ -1325,6 +1325,10 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "objdump", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "binutils" }] },
     ToolInfo { name: "tidy", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "tidy" }] },
     ToolInfo { name: "xmllint", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "libxml2-utils" }] },
+    ToolInfo { name: "clojure", runtime: "system", install_methods: &[
+        InstallMethod { method: "brew", package: "clojure/tools/clojure" },
+        InstallMethod { method: "manual", package: "install the Clojure CLI via the official Linux installer: https://clojure.org/guides/install_clojure" },
+    ]},
     ToolInfo { name: "svglint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svglint" }] },
     ToolInfo { name: "svgo", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svgo" }] },
     ToolInfo { name: "cmake", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "cmake" }] },

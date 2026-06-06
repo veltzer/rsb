@@ -136,7 +136,7 @@ end
 
 #### `required_tools()`
 
-Returns a table of external tool names required by this processor. Used by `rsconstruct tools list` and `rsconstruct tools check`. Default: empty table.
+Returns a table of external tool names required by this processor. Used by `rsconstruct tools list-configured` and `rsconstruct tools check`. Default: empty table.
 
 ```lua
 function required_tools()

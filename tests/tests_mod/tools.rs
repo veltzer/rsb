@@ -2,26 +2,44 @@ use crate::common::{setup_test_project, run_rsconstruct_with_env};
 use serde_json::Value;
 
 #[test]
-fn tools_list_shows_tools() {
+fn tools_list_shows_all_registry_tools() {
     let temp_dir = setup_test_project();
     let project_path = temp_dir.path();
 
+    // `tools list` shows the central registry regardless of config, like
+    // `processors list`. It lists tools no processor in this project needs.
     let output = run_rsconstruct_with_env(project_path, &["tools", "list"], &[("NO_COLOR", "1")]);
     assert!(output.status.success(), "tools list failed: {}", String::from_utf8_lossy(&output.stderr));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Template processor requires python3, so tools list always has output.
     assert!(!stdout.is_empty(), "tools list should show at least one tool");
+    // The registry view is not processor-scoped, so it has no "(...)" column.
+    assert!(!stdout.contains("("), "registry list should not show processor names in parentheses");
+    // It includes tools the minimal test project does not require.
+    assert!(stdout.contains("clojure"), "registry list should include all known tools, e.g. clojure");
+}
+
+#[test]
+fn tools_list_shows_configured_tools() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    let output = run_rsconstruct_with_env(project_path, &["tools", "list-configured"], &[("NO_COLOR", "1")]);
+    assert!(output.status.success(), "tools list-configured failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Template processor requires python3, so list-configured always has output.
+    assert!(!stdout.is_empty(), "tools list-configured should show at least one tool");
     assert!(stdout.contains("("), "Expected processor name in parentheses for each tool");
 }
 
 #[test]
-fn tools_list_all_includes_disabled() {
+fn tools_list_configured_all_includes_disabled() {
     let temp_dir = setup_test_project();
     let project_path = temp_dir.path();
 
-    let output_default = run_rsconstruct_with_env(project_path, &["tools", "list"], &[("NO_COLOR", "1")]);
-    let output_all = run_rsconstruct_with_env(project_path, &["tools", "list", "-a"], &[("NO_COLOR", "1")]);
+    let output_default = run_rsconstruct_with_env(project_path, &["tools", "list-configured"], &[("NO_COLOR", "1")]);
+    let output_all = run_rsconstruct_with_env(project_path, &["tools", "list-configured", "-a"], &[("NO_COLOR", "1")]);
 
     assert!(output_default.status.success());
     assert!(output_all.status.success());
@@ -33,7 +51,7 @@ fn tools_list_all_includes_disabled() {
     let count_default = stdout_default.lines().count();
     let count_all = stdout_all.lines().count();
     assert!(count_all >= count_default,
-        "tools list -a should include at least as many tools as default ({} vs {})",
+        "tools list-configured -a should include at least as many tools as default ({} vs {})",
         count_all, count_default);
 }
 
