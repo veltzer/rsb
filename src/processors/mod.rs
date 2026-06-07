@@ -926,7 +926,7 @@ pub trait Processor: Sync + Send {
 /// runtime category and install command. Both `tool_install_command()` and
 /// `tool_runtime()` (in `builder/tools.rs`) look up data from this table.
 ///
-/// Runtime categories: "python", "node", "ruby", "rust", "perl", "system"
+/// Runtime categories: "python", "node", "ruby", "rust", "perl", "jvm", "system"
 ///
 /// A single way to install a tool.
 pub struct InstallMethod {
@@ -1245,7 +1245,7 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
 pub struct ToolInfo {
     /// Tool binary name
     pub name: &'static str,
-    /// Runtime category ("python", "node", "ruby", "rust", "perl", "system")
+    /// Runtime category ("python", "node", "ruby", "rust", "perl", "jvm", "system")
     pub runtime: &'static str,
     /// Install methods, ordered by preference (first is the default)
     pub install_methods: &'static [InstallMethod],
@@ -1325,7 +1325,7 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "objdump", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "binutils" }] },
     ToolInfo { name: "tidy", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "tidy" }] },
     ToolInfo { name: "xmllint", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "libxml2-utils" }] },
-    ToolInfo { name: "clojure", runtime: "system", install_methods: &[
+    ToolInfo { name: "clojure", runtime: "jvm", install_methods: &[
         InstallMethod { method: "brew", package: "clojure/tools/clojure" },
         InstallMethod { method: "manual", package: "install the Clojure CLI via the official Linux installer: https://clojure.org/guides/install_clojure" },
     ]},
@@ -1341,7 +1341,7 @@ pub static TOOLS: &[ToolInfo] = &[
         InstallMethod { method: "apt", package: "hadolint" },
     ]},
     ToolInfo { name: "php", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "php-cli" }] },
-    ToolInfo { name: "checkstyle", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "checkstyle" }] },
+    ToolInfo { name: "checkstyle", runtime: "jvm", install_methods: &[InstallMethod { method: "apt", package: "checkstyle" }] },
     ToolInfo { name: "yq", runtime: "system", install_methods: &[
         InstallMethod { method: "pip", package: "yq" },
         InstallMethod { method: "snap", package: "yq" },

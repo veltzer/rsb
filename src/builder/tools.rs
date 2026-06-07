@@ -156,25 +156,38 @@ fn run_tools_command(
 
             let mut tools: Vec<&crate::processors::ToolInfo> = crate::processors::TOOLS.iter().collect();
             tools.sort_by_key(|t| t.name);
-            for info in tools {
-                let installed = if which::which(info.name).is_ok() {
+
+            // The install command is noise for the common "what tools exist?"
+            // question, so it's hidden by default — shown only with --verbose
+            // (or --methods for every method). JSON always carries it.
+            let show_install = verbose || show_methods;
+            let mut headers: Vec<&str> = vec!["Tool", "Status", "Runtime"];
+            if show_install {
+                headers.push("Install");
+            }
+            let rows: Vec<Vec<String>> = tools.iter().map(|info| {
+                let status = if which::which(info.name).is_ok() {
                     color::green("installed")
                 } else {
                     color::red("missing")
                 };
-                let install_str = if show_methods {
-                    let methods: Vec<String> = info.install_methods.iter()
-                        .map(|m| format!("{}: {}", m.method, m.command()))
-                        .collect();
-                    if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
-                } else {
-                    info.install_methods.first()
-                        .map(super::super::processors::InstallMethod::command)
-                        .unwrap_or_else(|| "?".to_string())
-                };
-                println!("{} [{}] [{}] — {}",
-                    info.name, installed, info.runtime, color::dim(&install_str));
-            }
+                let mut row = vec![info.name.to_string(), status.to_string(), info.runtime.to_string()];
+                if show_install {
+                    let install_str = if show_methods {
+                        let methods: Vec<String> = info.install_methods.iter()
+                            .map(|m| format!("{}: {}", m.method, m.command()))
+                            .collect();
+                        if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
+                    } else {
+                        info.install_methods.first()
+                            .map(super::super::processors::InstallMethod::command)
+                            .unwrap_or_else(|| "?".to_string())
+                    };
+                    row.push(install_str);
+                }
+                row
+            }).collect();
+            tables::print_table(&headers, &rows);
         }
         ToolsAction::ListConfigured { .. } => {
             if crate::json_output::is_json_mode() {
@@ -381,6 +394,7 @@ fn run_tools_command(
                     ("ruby", "Ruby"),
                     ("rust", "Rust"),
                     ("perl", "Perl"),
+                    ("jvm", "JVM"),
                     ("system", "System"),
                 ];
                 let rt_rows: Vec<Vec<String>> = runtime_display.iter().filter_map(|(key, label)| {
