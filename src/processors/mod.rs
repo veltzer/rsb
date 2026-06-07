@@ -1326,8 +1326,11 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "tidy", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "tidy" }] },
     ToolInfo { name: "xmllint", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "libxml2-utils" }] },
     ToolInfo { name: "clojure", runtime: "jvm", install_methods: &[
+        // There is no apt/dnf package for the Clojure CLI. The official Linux
+        // route is the install script (needs bash, curl, rlwrap); brew is the
+        // macOS route. See https://clojure.org/guides/install_clojure
+        InstallMethod { method: "manual", package: "run the official Linux installer (needs curl, bash, rlwrap): https://clojure.org/guides/install_clojure" },
         InstallMethod { method: "brew", package: "clojure/tools/clojure" },
-        InstallMethod { method: "manual", package: "install the Clojure CLI via the official Linux installer: https://clojure.org/guides/install_clojure" },
     ]},
     ToolInfo { name: "svglint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svglint" }] },
     ToolInfo { name: "svgo", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svgo" }] },
