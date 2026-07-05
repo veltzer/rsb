@@ -155,6 +155,69 @@ fn terms_fix_strips_ambiguous_backticks() {
 }
 
 #[test]
+fn terms_fix_fails_when_no_terms_found() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Both term directories exist but contain zero terms — a misconfigured
+    // setup (e.g. wrong dir_terms_unambiguous) must fail loudly, not
+    // silently report success while checking nothing.
+    write_terms_dirs(project_path, &[], &[]);
+
+    fs::write(
+        project_path.join("README.md"),
+        "# Doc\n\nWe deploy on Kubernetes.\n",
+    ).unwrap();
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.terms]\ndir_terms_unambiguous = \"terms.unambiguous\"\ndir_terms_ambiguous = \"terms.ambiguous\"\nsrc_dirs = [\".\"]\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["terms", "fix"], &[("NO_COLOR", "1")]);
+    assert!(!output.status.success(), "terms fix must fail when no terms are loaded");
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("no terms found") && combined.contains("terms.unambiguous"),
+        "Error must say no terms were found and name the directory: {combined}",
+    );
+}
+
+#[test]
+fn terms_build_fails_when_no_terms_found() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    write_terms_dirs(project_path, &[], &[]);
+
+    fs::write(
+        project_path.join("README.md"),
+        "# Doc\n\nWe deploy on Kubernetes.\n",
+    ).unwrap();
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.terms]\ndir_terms_unambiguous = \"terms.unambiguous\"\ndir_terms_ambiguous = \"terms.ambiguous\"\nsrc_dirs = [\".\"]\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(!output.status.success(), "build must fail when the terms processor loads zero terms");
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("no terms found"),
+        "Error must say no terms were found: {combined}",
+    );
+}
+
+#[test]
 fn terms_matching_is_case_sensitive() {
     let temp_dir = setup_test_project();
     let project_path = temp_dir.path();

@@ -37,9 +37,6 @@ impl TermsProcessor {
 
     fn check_files(&self, files: &[&Path]) -> Result<()> {
         let terms = load_and_validate_terms(&self.config)?;
-        if terms.is_empty() {
-            return Ok(());
-        }
         let sorted = sorted_terms(&terms.single);
         let amb_for_check: HashSet<String> = if self.config.forbid_backticked_ambiguous {
             terms.ambiguous.clone()
@@ -174,6 +171,9 @@ pub fn load_terms(dir_path: &str) -> Result<HashSet<String>> {
 /// exists on disk, also verifies that no term appears in both directories.
 /// A missing ambiguous directory is treated as an empty list, not an error —
 /// projects without an ambiguous list just get the unambiguous-only behavior.
+/// Errors if no terms are loaded at all: a configured terms setup that yields
+/// zero terms is a misconfiguration (e.g. `dir_terms_unambiguous` pointing at
+/// the wrong directory), and silently checking nothing would hide it.
 pub fn load_and_validate_terms(config: &TermsConfig) -> Result<LoadedTerms> {
     let single = load_terms(&config.dir_terms_unambiguous)?;
     let amb_dir = &config.dir_terms_ambiguous;
@@ -198,7 +198,20 @@ pub fn load_and_validate_terms(config: &TermsConfig) -> Result<LoadedTerms> {
     } else {
         HashSet::new()
     };
-    Ok(LoadedTerms { single, ambiguous })
+    let loaded = LoadedTerms { single, ambiguous };
+    if loaded.is_empty() {
+        let amb_note = if Path::new(amb_dir).is_dir() {
+            format!(" or `{amb_dir}`")
+        } else {
+            String::new()
+        };
+        bail!(
+            "no terms found in `{}`{amb_note} — the terms processor has nothing to check; \
+             each .txt file there must list one term per line (is `dir_terms_unambiguous` pointing at the right directory?)",
+            config.dir_terms_unambiguous,
+        );
+    }
+    Ok(loaded)
 }
 
 /// Sort terms longest-first for greedy matching (so "Android Studio" matches before "Android").
@@ -625,10 +638,6 @@ pub fn fix_file(
 /// Uses the same scan config as the terms processor to find files.
 pub fn fix_all(config: &TermsConfig, remove_non_terms: bool) -> Result<()> {
     let terms = load_and_validate_terms(config)?;
-    if terms.is_empty() {
-        println!("No technical terms found in {}", config.dir_terms_unambiguous);
-        return Ok(());
-    }
     let sorted = sorted_terms(&terms.single);
 
     // Force-walk every src_dir the user listed: they may include generated
