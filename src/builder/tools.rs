@@ -61,7 +61,7 @@ fn tool_runtime(tool: &str) -> &'static str {
 /// Uses default processor configs so List, Stats, Install, and Graph work
 /// even outside a project directory.
 pub fn tools_no_config(action: ToolsAction, verbose: bool) -> Result<()> {
-    let processors = super::create_all_default_processors();
+    let processors = super::create_all_default_processors()?;
     run_tools_command(&processors, &|_name| true, action, verbose, None)
 }
 

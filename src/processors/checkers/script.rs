@@ -82,6 +82,10 @@ impl Processor for ScriptProcessor {
         execute_checker_batch(ctx, products, |ctx, files| self.check_files(ctx, files))
     }
 
+    fn config_has_fix(&self) -> bool {
+        !self.config.fix_command.is_empty()
+    }
+
     fn fix(&self, ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
         self.fix_files(ctx, &[product.primary_input()])
     }

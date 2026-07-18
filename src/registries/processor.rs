@@ -136,6 +136,15 @@ pub fn deserialize_and_create<C: Default + DeserializeOwned>(
     Ok(ctor(cfg))
 }
 
+/// Like [`deserialize_and_create`], for processors whose constructor can fail
+/// (e.g. reading a support file like a personal dictionary).
+pub fn deserialize_and_try_create<C: Default + DeserializeOwned>(
+    config_toml: &toml::Value, ctor: fn(C) -> Result<Box<dyn Processor>>,
+) -> Result<Box<dyn Processor>> {
+    let cfg: C = toml::from_str(&toml::to_string(config_toml)?)?;
+    ctor(cfg)
+}
+
 /// Build default config JSON for a config type, applying defaults for the given processor name.
 pub fn default_config_json<C: Default + DeserializeOwned + Serialize + KnownFields>(name: &str) -> Option<String> {
     let mut val = toml::Value::Table(toml::map::Map::new());
@@ -163,15 +172,13 @@ pub fn default_config_json<C: Default + DeserializeOwned + Serialize + KnownFiel
             for key in obj.keys() {
                 debug_assert!(
                     known.contains(key.as_str()),
-                    "Processor '{}': default config field '{}' is serialized but not declared in known_fields() or scan fields",
-                    name, key
+                    "Processor '{name}': default config field '{key}' is serialized but not declared in known_fields() or scan fields"
                 );
             }
             for k in &checksum {
                 debug_assert!(
                     known.contains(k),
-                    "Processor '{}': checksum_fields() contains '{}' which is not in known_fields()",
-                    name, k
+                    "Processor '{name}': checksum_fields() contains '{k}' which is not in known_fields()"
                 );
             }
         }

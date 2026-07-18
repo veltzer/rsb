@@ -37,24 +37,27 @@ impl ObjectStore {
             return Ok((0, 0));
         }
 
-        // Collect all referenced blob checksums from descriptors
+        // Collect all referenced blob checksums from descriptors. An
+        // unreadable or unparsable descriptor must abort the trim: skipping it
+        // would garbage-collect every blob it references as "unreferenced".
         let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
         if self.descriptors_dir.exists() {
             for path in walk_files(&self.descriptors_dir) {
-                if let Ok(data) = fs::read(&path)
-                    && let Ok(desc) = serde_json::from_slice::<CacheDescriptor>(&data) {
-                        match desc {
-                            CacheDescriptor::Marker => {}
-                            CacheDescriptor::Blob { checksum, .. } => {
-                                referenced.insert(checksum);
-                            }
-                            CacheDescriptor::Tree { entries } => {
-                                for entry in entries {
-                                    referenced.insert(entry.checksum);
-                                }
-                            }
+                let data = fs::read(&path)
+                    .with_context(|| format!("Failed to read descriptor during trim: {}", path.display()))?;
+                let desc = serde_json::from_slice::<CacheDescriptor>(&data)
+                    .with_context(|| format!("Failed to parse descriptor during trim: {} (remove it to proceed)", path.display()))?;
+                match desc {
+                    CacheDescriptor::Marker => {}
+                    CacheDescriptor::Blob { checksum, .. } => {
+                        referenced.insert(checksum);
+                    }
+                    CacheDescriptor::Tree { entries } => {
+                        for entry in entries {
+                            referenced.insert(entry.checksum);
                         }
                     }
+                }
             }
         }
 
@@ -65,6 +68,10 @@ impl ObjectStore {
                 path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()),
                 path.file_name().and_then(|n| n.to_str())
             ) {
+                // Compressed objects carry a .zst suffix; strip it to recover
+                // the checksum. Stray temp files never match a referenced
+                // checksum and are collected as garbage here.
+                let rest = rest.strip_suffix(".zst").unwrap_or(rest);
                 let checksum = format!("{prefix}{rest}");
                 if !referenced.contains(&checksum) {
                     if let Ok(metadata) = fs::metadata(&path) {

@@ -4,26 +4,25 @@ use crate::cli::ProcessorAction;
 use crate::color;
 use crate::tables;
 use crate::config::ProcessorConfig;
-use super::{Builder, create_all_default_processors, sorted_keys};
+use super::{Builder, sorted_keys};
 
 /// Search processors by name, description, and keywords. Case-insensitive.
+/// Uses static plugin metadata only — no processor instantiation.
 pub fn search_processors(query: &str) -> Result<()> {
     let query_lower = query.to_lowercase();
-    let processors = create_all_default_processors();
-    let mut matches: Vec<(&str, &dyn crate::processors::Processor, &[&str])> = Vec::new();
+    let mut matches: Vec<(&str, &[&str])> = Vec::new();
 
     for plugin in crate::registries::processor::all_plugins() {
         let name_match = plugin.name.to_lowercase().contains(&query_lower);
         let keyword_match = plugin.keywords.iter().any(|k| k.to_lowercase().contains(&query_lower));
         let desc_match = plugin.description.to_lowercase().contains(&query_lower);
 
-        if (name_match || keyword_match || desc_match)
-            && let Some(proc) = processors.get(plugin.name) {
-            matches.push((plugin.name, proc.as_ref(), plugin.keywords));
+        if name_match || keyword_match || desc_match {
+            matches.push((plugin.name, plugin.keywords));
         }
     }
 
-    matches.sort_by_key(|(name, _, _)| *name);
+    matches.sort_by_key(|(name, _)| *name);
 
     if matches.is_empty() {
         println!("No processors matching '{query}'.");
@@ -31,7 +30,7 @@ pub fn search_processors(query: &str) -> Result<()> {
     }
 
     if crate::json_output::is_json_mode() {
-        let entries: Vec<serde_json::Value> = matches.iter().map(|(name, _proc, keywords)| {
+        let entries: Vec<serde_json::Value> = matches.iter().map(|(name, keywords)| {
             serde_json::json!({
                 "name": name,
                 "type": crate::registries::processor::processor_type_of(name).as_str(),
@@ -43,7 +42,7 @@ pub fn search_processors(query: &str) -> Result<()> {
         return Ok(());
     }
 
-    let rows: Vec<Vec<String>> = matches.iter().map(|(name, _proc, keywords)| {
+    let rows: Vec<Vec<String>> = matches.iter().map(|(name, keywords)| {
         vec![
             name.to_string(),
             crate::registries::processor::processor_type_of(name).as_str().to_string(),

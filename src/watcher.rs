@@ -10,15 +10,16 @@ use crate::builder::Builder;
 use crate::cli::BuildOptions;
 use crate::color;
 
-/// Check if a path should be ignored (editor temp files, build artifacts)
-fn should_ignore(path: &Path) -> bool {
+/// Check if a path should be ignored (editor temp files, build artifacts).
+/// `output_dir` is the configured global output directory.
+fn should_ignore(path: &Path, output_dir: &str) -> bool {
     // Ignore .rsconstruct cache directory (match as a path component, not substring)
     if path.components().any(|c| c.as_os_str() == ".rsconstruct") {
         return true;
     }
 
-    // Ignore out/ directory (match as a path component, not substring)
-    if path.components().any(|c| c.as_os_str() == "out") {
+    // Ignore the configured output directory (match as a path component, not substring)
+    if path.components().any(|c| c.as_os_str() == output_dir) {
         return true;
     }
 
@@ -46,7 +47,6 @@ fn should_ignore(path: &Path) -> bool {
 fn register_watches(
     watcher: &mut impl Watcher,
     paths: &[PathBuf],
-    verbose: bool,
 ) {
     for path in paths {
         let mode = if path.is_dir() {
@@ -54,31 +54,31 @@ fn register_watches(
         } else {
             RecursiveMode::NonRecursive
         };
-        if let Err(e) = watcher.watch(path, mode)
-            && verbose {
-                println!("Warning: could not watch {}: {}", path.display(), e);
-            }
+        // Always warn: an unwatched path silently produces no rebuilds, which
+        // is much harder to diagnose than this message.
+        if let Err(e) = watcher.watch(path, mode) {
+            eprintln!("Warning: could not watch {}: {}", path.display(), e);
+        }
     }
 }
 
 pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, interrupted: Arc<AtomicBool>) -> Result<()> {
-    // Initial build
-    println!("{}", color::bold("Running initial build..."));
-    let mut watch_paths;
-    {
-        let mut builder = Builder::new_with_overrides(&opts.iset, &opts.pset)?;
-        watch_paths = builder.watch_paths();
-        if let Err(e) = builder.build(ctx, opts, Arc::clone(&interrupted), Vec::new()) {
-            println!("{}", color::red(&format!("Initial build error: {e}")));
-        }
-    }
+    let mut builder = Builder::new_with_overrides(&opts.iset, &opts.pset)?;
+    let mut watch_paths = builder.watch_paths();
+    let mut output_dir = builder.output_dir().to_string();
 
-    // Set up file watcher
+    // Register watches BEFORE the initial build: edits made while the (possibly
+    // long) initial build runs must queue up as events, not vanish.
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
     let mut watcher = notify::recommended_watcher(tx)?;
+    register_watches(&mut watcher, &watch_paths);
 
-    // Watch project paths derived from config
-    register_watches(&mut watcher, &watch_paths, opts.verbose);
+    // Initial build
+    println!("{}", color::bold("Running initial build..."));
+    if let Err(e) = builder.build(ctx, opts, Arc::clone(&interrupted), Vec::new()) {
+        println!("{}", color::red(&format!("Initial build error: {e}")));
+    }
+    drop(builder);
 
     println!("{}", color::green("Watching for changes... (Ctrl+C to stop)"));
 
@@ -94,7 +94,7 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, inte
             }
             match rx.recv_timeout(poll_interval) {
                 Ok(Ok(event)) => {
-                    let all_ignored = event.paths.iter().all(|p| should_ignore(p));
+                    let all_ignored = event.paths.iter().all(|p| should_ignore(p, &output_dir));
                     if all_ignored {
                         continue;
                     }
@@ -126,29 +126,36 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, inte
             }
         }
 
-        // Rebuild
+        // Rebuild. A failed builder construction (e.g. rsconstruct.toml saved
+        // in a momentarily-invalid state) must not kill watch mode: report it
+        // and keep watching — the next save triggers another attempt.
         println!();
         println!("{}", color::bold("Change detected, rebuilding..."));
-        {
-            let mut builder = Builder::new_with_overrides(&opts.iset, &opts.pset)?;
-            let new_paths = builder.watch_paths();
-            if let Err(e) = builder.build(ctx, opts, Arc::clone(&interrupted), Vec::new()) {
-                println!("{}", color::red(&format!("Build error: {e}")));
+        match Builder::new_with_overrides(&opts.iset, &opts.pset) {
+            Err(e) => {
+                println!("{}", color::red(&format!("Config error: {e}")));
             }
+            Ok(mut builder) => {
+                let new_paths = builder.watch_paths();
+                output_dir = builder.output_dir().to_string();
+                if let Err(e) = builder.build(ctx, opts, Arc::clone(&interrupted), Vec::new()) {
+                    println!("{}", color::red(&format!("Build error: {e}")));
+                }
 
-            // Update watches if paths changed (e.g., new scan dirs in config)
-            for path in &new_paths {
-                if !watch_paths.contains(path) {
-                    register_watches(&mut watcher, std::slice::from_ref(path), opts.verbose);
+                // Update watches if paths changed (e.g., new scan dirs in config)
+                for path in &new_paths {
+                    if !watch_paths.contains(path) {
+                        register_watches(&mut watcher, std::slice::from_ref(path));
+                    }
                 }
-            }
-            // Unwatch paths that are no longer relevant
-            for path in &watch_paths {
-                if !new_paths.contains(path) {
-                    let _ = watcher.unwatch(path);
+                // Unwatch paths that are no longer relevant
+                for path in &watch_paths {
+                    if !new_paths.contains(path) {
+                        let _ = watcher.unwatch(path);
+                    }
                 }
+                watch_paths = new_paths;
             }
-            watch_paths = new_paths;
         }
 
         println!("{}", color::green("Watching for changes... (Ctrl+C to stop)"));

@@ -162,7 +162,13 @@ impl Processor for IpdfuniteProcessor {
             return false;
         }
         let ext = self.config.source_ext.strip_prefix('.').unwrap_or(&self.config.source_ext);
-        !find_dirs_with_ext(base, ext).is_empty()
+        match find_dirs_with_ext(base, ext) {
+            Ok(dirs) => !dirs.is_empty(),
+            Err(e) => {
+                eprintln!("Warning: ipdfunite auto-detect scan failed: {e:#}");
+                false
+            }
+        }
     }
 
     fn required_tools(&self) -> Vec<String> {
@@ -179,7 +185,7 @@ impl Processor for IpdfuniteProcessor {
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
         let ext = self.config.source_ext.strip_prefix('.').unwrap_or(&self.config.source_ext);
 
-        let dirs = find_dirs_with_ext(base, ext);
+        let dirs = find_dirs_with_ext(base, ext)?;
 
         let upstream_scan_dir = Path::new(&self.config.source_dir)
             .components()

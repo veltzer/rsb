@@ -179,6 +179,31 @@ fn per_processor_enabled_true_is_default() {
     assert_eq!(result.total_products, 1, "Expected 1 product when processor defaults to enabled");
 }
 
+/// `enabled = false` exists to keep a stanza while its tool is not installed:
+/// the tool pre-flight must not fail the build for disabled instances.
+#[test]
+fn disabled_processor_skips_tool_preflight() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    fs::write(project_path.join("src/a.txt"), "hello\n").unwrap();
+
+    let config = |enabled: &str| format!(
+        "[processor.script]\ncommand = \"definitely-not-a-real-tool-xyz\"\nsrc_dirs = [\"src\"]\nenabled = {enabled}\n"
+    );
+
+    // Control: enabled instance with a missing tool must fail pre-flight
+    fs::write(project_path.join("rsconstruct.toml"), config("true")).unwrap();
+    let result = run_rsconstruct_json_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(!result.exit_success, "enabled instance with missing tool must fail");
+
+    // Disabled instance must not trip the pre-flight
+    fs::write(project_path.join("rsconstruct.toml"), config("false")).unwrap();
+    let result = run_rsconstruct_json_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(result.exit_success, "disabled instance must not fail the tool pre-flight");
+    assert_eq!(result.total_products, 0, "disabled instance must produce no products");
+}
+
 #[test]
 fn processors_list_json() {
     let temp_dir = setup_test_project();

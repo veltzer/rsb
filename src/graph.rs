@@ -607,6 +607,10 @@ impl BuildGraph {
                 self.dependencies.push(Vec::new());
             }
         }
+
+        // The rebuild assigned new ids and cleared all edges; re-link the
+        // surviving products so execution order and failure propagation hold.
+        self.resolve_dependencies();
         Ok(())
     }
 
@@ -941,16 +945,19 @@ impl BuildGraph {
         log_command(&cmd);
         let mut child = cmd
             .spawn()
-            .map_err(|_| anyhow::anyhow!("Graphviz 'dot' command not found. Install Graphviz to use SVG format"))?;
+            .context("Failed to run Graphviz 'dot'. Install Graphviz to use SVG format")?;
 
-        child.stdin.take()
+        // Always wait on the child even if the write fails (e.g. EPIPE from
+        // dot exiting early) — propagating first would leave a zombie.
+        let write_result = child.stdin.take()
             .context("stdin was not piped to dot command")?
-            .write_all(dot_content.as_bytes())?;
-
-        let output = child.wait_with_output()?;
+            .write_all(dot_content.as_bytes());
+        let output = child.wait_with_output()
+            .context("Failed to wait for Graphviz 'dot'")?;
         check_command_output(&output, "dot")?;
+        write_result.context("Failed to write graph to dot stdin")?;
 
-        Ok(String::from_utf8(output.stdout)?)
+        String::from_utf8(output.stdout).context("Graphviz 'dot' produced non-UTF-8 SVG output")
     }
 
     /// Generate a self-contained HTML file with Mermaid diagram
@@ -1026,8 +1033,8 @@ mod tests {
         let order = g.topological_sort().unwrap();
         // All products have no dependencies, order should contain all ids
         assert_eq!(order.len(), 3);
-        let mut sorted = order.clone();
-        sorted.sort();
+        let mut sorted = order;
+        sorted.sort_unstable();
         assert_eq!(sorted, vec![0, 1, 2]);
     }
 
@@ -1191,7 +1198,47 @@ mod tests {
         let gen_pos = order.iter().position(|&id| id == gen_id).unwrap();
         let explicit_pos = order.iter().position(|&id| id == explicit_id).unwrap();
         assert!(gen_pos < explicit_pos,
-            "pandoc (pos {}) must run before explicit (pos {})", gen_pos, explicit_pos);
+            "pandoc (pos {gen_pos}) must run before explicit (pos {explicit_pos})");
+    }
+
+    /// filter_by_targets rebuilds the graph with new ids; the edges between
+    /// surviving products must be re-resolved so a producer still runs
+    /// before its consumer under `build -t <pattern>`.
+    #[test]
+    fn filter_by_targets_preserves_dependencies() {
+        let mut g = BuildGraph::new();
+        g.add_product(vec!["other.txt".into()], vec![], "check", None).unwrap();
+        let producer = g.add_product(
+            vec!["a.md".into()],
+            vec!["out.html".into()],
+            "pandoc",
+            None,
+        ).unwrap();
+        let consumer = g.add_product(
+            vec!["out.html".into()],
+            vec!["final.pdf".into()],
+            "chromium",
+            None,
+        ).unwrap();
+        g.resolve_dependencies();
+        assert_eq!(g.get_dependencies(consumer), &[producer]);
+
+        // Filter keeps the producer/consumer pair, drops the checker
+        g.filter_by_targets(&["a.md".to_string(), "out.html".to_string()]).unwrap();
+        assert_eq!(g.products().len(), 2);
+
+        // Ids were reassigned; the consumer must still depend on the producer
+        let new_producer = g.products().iter()
+            .find(|p| p.processor == "pandoc").unwrap().id;
+        let new_consumer = g.products().iter()
+            .find(|p| p.processor == "chromium").unwrap().id;
+        assert_eq!(g.get_dependencies(new_consumer), &[new_producer]);
+
+        let order = g.topological_sort().unwrap();
+        let prod_pos = order.iter().position(|&id| id == new_producer).unwrap();
+        let cons_pos = order.iter().position(|&id| id == new_consumer).unwrap();
+        assert!(prod_pos < cons_pos,
+            "producer (pos {prod_pos}) must run before consumer (pos {cons_pos})");
     }
 
     /// When a no-output product is re-declared with the same inputs,

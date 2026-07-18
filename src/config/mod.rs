@@ -290,9 +290,10 @@ pub struct BuildConfig {
     #[serde(default = "default_parallel")]
     pub parallel: usize,
     /// Maximum files per batch for batch-capable processors.
-    /// 0 = no limit (all files in one batch), None = disable batching entirely.
+    /// 0 = no limit (all files in one batch). To disable batching use
+    /// `--batch-size -1` on the CLI or `batch = false` per processor.
     #[serde(default)]
-    pub batch_size: Option<usize>,
+    pub batch_size: usize,
     /// Global output directory prefix (default: "out").
     /// Processor output_dir fields that start with "out/" will use this as the base instead.
     #[serde(default = "default_output_dir")]
@@ -320,7 +321,7 @@ impl Default for BuildConfig {
     fn default() -> Self {
         Self {
             parallel: 0,
-            batch_size: Some(0), // Default: batching enabled, no size limit
+            batch_size: 0, // Default: batching enabled, no size limit
             output_dir: "out".into(),
             max_arg_len: default_max_arg_len(),
         }
@@ -635,7 +636,7 @@ pub fn processor_defaults_for(type_name: &str) -> Option<ProcessorDefaults> {
         "svglint" => ProcessorDefaults { command: "svglint", dep_auto: &[".svglintrc.js"], ..d },
         "svgo" => ProcessorDefaults { command: "svgo", dep_auto: &["svgo.config.js", "svgo.config.mjs", "svgo.config.cjs"], ..d },
         "checkstyle" => ProcessorDefaults { command: "checkstyle", dep_auto: &["checkstyle.xml"], ..d },
-        "cmake" => ProcessorDefaults { command: "cmake", ..d },
+        "cmake" => ProcessorDefaults { command: "cmakelint", ..d },
         "doctest" => ProcessorDefaults { command: "python3", ..d },
         "hadolint" => ProcessorDefaults { command: "hadolint", ..d },
         "htmllint" => ProcessorDefaults { command: "htmllint", ..d },
@@ -682,6 +683,10 @@ pub fn processor_defaults_for(type_name: &str) -> Option<ProcessorDefaults> {
         "gem" => ProcessorDefaults { command: "bundle", ..d },
         "pip" => ProcessorDefaults { command: "pip", ..d },
         "make" => ProcessorDefaults { command: "make", ..d },
+        "jekyll" => ProcessorDefaults { command: "jekyll", ..d },
+        // Python-script generators: command is the Python interpreter
+        "jinja2" => ProcessorDefaults { command: "python3", ..d },
+        "mako" => ProcessorDefaults { command: "python3", ..d },
         _ => return None,
     })
 }
@@ -938,28 +943,35 @@ impl ProcessorConfig {
             let instance_prefix = format!("{}/{}", global_output_dir, inst.instance_name);
 
             for field in &["output_dir", "output"] {
+                // A user-set or CLI-set value is explicitly chosen — never
+                // rewrite it (previously only the provenance label was
+                // guarded while the value itself was still rewritten).
+                if matches!(
+                    inst.provenance.get(*field),
+                    Some(FieldProvenance::UserToml { .. } | FieldProvenance::CliOverride),
+                ) {
+                    continue;
+                }
                 let Some(val) = inst.config_toml.get(field).and_then(|v| v.as_str()).map(std::string::ToString::to_string) else { continue };
-                let new_val = if inst.instance_name != inst.type_name && val.starts_with(&type_default_prefix) {
+                // Prefix matches must respect path boundaries: `out/marp`
+                // must not match `out/marpdeck/...`.
+                let type_rest = val.strip_prefix(&type_default_prefix)
+                    .filter(|r| r.is_empty() || r.starts_with('/'));
+                let new_val = if inst.instance_name != inst.type_name
+                    && let Some(rest) = type_rest {
                     // Named instance: remap out/{type} → {global}/{instance}
-                    format!("{}{}", instance_prefix, &val[type_default_prefix.len()..])
-                } else if global_output_dir != "out" && val.starts_with("out/") {
+                    format!("{instance_prefix}{rest}")
+                } else if global_output_dir != "out"
+                    && let Some(rest) = val.strip_prefix("out/") {
                     // Global output dir override: remap out/ → {global}/
-                    format!("{}/{}", global_output_dir, &val[4..])
+                    format!("{global_output_dir}/{rest}")
                 } else {
                     continue;
                 };
                 if let Some(table) = inst.config_toml.as_table_mut() {
                     table.insert(field.to_string(), toml::Value::String(new_val));
                 }
-                // Only upgrade provenance if the field wasn't user-set — we must not
-                // overwrite a UserToml entry, since the user explicitly chose the
-                // pre-rewrite value.
-                if matches!(
-                    inst.provenance.get(*field),
-                    Some(FieldProvenance::ProcessorDefault) | None,
-                ) {
-                    inst.provenance.insert((*field).to_string(), FieldProvenance::OutputDirDefault);
-                }
+                inst.provenance.insert((*field).to_string(), FieldProvenance::OutputDirDefault);
             }
         }
     }
@@ -1307,6 +1319,14 @@ fn validate_single_processor(
         None => return, // unknown = Lua plugin, skip
     };
 
+    // A zero-permit semaphore can never grant a permit: max_jobs = 0 would
+    // deadlock the build waiting forever, so reject it at load time.
+    if table.get("max_jobs").and_then(toml::Value::as_integer) == Some(0) {
+        errors.push(format!(
+            "[{section_label}]: 'max_jobs' must be greater than 0 (use 'enabled = false' to turn the processor off)",
+        ));
+    }
+
     for (key, field_value) in table {
         if !own_fields.contains(&key.as_str())
             && !SCAN_CONFIG_FIELDS.contains(&key.as_str())
@@ -1377,9 +1397,13 @@ fn validate_single_processor(
                     "[{section_label}]: 'src_dirs' must be specified (this processor defaults to scanning the project root)",
                 ));
             }
+            Some(toml::Value::Array(arr)) if arr.is_empty() => {
+                errors.push(format!(
+                    "[{section_label}]: 'src_dirs' must not be empty; specify actual directories to scan",
+                ));
+            }
             Some(toml::Value::Array(arr))
-                if arr.len() == 1
-                    && arr[0].as_str().is_some_and(str::is_empty) =>
+                if arr.iter().any(|v| v.as_str().is_some_and(str::is_empty)) =>
             {
                 errors.push(format!(
                     "[{section_label}]: 'src_dirs' must not contain empty strings; specify actual directories to scan",
@@ -1403,8 +1427,15 @@ fn validate_processor_fields_raw(raw: &toml::Value) -> Vec<String> {
     let mut errors = Vec::new();
 
     for (name, value) in processor_table {
-        // skip non-table entries
-        let Some(table) = value.as_table() else { continue };
+        // A scalar under [processor] (e.g. `ruff = true`) is a config mistake
+        // that would otherwise be silently dropped.
+        let Some(table) = value.as_table() else {
+            errors.push(format!(
+                "[processor]: '{name}' must be a section (e.g. [processor.{name}]), got {}",
+                FieldType::describe_value(value),
+            ));
+            continue;
+        };
 
         if !is_builtin_type(name) {
             // Check if there's a matching Lua plugin file
@@ -1659,7 +1690,9 @@ fn parse_override_entry<'a>(raw: &'a str, flag: &str) -> Result<(&'a str, &'a st
     let (lhs, value_str) = raw.split_once('=').ok_or_else(|| anyhow::anyhow!(
         "{flag} '{raw}': missing '=' (expected <name>.<field>=<value>)"
     ))?;
-    let (name, field) = lhs.split_once('.').ok_or_else(|| anyhow::anyhow!(
+    // Split on the LAST dot: instance names may contain dots (`pylint.core`)
+    // while field names never do.
+    let (name, field) = lhs.rsplit_once('.').ok_or_else(|| anyhow::anyhow!(
         "{flag} '{raw}': missing '.' between name and field (expected <name>.<field>=<value>)"
     ))?;
     if name.is_empty() {

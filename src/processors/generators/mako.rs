@@ -8,8 +8,8 @@ use crate::processors::{Processor, run_command, check_command_output};
 
 use super::TemplateItem;
 
-/// Render a Mako template via python3 and write to output
-fn render_mako(ctx: &crate::build_context::BuildContext, item: &TemplateItem) -> Result<()> {
+/// Render a Mako template via the configured Python interpreter and write to output
+fn render_mako(ctx: &crate::build_context::BuildContext, python: &str, item: &TemplateItem) -> Result<()> {
     // Ensure parent directory of output exists
     crate::processors::ensure_output_dir(&item.output_path)?;
 
@@ -29,7 +29,7 @@ with open('{target}', 'w') as f:
 "#
     );
 
-    let mut cmd = Command::new("python3");
+    let mut cmd = Command::new(python);
     cmd.arg("-c").arg(&python_script);
     let output = run_command(ctx, &cmd)?;
     check_command_output(&output, format!("mako render {}", item.source_path.display()))
@@ -66,7 +66,7 @@ impl Processor for MakoProcessor {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        vec!["python3".to_string()]
+        vec![self.config.standard.command.clone()]
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
@@ -93,7 +93,8 @@ impl Processor for MakoProcessor {
             product.primary_input().to_path_buf(),
             product.primary_output().to_path_buf(),
         );
-        render_mako(ctx, &item)
+        let python = self.config.standard.require_command("mako")?;
+        render_mako(ctx, python, &item)
     }
 }
 

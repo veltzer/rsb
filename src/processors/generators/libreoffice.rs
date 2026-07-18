@@ -21,8 +21,16 @@ fn execute_libreoffice(ctx: &crate::build_context::BuildContext, config: &Standa
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create libreoffice output directory: {}", output_dir.display()))?;
     let command = config.require_command("libreoffice")?;
+    // LibreOffice can't run concurrent headless conversions against one user
+    // profile, so serialize per user: a shared machine-global lock file would
+    // belong to whichever user created it first and fail flock for everyone
+    // else. temp_dir() also honors TMPDIR.
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default();
+    let lock_file = std::env::temp_dir().join(format!("rsconstruct_libreoffice_{user}"));
     let mut cmd = Command::new("flock");
-    cmd.arg("/tmp/rsconstruct_libreoffice");
+    cmd.arg(&lock_file);
     cmd.arg(command);
     cmd.arg("--headless");
     cmd.arg("--convert-to").arg(format.as_ref());

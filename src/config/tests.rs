@@ -125,6 +125,44 @@ fn remove_vars_section_multiple_vars() {
     assert!(result.contains("[other]"));
 }
 
+/// Blanked (not deleted) vars lines keep every following line at its original
+/// line number, so provenance spans stay correct.
+#[test]
+fn remove_vars_section_preserves_line_numbers() {
+    let content = "[vars]\nfoo = \"bar\"\n\n[other]\nkey = \"value\"\n";
+    let result = remove_vars_section(content);
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines.len(), 5, "line count must be unchanged");
+    assert_eq!(lines[3], "[other]", "[other] must stay on line 4");
+    assert_eq!(lines[4], "key = \"value\"", "key must stay on line 5");
+}
+
+/// A var referencing another var must resolve regardless of definition order
+/// (previously only alphabetically-earlier references happened to work).
+#[test]
+fn substitute_variables_nested_reference_any_order() {
+    let content = "[vars]\nb = \"x\"\nz = \"${b}\"\n\n[other]\nkey = \"${z}\"\n";
+    let result = substitute_variables(content).unwrap();
+    assert!(result.contains("key = \"x\""), "nested var must resolve: {result}");
+    assert!(!result.contains("${"), "no raw references may remain: {result}");
+}
+
+/// A reference cycle in [vars] must be a clear error, not a hang.
+#[test]
+fn substitute_variables_cycle_errors() {
+    let content = "[vars]\na = \"${b}\"\nb = \"${a}\"\n\n[other]\nkey = \"${a}\"\n";
+    let err = substitute_variables(content).unwrap_err();
+    assert!(err.to_string().contains("cycle"), "should mention cycle: {err}");
+}
+
+/// `${...}` inside a comment must not fail the undefined-variable check.
+#[test]
+fn substitute_variables_ignores_comments() {
+    let content = "# example: x = \"${my_var}\"\n[other]\nkey = \"value\"\n";
+    let result = substitute_variables(content).unwrap();
+    assert!(result.contains("key = \"value\""));
+}
+
 // Tests for extract_var_names
 
 #[test]
@@ -244,7 +282,7 @@ fn toml_of(s: &str) -> toml::Value {
 fn analyzer_validator_accepts_known_fields() {
     let raw = toml_of("[analyzer.python]\nenabled = false\n");
     let errors = validate_analyzer_fields_raw(&raw);
-    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
 #[test]
@@ -252,7 +290,7 @@ fn analyzer_validator_accepts_empty_section() {
     // `[analyzer.python]` with no fields is valid — everything defaults.
     let raw = toml_of("[analyzer.python]\n");
     let errors = validate_analyzer_fields_raw(&raw);
-    assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
 #[test]
@@ -284,7 +322,7 @@ enabeld = false
 [analyzer.nonsense]
 "#);
     let errors = validate_analyzer_fields_raw(&raw);
-    assert!(errors.len() >= 2, "expected multiple errors, got: {:?}", errors);
+    assert!(errors.len() >= 2, "expected multiple errors, got: {errors:?}");
     assert!(errors.iter().any(|e| e.contains("enabeld")));
     assert!(errors.iter().any(|e| e.contains("nonsense")));
 }

@@ -12,8 +12,15 @@ impl ObjectStore {
             CacheDescriptor::Marker => Ok(true),
             CacheDescriptor::Blob { checksum, mode } => {
                 let Some(output_path) = output_paths.first() else { return Ok(true) };
+                // Verify content like the Tree path does: a modified or
+                // corrupted output must be re-restored, not reported OK.
                 if output_path.exists() {
-                    return Ok(true);
+                    if let Ok(existing) = Self::calculate_checksum(output_path)
+                        && existing == checksum {
+                        return Ok(true);
+                    }
+                    fs::remove_file(output_path)
+                        .with_context(|| format!("Failed to remove stale cached file: {}", output_path.display()))?;
                 }
                 if !self.has_object(&checksum) {
                     return Ok(false);
@@ -22,12 +29,8 @@ impl ObjectStore {
                     fs::create_dir_all(parent)
                         .with_context(|| format!("Failed to create output directory: {}", parent.display()))?;
                 }
-                self.restore_file(&checksum, output_path)
+                self.restore_file(&checksum, output_path, mode)
                     .with_context(|| format!("Failed to restore blob to: {}", output_path.display()))?;
-                if let Some(m) = mode {
-                    crate::platform::set_permissions_mode(output_path, m)
-                        .with_context(|| format!("Failed to set permissions on: {}", output_path.display()))?;
-                }
                 Ok(true)
             }
             CacheDescriptor::Tree { entries } => {
@@ -48,12 +51,8 @@ impl ObjectStore {
                         fs::create_dir_all(parent)
                             .with_context(|| format!("Failed to create directory for tree restore: {}", parent.display()))?;
                     }
-                    self.restore_file(&entry.checksum, file_path)
+                    self.restore_file(&entry.checksum, file_path, entry.mode)
                         .with_context(|| format!("Failed to restore tree entry: {}", file_path.display()))?;
-                    if let Some(m) = entry.mode {
-                        crate::platform::set_permissions_mode(file_path, m)
-                            .with_context(|| format!("Failed to set permissions on: {}", file_path.display()))?;
-                    }
                 }
                 Ok(true)
             }
@@ -65,8 +64,13 @@ impl ObjectStore {
         let Some(descriptor) = self.get_descriptor(cache_key) else { return true };
         match descriptor {
             CacheDescriptor::Marker => false,
-            CacheDescriptor::Blob { .. } => {
-                output_paths.iter().any(|p| !p.exists())
+            CacheDescriptor::Blob { checksum, .. } => {
+                // First output is content-verified against the descriptor,
+                // consistent with the Tree path; extra outputs are
+                // existence-checked only (their checksums aren't recorded).
+                let content_ok = output_paths.first().is_none_or(|p|
+                    Self::calculate_checksum(p).ok().as_ref() == Some(&checksum));
+                !content_ok || output_paths.iter().skip(1).any(|p| !p.exists())
             }
             CacheDescriptor::Tree { entries } => {
                 entries.iter().any(|e| {

@@ -11,7 +11,9 @@ pub struct MarpImagesProcessor {
 }
 
 static IMAGE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"!\[[^\]]*\]\(([^)"]+)(?:"[^"]*")?\)"#).unwrap()
+    // The path capture must stop before whitespace, or `![alt](img.png "Title")`
+    // captures "img.png " (trailing space) and the file check always fails.
+    Regex::new(r#"!\[[^\]]*\]\(\s*([^)"\s]+)(?:\s+"[^"]*")?\s*\)"#).unwrap()
 });
 
 impl MarpImagesProcessor {
@@ -80,8 +82,8 @@ impl crate::processors::Processor for MarpImagesProcessor {
     }
 
 
-    fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
-        crate::processors::execute_checker_batch(ctx, products, |_ctx, files| self.check_files(files))
+    fn execute_batch(&self, _ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
+        crate::processors::execute_checker_batch_per_file(products, |file| self.check_files(&[file]))
     }
 }
 

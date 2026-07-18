@@ -102,6 +102,10 @@ pub fn classify_error(err: &anyhow::Error) -> RsconstructExitCode {
         RsconstructExitCode::GraphError
     } else if lower.contains("build completed with") && lower.contains("error") {
         RsconstructExitCode::BuildError
+    } else if err.chain().any(|c| c.downcast_ref::<std::io::Error>().is_some()) {
+        // A raw IO error anywhere in the chain: filesystem-level failure.
+        // Makes the advertised exit code 5 actually reachable.
+        RsconstructExitCode::IoError
     } else {
         // Default to BuildError for unclassified errors
         RsconstructExitCode::BuildError
@@ -143,8 +147,8 @@ mod tests {
             "unknown field `blah`",
             "Invalid config:\n[processor.pandoc]: field 'src_dirs' must be an array",
         ] {
-            assert_eq!(classify_error(&anyhow::anyhow!("{}", msg)), RsconstructExitCode::ConfigError,
-                "expected ConfigError for: {}", msg);
+            assert_eq!(classify_error(&anyhow::anyhow!("{msg}")), RsconstructExitCode::ConfigError,
+                "expected ConfigError for: {msg}");
         }
     }
 

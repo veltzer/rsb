@@ -155,9 +155,10 @@ fn run() -> (Result<()>, bool) {
         cli::ColorMode::Always => true,
         cli::ColorMode::Never => false,
         cli::ColorMode::Auto => {
-            // Disable if NO_COLOR is set (any value, per the no-color.org spec)
+            // Disable if NO_COLOR is set to a non-empty value (per the
+            // no-color.org spec, an empty value does NOT disable color)
             // or if stdout is not a tty. Also disable in JSON mode.
-            std::env::var_os("NO_COLOR").is_none()
+            std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
                 && !cli.json
                 && std::io::IsTerminal::is_terminal(&std::io::stdout())
         }
@@ -538,12 +539,12 @@ fn run() -> (Result<()>, bool) {
                 }
                 cli::SmartAction::EnableDetected => {
                     let builder = Builder::new()?;
-                    let detected = builder.detected_processors();
+                    let detected = builder.detected_processors()?;
                     builder::smart::enable_detected(&detected)?;
                 }
                 cli::SmartAction::Minimal => {
                     let builder = Builder::new()?;
-                    let detected = builder.detected_processors();
+                    let detected = builder.detected_processors()?;
                     builder::smart::minimal(&detected)?;
                 }
                 cli::SmartAction::Reset => {
@@ -551,7 +552,7 @@ fn run() -> (Result<()>, bool) {
                 }
                 cli::SmartAction::EnableIfAvailable => {
                     let builder = Builder::new()?;
-                    let available = builder.detected_and_available_processors();
+                    let available = builder.detected_and_available_processors()?;
                     builder::smart::enable_if_available(&available)?;
                 }
                 cli::SmartAction::Only { ref names } => {
@@ -559,7 +560,7 @@ fn run() -> (Result<()>, bool) {
                 }
                 cli::SmartAction::Auto => {
                     let builder = Builder::new()?;
-                    let detected = builder.detected_and_available_processors();
+                    let detected = builder.detected_and_available_processors()?;
                     builder::smart::auto(&detected)?;
                 }
                 cli::SmartAction::RemoveNoFileProcessors => {
@@ -862,7 +863,8 @@ fn list_phases(action: cli::PhasesAction, verbose: bool) -> Result<()> {
 
 /// Initialize a new rsconstruct project in the current directory
 fn init_project() -> Result<()> {
-    let cwd = env::current_dir()?;
+    let cwd = env::current_dir()
+        .context("Failed to get current directory for project init")?;
     let config_path = cwd.join("rsconstruct.toml");
 
     if config_path.exists() {

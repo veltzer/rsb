@@ -84,10 +84,27 @@ impl CcProcessor {
         check_command_output(&output, format_args!("ar rcs {}", lib_path.display()))
     }
 
+    /// Object file path for a source, mirroring the manifest-relative source
+    /// path under the target's obj dir so equal stems in different directories
+    /// (`src1/util.c`, `src2/util.c`) cannot collide. `..`/`.` components are
+    /// dropped to keep the object inside the obj dir.
+    fn object_path_for(target_obj_dir: &Path, source_rel: &str) -> PathBuf {
+        let mut rel: PathBuf = Path::new(source_rel)
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(p) => Some(p),
+                _ => None,
+            })
+            .collect();
+        rel.set_extension("o");
+        target_obj_dir.join(rel)
+    }
+
     /// Build a shared library from object files.
-    fn build_shared_lib(ctx: &crate::build_context::BuildContext, manifest: &CcManifest, lib_path: &Path, objects: &[PathBuf], ldflags: &[String]) -> Result<()> {
+    /// `has_cxx` selects the C++ driver, which C++ objects need at link time.
+    fn build_shared_lib(ctx: &crate::build_context::BuildContext, manifest: &CcManifest, lib_path: &Path, objects: &[PathBuf], ldflags: &[String], has_cxx: bool) -> Result<()> {
         crate::processors::ensure_output_dir(lib_path)?;
-        let compiler = &manifest.cc;
+        let compiler = if has_cxx { &manifest.cxx } else { &manifest.cc };
         let mut cmd = Command::new(compiler);
         cmd.arg("-shared").arg("-o").arg(lib_path);
         for obj in objects {
@@ -104,9 +121,10 @@ impl CcProcessor {
     }
 
     /// Link object files into an executable.
-    fn link_program(ctx: &crate::build_context::BuildContext, manifest: &CcManifest, exe_path: &Path, objects: &[PathBuf], lib_dir: &Path, link_libs: &[String], ldflags: &[String]) -> Result<()> {
+    /// `has_cxx` selects the C++ driver, which C++ objects need at link time.
+    fn link_program(ctx: &crate::build_context::BuildContext, manifest: &CcManifest, exe_path: &Path, objects: &[PathBuf], lib_dir: &Path, link_libs: &[String], ldflags: &[String], has_cxx: bool) -> Result<()> {
         crate::processors::ensure_output_dir(exe_path)?;
-        let compiler = &manifest.cc;
+        let compiler = if has_cxx { &manifest.cxx } else { &manifest.cc };
         let mut cmd = Command::new(compiler);
         cmd.arg("-o").arg(exe_path);
         for obj in objects {
@@ -203,11 +221,11 @@ impl CcProcessor {
             let mut objects = Vec::new();
             for source_str in &lib.sources {
                 let source = crate::processors::resolve_anchor_path(anchor_dir, source_str);
-                let obj_name = format!("{}.o", source.file_stem().context("source has no stem")?.to_string_lossy());
-                let obj = target_obj_dir.join(&obj_name);
+                let obj = Self::object_path_for(&target_obj_dir, source_str);
                 Self::compile_object(ctx, &manifest, &source, &obj, &extra_cflags)?;
                 objects.push(obj);
             }
+            let has_cxx = lib.sources.iter().any(|s| Self::is_cxx(Path::new(s)));
 
             if build_static {
                 let lib_path = lib_dir.join(format!("lib{}.a", lib.name));
@@ -215,7 +233,7 @@ impl CcProcessor {
             }
             if build_shared {
                 let lib_path = lib_dir.join(format!("lib{}.so", lib.name));
-                Self::build_shared_lib(ctx, &manifest, &lib_path, &objects, &lib.ldflags)?;
+                Self::build_shared_lib(ctx, &manifest, &lib_path, &objects, &lib.ldflags, has_cxx)?;
             }
         }
 
@@ -240,13 +258,13 @@ impl CcProcessor {
                 }
                 extra_cflags.extend_from_slice(&resolved_include_flags);
 
-                for source in &sources {
-                    let obj_name = format!("{}.o", source.file_stem().context("source has no stem")?.to_string_lossy());
-                    let obj = target_obj_dir.join(&obj_name);
+                for (source_str, source) in prog.sources.iter().zip(&sources) {
+                    let obj = Self::object_path_for(&target_obj_dir, source_str);
                     Self::compile_object(ctx, &manifest, source, &obj, &extra_cflags)?;
                     objects.push(obj);
                 }
-                Self::link_program(ctx, &manifest, &exe_path, &objects, &lib_dir, &prog.link, &prog.ldflags)?;
+                let has_cxx = sources.iter().any(|s| Self::is_cxx(s));
+                Self::link_program(ctx, &manifest, &exe_path, &objects, &lib_dir, &prog.link, &prog.ldflags, has_cxx)?;
             }
         }
 

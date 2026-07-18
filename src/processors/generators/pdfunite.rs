@@ -41,7 +41,13 @@ impl Processor for PdfuniteProcessor {
             return false;
         }
         let ext = self.config.source_ext.strip_prefix('.').unwrap_or(&self.config.source_ext);
-        !find_dirs_with_ext(base, ext).is_empty()
+        match find_dirs_with_ext(base, ext) {
+            Ok(dirs) => !dirs.is_empty(),
+            Err(e) => {
+                eprintln!("Warning: pdfunite auto-detect scan failed: {e:#}");
+                false
+            }
+        }
     }
 
     fn required_tools(&self) -> Vec<String> {
@@ -58,7 +64,7 @@ impl Processor for PdfuniteProcessor {
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
         let ext = self.config.source_ext.strip_prefix('.').unwrap_or(&self.config.source_ext);
 
-        let dirs = find_dirs_with_ext(base, ext);
+        let dirs = find_dirs_with_ext(base, ext)?;
 
         // Compute upstream scan dir once
         let upstream_scan_dir = Path::new(&self.config.source_dir)
@@ -105,12 +111,21 @@ impl Processor for PdfuniteProcessor {
 
         crate::processors::ensure_output_dir(output)?;
 
+        // Inputs also carry dep_inputs (extra rebuild triggers); only actual
+        // PDFs may be passed to pdfunite as pages.
+        let pdf_inputs: Vec<&PathBuf> = product.inputs.iter()
+            .filter(|p| p.extension().is_some_and(|e| e == "pdf"))
+            .collect();
+        if pdf_inputs.is_empty() {
+            anyhow::bail!("No PDF inputs found for {}", output.display());
+        }
+
         let mut cmd = Command::new(&self.config.standard.command);
         for arg in &self.config.standard.args {
             cmd.arg(arg);
         }
         // pdfunite takes input files followed by output file
-        for input in &product.inputs {
+        for input in pdf_inputs {
             cmd.arg(input);
         }
         cmd.arg(output);

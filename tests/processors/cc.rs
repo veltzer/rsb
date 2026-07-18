@@ -248,3 +248,40 @@ programs:
     assert!(!project_path.join("out/cc/bin/hello").exists(),
         "Output should be removed after clean");
 }
+
+/// Two sources with the same stem in different directories must compile to
+/// distinct object files — a flat stem-derived name would silently drop one
+/// translation unit from the link.
+#[test]
+fn cc_same_stem_sources_do_not_collide() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    setup_cc_project(project_path, r#"
+programs:
+  - name: app
+    sources: [src/main.c, src/a/util.c, src/b/util.c]
+"#);
+
+    fs::create_dir_all(project_path.join("src/a")).unwrap();
+    fs::create_dir_all(project_path.join("src/b")).unwrap();
+    fs::write(
+        project_path.join("src/main.c"),
+        "int from_a(void); int from_b(void);\nint main(void) { return from_a() + from_b(); }\n",
+    ).unwrap();
+    fs::write(
+        project_path.join("src/a/util.c"),
+        "int from_a(void) { return 1; }\n",
+    ).unwrap();
+    fs::write(
+        project_path.join("src/b/util.c"),
+        "int from_b(void) { return -1; }\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(output.status.success(),
+        "Build failed (same-stem object collision?): stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+    assert!(project_path.join("out/cc/bin/app").exists(), "Program should link");
+}

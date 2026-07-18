@@ -258,12 +258,15 @@ where
     for (source, product_ids) in &by_source {
         progress.set_message(format!("[{}] {}", analyzer_name, source.display()));
 
-        // Try to get cached dependencies, otherwise scan
+        // Try to get cached dependencies, otherwise scan. The checksum is
+        // taken before the scan so a mid-scan edit can't pair the new
+        // content's checksum with the old content's dependencies.
         let deps = if let Some(cached) = deps_cache.get(ctx, analyzer_name, source) {
             cached
         } else {
+            let source_checksum = DepsCache::source_checksum(ctx, source)?;
             let scanned = scan_deps(source)?;
-            if let Err(e) = deps_cache.set(ctx, analyzer_name, source, &scanned) {
+            if let Err(e) = deps_cache.set(analyzer_name, source, source_checksum, &scanned) {
                 eprintln!("Warning: failed to cache dependencies for {}: {}", source.display(), e);
             }
             scanned
@@ -327,14 +330,15 @@ where
     for (source, product_ids) in &by_source {
         progress.set_message(format!("[{}] {}", analyzer_name, source.display()));
 
+        let source_checksum = DepsCache::source_checksum(ctx, source)?;
         let result = scan(source)?;
 
         // Persist the dep list to the cache so commands like
         // `analyzers show` can report what was discovered. The
         // hash_pieces are intentionally NOT cached — they depend on
         // filesystem state (glob results) that must be recomputed on
-        // every run.
-        if let Err(e) = deps_cache.set(ctx, analyzer_name, source, &result.deps) {
+        // every run. The checksum is taken before the scan (see set()).
+        if let Err(e) = deps_cache.set(analyzer_name, source, source_checksum, &result.deps) {
             eprintln!("Warning: failed to cache dependencies for {}: {}", source.display(), e);
         }
 

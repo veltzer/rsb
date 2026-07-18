@@ -157,13 +157,14 @@ impl Builder {
         };
         let processor_filter = expanded_filter.as_deref();
 
-        // Pre-flight: verify all required tools are available for declared processors
+        // Pre-flight: verify all required tools are available for declared processors.
+        // Disabled instances (`enabled = false`) are exempt — disabling a
+        // processor exists precisely to keep its stanza while its tool is absent.
         {
-            let active_names: Vec<&String> = if let Some(filter) = processor_filter {
-                processors.keys().filter(|k| filter.iter().any(|f| f == *k)).collect()
-            } else {
-                processors.keys().collect()
-            };
+            let active_names: Vec<&String> = processors.keys()
+                .filter(|k| processor_filter.is_none_or(|filter| filter.iter().any(|f| f == *k)))
+                .filter(|k| processors[*k].scan_config().enabled)
+                .collect();
             let mut missing: Vec<(String, Vec<String>)> = Vec::new();
             let mut checked: std::collections::HashSet<String> = std::collections::HashSet::new();
             for name in &active_names {
@@ -267,8 +268,8 @@ impl Builder {
         if !crate::runtime_flags::quiet() {
             println!("[rsconstruct] using {effective_parallel} threads");
         }
-        // CLI overrides config for batch_size
-        let batch_size = opts.batch_size.unwrap_or(self.config.build.batch_size);
+        // CLI overrides config for batch_size (CLI -1 maps to None = disable)
+        let batch_size = opts.batch_size.unwrap_or(Some(self.config.build.batch_size));
         let executor = Executor::new(&processors, ctx, &policy, ExecutorOptions {
             parallel: effective_parallel,
             verbose: opts.verbose,

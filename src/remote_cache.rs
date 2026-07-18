@@ -18,9 +18,6 @@ pub trait RemoteCache: Send + Sync {
     /// Check if an object exists in the remote cache
     fn exists(&self, ctx: &crate::build_context::BuildContext, key: &str) -> Result<bool>;
 
-    /// Download an object from remote cache to local path
-    fn download(&self, ctx: &crate::build_context::BuildContext, key: &str, dest: &Path) -> Result<bool>;
-
     /// Upload a local file to remote cache
     fn upload(&self, ctx: &crate::build_context::BuildContext, key: &str, src: &Path) -> Result<()>;
 
@@ -30,10 +27,19 @@ pub trait RemoteCache: Send + Sync {
     /// Upload raw bytes (for index entries).
     /// Default implementation writes to a temp file and delegates to upload().
     fn upload_bytes(&self, ctx: &crate::build_context::BuildContext, key: &str, data: &[u8]) -> Result<()> {
+        use std::io::Write;
         let temp_dir = std::env::temp_dir();
         let temp_file = temp_dir.join(format!("rsconstruct-upload-{}", uuid_simple()));
-        fs::write(&temp_file, data)
+        // create_new refuses to follow a pre-planted symlink or reuse an
+        // existing file in the shared temp directory.
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_file)
+            .with_context(|| format!("Failed to create temp upload file: {}", temp_file.display()))?;
+        file.write_all(data)
             .with_context(|| format!("Failed to write temp upload file: {}", temp_file.display()))?;
+        drop(file);
         let result = self.upload(ctx, key, &temp_file);
         let _ = fs::remove_file(&temp_file);
         result
@@ -102,24 +108,6 @@ impl RemoteCache for S3Backend {
         Ok(output.status.success())
     }
 
-    fn download(&self, ctx: &crate::build_context::BuildContext, key: &str, dest: &Path) -> Result<bool> {
-        // Ensure parent directory exists
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory for remote download: {}", parent.display()))?;
-        }
-
-        let mut cmd = Command::new("aws");
-        cmd.args([
-            "s3", "cp",
-            &self.s3_uri(key),
-            &dest.display().to_string(),
-            "--only-show-errors",
-        ]);
-        let output = run_command_capture(ctx, &cmd)?;
-        Ok(output.status.success())
-    }
-
     fn upload(&self, ctx: &crate::build_context::BuildContext, key: &str, src: &Path) -> Result<()> {
         let mut cmd = Command::new("aws");
         cmd.args([
@@ -172,22 +160,6 @@ impl RemoteCache for HttpBackend {
         let output = run_command_capture(ctx, &cmd)?;
         let status_code = String::from_utf8_lossy(&output.stdout);
         Ok(status_code.trim() == "200")
-    }
-
-    fn download(&self, ctx: &crate::build_context::BuildContext, key: &str, dest: &Path) -> Result<bool> {
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory for remote download: {}", parent.display()))?;
-        }
-
-        let mut cmd = Command::new("curl");
-        cmd.args([
-            "-s", "-f",
-            "-o", &dest.display().to_string(),
-            &self.full_url(key),
-        ]);
-        let output = run_command_capture(ctx, &cmd)?;
-        Ok(output.status.success())
     }
 
     fn upload(&self, ctx: &crate::build_context::BuildContext, key: &str, src: &Path) -> Result<()> {
@@ -245,37 +217,31 @@ impl RemoteCache for FileBackend {
         Ok(self.full_path(key).exists())
     }
 
-    fn download(&self, _ctx: &crate::build_context::BuildContext, key: &str, dest: &Path) -> Result<bool> {
-        let src = self.full_path(key);
-        if !src.exists() {
-            return Ok(false);
-        }
-
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory for local cache: {}", parent.display()))?;
-        }
-
-        fs::copy(&src, dest)
-            .with_context(|| format!("Failed to copy from remote cache: {}", src.display()))?;
-
-        Ok(true)
-    }
-
     fn upload(&self, _ctx: &crate::build_context::BuildContext, key: &str, src: &Path) -> Result<()> {
         let dest = self.full_path(key);
 
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory for local cache upload: {}", parent.display()))?;
-        }
+        let parent = dest.parent()
+            .with_context(|| format!("Remote cache key has no parent directory: {}", dest.display()))?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory for local cache upload: {}", parent.display()))?;
 
-        fs::copy(src, &dest)
-            .with_context(|| format!("Failed to copy to remote cache: {}", dest.display()))?;
+        // Copy to a unique temp name and rename into place: the shared mount
+        // is read by other machines, which must never observe a half-written
+        // object; racing uploaders of the same key harmlessly overwrite.
+        let tmp = parent.join(format!(".tmp-upload-{}", uuid_simple()));
+        fs::copy(src, &tmp)
+            .with_context(|| format!("Failed to copy to remote cache: {}", tmp.display()))?;
 
         // Make read-only to prevent corruption, consistent with local cache objects
-        crate::platform::set_permissions_mode(&dest, 0o444)
-            .with_context(|| format!("Failed to set remote cache object read-only: {}", dest.display()))?;
+        crate::platform::set_permissions_mode(&tmp, 0o444)
+            .with_context(|| format!("Failed to set remote cache object read-only: {}", tmp.display()))?;
+
+        if let Err(e) = fs::rename(&tmp, &dest) {
+            let _ = fs::remove_file(&tmp);
+            if !dest.exists() {
+                return Err(e).with_context(|| format!("Failed to move remote cache object into place: {}", dest.display()));
+            }
+        }
 
         Ok(())
     }

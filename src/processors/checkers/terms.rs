@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::config::TermsConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{discover_checker_products, execute_checker_batch};
+use crate::processors::discover_checker_products;
 
 /// Single-meaning terms (must be backticked in prose) and ambiguous terms
 /// (must NOT be backticked — using backticks falsely asserts they're the
@@ -95,7 +95,7 @@ impl crate::processors::Processor for TermsProcessor {
         }
         for dir in watched_dirs {
             for entry in crate::errors::ctx(fs::read_dir(dir), &format!("Failed to read terms directory {dir}"))? {
-                let entry = entry?;
+                let entry = crate::errors::ctx(entry, &format!("Failed to read entry in terms directory {dir}"))?;
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "txt") {
                     dep_inputs.push(path.to_string_lossy().into_owned());
@@ -114,8 +114,8 @@ impl crate::processors::Processor for TermsProcessor {
         self.execute_product(product)
     }
 
-    fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
-        execute_checker_batch(ctx, products, |_ctx, files| self.check_files(files))
+    fn execute_batch(&self, _ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
+        crate::processors::execute_checker_batch_per_file(products, |file| self.check_files(&[file]))
     }
 }
 
@@ -688,7 +688,7 @@ pub fn merge_terms(config: &TermsConfig, source_dir: &str) -> Result<()> {
     let mut copied_count = 0;
 
     for entry in crate::errors::ctx(fs::read_dir(src), &format!("Failed to read source directory {}", src.display()))? {
-        let entry = entry?;
+        let entry = crate::errors::ctx(entry, &format!("Failed to read entry in source directory {}", src.display()))?;
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "txt") {
             continue;
@@ -735,7 +735,7 @@ pub fn merge_terms(config: &TermsConfig, source_dir: &str) -> Result<()> {
 
     // Copy files that exist in destination but not in source back to source
     for entry in crate::errors::ctx(fs::read_dir(dest), &format!("Failed to read destination directory {}", dest.display()))? {
-        let entry = entry?;
+        let entry = crate::errors::ctx(entry, &format!("Failed to read entry in destination directory {}", dest.display()))?;
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "txt") {
             continue;
@@ -792,7 +792,7 @@ fn count_terms_in_dir(dir_str: &str) -> Result<(usize, usize)> {
     let mut file_count = 0;
     let mut total_terms = 0;
     for entry in crate::errors::ctx(fs::read_dir(dir), &format!("Failed to read terms directory {}", dir.display()))? {
-        let entry = entry?;
+        let entry = crate::errors::ctx(entry, &format!("Failed to read entry in terms directory {}", dir.display()))?;
         if entry.path().extension().is_some_and(|e| e == "txt") {
             file_count += 1;
             let content = crate::errors::ctx(fs::read_to_string(entry.path()), &format!("Failed to read {}", entry.path().display()))?;

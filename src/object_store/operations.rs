@@ -4,13 +4,14 @@ use std::fs;
 use super::ObjectStore;
 
 impl ObjectStore {
-    /// Try to push an object to remote cache (ignores errors)
+    /// Try to push an object to remote cache (ignores errors).
+    /// The remote always stores the original (uncompressed) content so
+    /// machines with different local `compression` settings interoperate.
     #[allow(clippy::unnecessary_wraps)] // Result kept for API symmetry with try_fetch_*; future writers may legitimately fail.
     pub(super) fn try_push_object_to_remote(&self, ctx: &crate::build_context::BuildContext, checksum: &str) -> Result<()> {
         let Some(remote) = &self.remote else { return Ok(()) };
 
-        let object_path = self.object_path(checksum);
-        if !object_path.exists() {
+        if !self.has_object(checksum) {
             return Ok(());
         }
 
@@ -23,8 +24,13 @@ impl ObjectStore {
         }
 
         // Upload (ignore errors - remote cache is best-effort)
-        if let Err(e) = remote.upload(ctx, &remote_key, &object_path) {
-            eprintln!("Warning: failed to push to remote cache: {e}");
+        match self.read_object(checksum) {
+            Ok(content) => {
+                if let Err(e) = remote.upload_bytes(ctx, &remote_key, &content) {
+                    eprintln!("Warning: failed to push to remote cache: {e}");
+                }
+            }
+            Err(e) => eprintln!("Warning: failed to read object for remote push: {e}"),
         }
 
         Ok(())
@@ -37,26 +43,28 @@ impl ObjectStore {
     pub(super) fn try_fetch_object_from_remote(&self, ctx: &crate::build_context::BuildContext, checksum: &str) -> Result<bool> {
         let Some(remote) = &self.remote else { return Ok(false) };
 
-        let object_path = self.object_path(checksum);
-        if object_path.exists() {
+        if self.has_object(checksum) {
             return Ok(true);
         }
 
         let (prefix, rest) = checksum.split_at(super::CHECKSUM_PREFIX_LEN.min(checksum.len()));
         let remote_key = format!("objects/{prefix}/{rest}");
-        let fetched = remote.download(ctx, &remote_key, &object_path)?;
+        let Some(bytes) = remote.download_bytes(ctx, &remote_key)? else {
+            return Ok(false);
+        };
 
-        // Make fetched object read-only to prevent corruption via hardlinks
-        if fetched {
-            let mut perms = fs::metadata(&object_path)
-                .context("Failed to read fetched object metadata")?
-                .permissions();
-            perms.set_readonly(true);
-            fs::set_permissions(&object_path, perms)
-                .context("Failed to set fetched object read-only")?;
+        // Verify before admitting into the local content-addressed store —
+        // a corrupt or malicious remote must not poison it.
+        let actual = Self::calculate_checksum_bytes(&bytes);
+        if actual != checksum {
+            anyhow::bail!(
+                "Remote cache object {remote_key} is corrupt: content hashes to {actual}, expected {checksum}"
+            );
         }
 
-        Ok(fetched)
+        // store_object writes atomically and applies the local storage format.
+        self.store_object(&bytes)?;
+        Ok(true)
     }
 
     /// Try to push a descriptor to remote cache

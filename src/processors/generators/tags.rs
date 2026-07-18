@@ -70,7 +70,8 @@ impl Processor for TagsProcessor {
             for entry in fs::read_dir(dir)
                 .with_context(|| format!("Failed to read tags_dir: {}", self.config.tags_dir))?
             {
-                let entry = entry?;
+                let entry = entry
+                    .with_context(|| format!("Failed to read entry in tags_dir: {}", self.config.tags_dir))?;
                 let path = entry.path();
                 if path.extension().and_then(|e| e.to_str()) == Some("txt") {
                     inputs.push(path);
@@ -1539,7 +1540,8 @@ pub fn load_tags_dir(dir: &Path) -> Result<HashSet<String>> {
     let mut duplicates: Vec<(String, String, String)> = Vec::new(); // (tag, file1, file2)
     let mut entries: Vec<_> = fs::read_dir(dir)
         .with_context(|| format!("Failed to read tags directory: {}", dir.display()))?
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| format!("Failed to read entry in tags directory: {}", dir.display()))?;
     entries.sort_by_key(std::fs::DirEntry::file_name);
 
     for entry in entries {
@@ -1556,7 +1558,14 @@ pub fn load_tags_dir(dir: &Path) -> Result<HashSet<String>> {
         for line in content.lines() {
             let line = line.trim();
             if !line.is_empty() && !line.starts_with('#') {
-                let tag = format!("{category}:{line}");
+                // tags.txt holds bare (uncategorized) tags — the same file
+                // collect writes them to; every other file prefixes its stem
+                // as the category.
+                let tag = if category == "tags" {
+                    line.to_string()
+                } else {
+                    format!("{category}:{line}")
+                };
                 if let Some(prev_file) = tag_source.get(&tag) {
                     duplicates.push((tag.clone(), prev_file.clone(), filename.clone()));
                 } else {
@@ -1599,7 +1608,7 @@ pub fn merge_tags(tags_dir: &str, source_dir: &str) -> Result<()> {
     let mut copied_count = 0;
 
     for entry in crate::errors::ctx(fs::read_dir(src), &format!("Failed to read source directory {}", src.display()))? {
-        let entry = entry?;
+        let entry = crate::errors::ctx(entry, &format!("Failed to read entry in source directory {}", src.display()))?;
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "txt") {
             continue;
@@ -1642,7 +1651,7 @@ pub fn merge_tags(tags_dir: &str, source_dir: &str) -> Result<()> {
 
     // Copy files that exist in destination but not in source back to source
     for entry in crate::errors::ctx(fs::read_dir(dest), &format!("Failed to read destination directory {}", dest.display()))? {
-        let entry = entry?;
+        let entry = crate::errors::ctx(entry, &format!("Failed to read entry in destination directory {}", dest.display()))?;
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "txt") {
             continue;

@@ -53,6 +53,19 @@ pub fn needs_sudo() -> bool {
     }
 }
 
+/// Create a symbolic link to a file. On Windows, file symlinks require
+/// elevated privileges or developer mode; we surface the OS error as-is.
+pub fn symlink_file(original: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(original, link)
+    }
+    #[cfg(not(unix))]
+    {
+        std::os::windows::fs::symlink_file(original, link)
+    }
+}
+
 /// Set file permissions from a Unix mode. On Unix this sets the exact mode bits.
 /// On Windows this approximates by setting read-only when the mode has no owner
 /// write bit (i.e. `mode & 0o200 == 0`).

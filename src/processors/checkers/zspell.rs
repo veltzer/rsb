@@ -20,10 +20,12 @@ pub struct ZspellProcessor {
 }
 
 impl ZspellProcessor {
-    pub fn new(config: ZspellConfig) -> Self {
+    pub fn new(config: ZspellConfig) -> Result<Self> {
         let words_path = Path::new(&config.words_file);
+        // An unreadable words file is an error — treating it as empty would
+        // report every allow-listed word as misspelled.
         let custom_words = if words_path.exists() {
-            Self::load_custom_words(words_path).unwrap_or_default()
+            Self::load_custom_words(words_path)?
         } else {
             HashSet::new()
         };
@@ -32,11 +34,11 @@ impl ZspellProcessor {
             config.words_file.clone(),
             None,
         );
-        Self {
+        Ok(Self {
             config,
             cached_dict: OnceLock::new(),
             words,
-        }
+        })
     }
 
     /// Load custom words from the words file
@@ -178,12 +180,18 @@ impl Processor for ZspellProcessor {
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
+        // The personal dictionary is a real input: removing a word must
+        // invalidate cached passing checks. dep_auto only includes the file
+        // when it exists.
+        let mut dep_auto = self.config.standard.dep_auto.clone();
+        dep_auto.push(self.config.words_file.clone());
+
         discover_checker_products(
             graph,
             &self.config.standard,
             file_index,
             &self.config.standard.dep_inputs,
-            &self.config.standard.dep_auto,
+            &dep_auto,
             &self.config,
             <crate::config::ZspellConfig as crate::config::KnownFields>::checksum_fields(),
             instance_name,
@@ -210,7 +218,7 @@ impl Processor for ZspellProcessor {
 }
 
 fn plugin_create(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(ZspellProcessor::new(cfg)))
+    crate::registries::deserialize_and_try_create(toml, |cfg| Ok(Box::new(ZspellProcessor::new(cfg)?)))
 }
 inventory::submit! {
     crate::registries::ProcessorPlugin {

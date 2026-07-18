@@ -90,7 +90,9 @@ impl Processor for PdflatexProcessor {
             }
 
             let mut cmd = Command::new(&self.config.standard.command);
-            cmd.arg("-shell-escape");
+            if self.config.shell_escape {
+                cmd.arg("-shell-escape");
+            }
             cmd.arg("-interaction=nonstopmode");
             cmd.arg("-halt-on-error");
             cmd.arg(format!("-output-directory={}", build_dir.display()));

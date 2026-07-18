@@ -1054,6 +1054,10 @@ _rsconstruct_fixer_inames() {
         ("rsconstruct__processors__enable)", 3),
     ];
 
+    // Failed injections must be reported: silently shipping completions
+    // without iname support would hide a clap-complete format change.
+    let mut missed: Vec<String> = Vec::new();
+
     let mut result = script.to_string();
     for (target, _) in &iname_targets {
         if let Some(section_start) = result.find(target) {
@@ -1076,7 +1080,11 @@ _rsconstruct_fixer_inames() {
                 let abs_pos = section_start + rel_pos;
                 let replacement = "if [[ ${cur} != -* ]] ; then\n                    COMPREPLY=( $(compgen -W \"$(_rsconstruct_inames)\" -- \"${cur}\") )\n                else\n                    COMPREPLY=( $(compgen -W \"${opts}\" -- \"${cur}\") )\n                fi";
                 result.replace_range(abs_pos..abs_pos + needle.len(), replacement);
+            } else {
+                missed.push(format!("COMPREPLY line in section {target}"));
             }
+        } else {
+            missed.push(format!("section {target}"));
         }
     }
 
@@ -1099,7 +1107,11 @@ _rsconstruct_fixer_inames() {
                 let abs_pos = section_start + rel_pos;
                 let replacement = "if [[ ${cur} != -* ]] ; then\n                    COMPREPLY=( $(compgen -W \"$(_rsconstruct_analyzer_inames)\" -- \"${cur}\") )\n                else\n                    COMPREPLY=( $(compgen -W \"${opts}\" -- \"${cur}\") )\n                fi";
                 result.replace_range(abs_pos..abs_pos + needle.len(), replacement);
+            } else {
+                missed.push(format!("COMPREPLY line in section {target}"));
             }
+        } else {
+            missed.push(format!("section {target}"));
         }
     }
 
@@ -1115,6 +1127,11 @@ _rsconstruct_fixer_inames() {
     let old_x = "                -x)\n                    COMPREPLY=($(compgen -f \"${cur}\"))";
     let new_x = "                -x)\n                    COMPREPLY=($(compgen -W \"$(_rsconstruct_inames)\" -- \"${cur}\"))".to_string();
 
+    for (label, old) in [("--processors", old_processors), ("-p", old_p), ("--exclude-processors", old_exclude), ("-x", old_x)] {
+        if !result.contains(old) {
+            missed.push(format!("{label} flag completion"));
+        }
+    }
     let mut result = result
         .replace(old_processors, &new_processors)
         .replace(old_p, &new_p)
@@ -1141,8 +1158,19 @@ _rsconstruct_fixer_inames() {
                 let abs_pos = section_start + rel_pos;
                 let replacement = "if [[ ${cur} != -* ]] ; then\n                    COMPREPLY=( $(compgen -W \"$(_rsconstruct_fixer_inames)\" -- \"${cur}\") )\n                else\n                    COMPREPLY=( $(compgen -W \"${opts}\" -- \"${cur}\") )\n                fi";
                 result.replace_range(abs_pos..abs_pos + needle.len(), replacement);
+            } else {
+                missed.push(format!("COMPREPLY line in section {target}"));
             }
+        } else {
+            missed.push(format!("section {target}"));
         }
+    }
+
+    if !missed.is_empty() {
+        eprintln!(
+            "Warning: bash completion iname injection failed for: {} — clap-complete output format may have changed; completions were generated without iname support for these",
+            missed.join(", ")
+        );
     }
 
     // Prepend the helper function before the completion function is defined.

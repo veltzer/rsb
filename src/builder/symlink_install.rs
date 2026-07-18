@@ -1,6 +1,7 @@
 use std::fs;
-use std::os::unix::fs::symlink;
 use std::path::Path;
+
+use crate::platform::symlink_file as symlink;
 use anyhow::{Context, Result, bail};
 use crate::color;
 use crate::config::SymlinkInstallConfig;

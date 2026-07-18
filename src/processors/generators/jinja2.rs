@@ -8,8 +8,8 @@ use crate::processors::{Processor, run_command, check_command_output};
 
 use super::TemplateItem;
 
-/// Render a Jinja2 template via python3 and write to output
-fn render_jinja2(ctx: &crate::build_context::BuildContext, item: &TemplateItem) -> Result<()> {
+/// Render a Jinja2 template via the configured Python interpreter and write to output
+fn render_jinja2(ctx: &crate::build_context::BuildContext, python: &str, item: &TemplateItem) -> Result<()> {
     crate::processors::ensure_output_dir(&item.output_path)?;
 
     let source = item.source_path.display().to_string()
@@ -29,7 +29,7 @@ with open('{target}', 'w') as f:
 "#
     );
 
-    let mut cmd = Command::new("python3");
+    let mut cmd = Command::new(python);
     cmd.arg("-c").arg(&python_script);
     let output = run_command(ctx, &cmd)?;
     check_command_output(&output, format!("jinja2 render {}", item.source_path.display()))
@@ -66,7 +66,7 @@ impl Processor for Jinja2Processor {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        vec!["python3".to_string()]
+        vec![self.config.standard.command.clone()]
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
@@ -93,7 +93,8 @@ impl Processor for Jinja2Processor {
             product.primary_input().to_path_buf(),
             product.primary_output().to_path_buf(),
         );
-        render_jinja2(ctx, &item)
+        let python = self.config.standard.require_command("jinja2")?;
+        render_jinja2(ctx, python, &item)
     }
 }
 

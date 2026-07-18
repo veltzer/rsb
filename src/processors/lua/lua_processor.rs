@@ -32,15 +32,18 @@ impl CtxPtr {
     }
 }
 
-/// Retrieve the BuildContext from Lua app data. Panics if not set (programming error).
+/// Retrieve the BuildContext from Lua app data. Returns a Lua error when
+/// called outside execute() — e.g. from clean() or auto_detect() — instead of
+/// panicking or dereferencing a stale pointer.
 ///
-/// SAFETY: The raw pointer stored in CtxPtr is guaranteed to be valid because:
-/// 1. It is set in execute() which holds a &BuildContext for the entire Lua call
-/// 2. The Lua closures only run during execute()
-fn get_ctx_from_lua(lua: &Lua) -> &crate::build_context::BuildContext {
-    let guard = lua.app_data_ref::<CtxPtr>()
-        .expect("BuildContext not set in Lua app data");
-    unsafe { &*guard.0 }
+/// SAFETY: The raw pointer stored in CtxPtr is valid because it is set at the
+/// start of execute(), which holds a &BuildContext for the entire Lua call,
+/// and removed again before execute() returns.
+fn get_ctx_from_lua(lua: &Lua) -> Result<&crate::build_context::BuildContext, LuaError> {
+    let guard = lua.app_data_ref::<CtxPtr>().ok_or_else(|| LuaError::external(
+        "rsconstruct.run_command is only available during execute()"
+    ))?;
+    Ok(unsafe { &*guard.0 })
 }
 
 pub struct LuaProcessor {
@@ -150,7 +153,7 @@ impl LuaProcessor {
         // rsconstruct.run_command(program, args)
         let run_cmd_fn = lua_context(
             lua.create_function(|lua, (program, args): (String, LuaTable)| {
-                let ctx = get_ctx_from_lua(lua);
+                let ctx = get_ctx_from_lua(lua)?;
                 let mut cmd = Command::new(&program);
                 for i in 1..=args.len()? {
                     let arg: String = args.get(i)?;
@@ -179,7 +182,7 @@ impl LuaProcessor {
         // rsconstruct.run_command_cwd(program, args, cwd)
         let run_cmd_cwd_fn = lua_context(
             lua.create_function(|lua, (program, args, cwd): (String, LuaTable, String)| {
-                let ctx = get_ctx_from_lua(lua);
+                let ctx = get_ctx_from_lua(lua)?;
                 let mut cmd = Command::new(&program);
                 for i in 1..=args.len()? {
                     let arg: String = args.get(i)?;
@@ -433,21 +436,23 @@ impl Processor for LuaProcessor {
 
         let lua = self.lua.lock();
         lua.set_app_data(CtxPtr(ctx as *const _));
-        let product_table = Self::product_to_lua(&lua, product)?;
 
-        // Call Lua execute(product)
-        let execute_fn: LuaFunction = lua_context(
-            lua.globals().get("execute"),
-            format!("Lua plugin '{}' must define an execute() function", self.name),
-        )?;
-
-        lua_context(
-            execute_fn.call::<()>(product_table),
-            format!("Lua plugin '{}': execute() failed", self.name),
-        )?;
-
+        // The pointer must not outlive this call: clear it on every exit path
+        // so later callbacks (clean, auto_detect) can't dereference a stale
+        // BuildContext.
+        let result = Self::product_to_lua(&lua, product).and_then(|product_table| {
+            let execute_fn: LuaFunction = lua_context(
+                lua.globals().get("execute"),
+                format!("Lua plugin '{}' must define an execute() function", self.name),
+            )?;
+            lua_context(
+                execute_fn.call::<()>(product_table),
+                format!("Lua plugin '{}': execute() failed", self.name),
+            )
+        });
+        lua.remove_app_data::<CtxPtr>();
         drop(lua);
-        Ok(())
+        result
     }
 
     fn clean(&self, product: &Product, verbose: bool) -> Result<usize> {
@@ -483,10 +488,18 @@ impl Processor for LuaProcessor {
                     return !files.is_empty();
                 }
             }
-            lua.globals()
+            match lua.globals()
                 .get::<LuaFunction>("auto_detect")
                 .and_then(|f| f.call::<bool>(files_table))
-                .unwrap_or(!files.is_empty())
+            {
+                Ok(detected) => detected,
+                Err(e) => {
+                    // The trait can't propagate errors; a broken plugin must
+                    // not be silently treated as detected/undetected.
+                    eprintln!("Warning: Lua plugin '{}': auto_detect() failed: {e}", self.name);
+                    !files.is_empty()
+                }
+            }
         } else {
             !files.is_empty()
         }
@@ -494,7 +507,7 @@ impl Processor for LuaProcessor {
 
     fn required_tools(&self) -> Vec<String> {
         if self.has_function("required_tools") {
-            self.lua.lock().globals()
+            let result = self.lua.lock().globals()
                 .get::<LuaFunction>("required_tools")
                 .and_then(|f| f.call::<LuaTable>(()))
                 .and_then(|table| {
@@ -504,8 +517,16 @@ impl Processor for LuaProcessor {
                         tools.push(tool);
                     }
                     Ok(tools)
-                })
-                .unwrap_or_default()
+                });
+            match result {
+                Ok(tools) => tools,
+                Err(e) => {
+                    // The trait can't propagate errors; an empty tool list
+                    // would silently skip the tool pre-flight for this plugin.
+                    eprintln!("Warning: Lua plugin '{}': required_tools() failed: {e}", self.name);
+                    Vec::new()
+                }
+            }
         } else {
             Vec::new()
         }

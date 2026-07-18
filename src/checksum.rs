@@ -77,9 +77,14 @@ fn stream_file_checksum(path: &Path) -> Result<String> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+/// A dirty mtime-cache entry waiting to be flushed: (path key, entry).
+type DirtyMtimeEntry = (String, MtimeEntry);
+
 /// Get checksum using mtime pre-check to avoid re-reading unchanged files.
-/// Returns the checksum and optionally a dirty mtime entry to flush.
-fn fast_checksum(ctx: &BuildContext, path: &Path) -> Result<(String, Option<(String, MtimeEntry)>)> {
+/// Returns the checksum, which path was taken, and optionally a dirty mtime
+/// entry to flush (absent for cache hits and for recently-modified files,
+/// which are deliberately not cached — see below).
+fn fast_checksum(ctx: &BuildContext, path: &Path) -> Result<(String, ChecksumPath, Option<DirtyMtimeEntry>)> {
     let metadata = fs::metadata(path)
         .with_context(|| format!("Failed to stat file: {}", path.display()))?;
     let mtime = metadata.modified()
@@ -113,7 +118,7 @@ fn fast_checksum(ctx: &BuildContext, path: &Path) -> Result<(String, Option<(Str
         let mut guard = ctx.checksum_cache.lock().unwrap();
         let cache = guard.get_or_insert_with(HashMap::new);
         cache.insert(path.to_path_buf(), entry.checksum.clone());
-        return Ok((entry.checksum.clone(), None));
+        return Ok((entry.checksum.clone(), ChecksumPath::MtimeShortcut, None));
     }
 
     // mtime changed or no cache entry — recompute checksum from disk.
@@ -129,13 +134,24 @@ fn fast_checksum(ctx: &BuildContext, path: &Path) -> Result<(String, Option<(Str
     let cache = guard.get_or_insert_with(HashMap::new);
     cache.insert(path.to_path_buf(), checksum.clone());
     drop(guard);
+    // Don't persist an entry for a file modified moments ago: on coarse-
+    // timestamp filesystems a write landing in the same mtime tick after we
+    // hashed would leave a permanently valid-looking (mtime, checksum) pair
+    // for stale content. The next run simply re-hashes such files.
+    let recently_modified = SystemTime::now()
+        .duration_since(mtime)
+        .is_ok_and(|age| age.as_secs() < 2);
+    if recently_modified {
+        return Ok((checksum, ChecksumPath::FullRead, None));
+    }
+
     let new_entry = MtimeEntry {
         mtime_secs,
         mtime_nanos,
         checksum: checksum.clone(),
     };
 
-    Ok((checksum, Some((path_str, new_entry))))
+    Ok((checksum, ChecksumPath::FullRead, Some((path_str, new_entry))))
 }
 
 /// Flush a batch of dirty mtime entries in a single write transaction.
@@ -161,9 +177,16 @@ fn flush_mtime_entries(ctx: &BuildContext, dirty: Vec<(String, MtimeEntry)>) -> 
 }
 
 /// Hash a list of individual checksums into a single combined SHA-256 checksum.
+/// Each element is length-prefixed: a plain `:` join would be ambiguous
+/// because `MISSING:{path}` entries embed arbitrary paths that may themselves
+/// contain `:`.
 fn hash_checksums(checksums: &[String]) -> String {
-    let combined = checksums.join(":");
-    bytes_checksum(combined.as_bytes())
+    let mut hasher = Sha256::new();
+    for c in checksums {
+        hasher.update((c.len() as u64).to_le_bytes());
+        hasher.update(c.as_bytes());
+    }
+    hex::encode(hasher.finalize())
 }
 
 /// Outcome of a `checksum_fast` call, surfacing whether the mtime cache
@@ -179,12 +202,7 @@ pub fn checksum_fast(ctx: &BuildContext, path: &Path) -> Result<(String, Checksu
     if !ctx.mtime_enabled.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok((file_checksum(ctx, path)?, ChecksumPath::FullRead));
     }
-    let (checksum, dirty) = fast_checksum(ctx, path)?;
-    let path_taken = if dirty.is_some() {
-        ChecksumPath::FullRead
-    } else {
-        ChecksumPath::MtimeShortcut
-    };
+    let (checksum, path_taken, dirty) = fast_checksum(ctx, path)?;
     if let Some(entry) = dirty {
         flush_mtime_entries(ctx, vec![entry])?;
     }
@@ -202,7 +220,7 @@ pub fn combined_input_checksum(ctx: &BuildContext, inputs: &[PathBuf]) -> Result
     for input in inputs {
         if input.exists() {
             if mtime_enabled {
-                let (checksum, dirty) = fast_checksum(ctx, input)?;
+                let (checksum, _, dirty) = fast_checksum(ctx, input)?;
                 checksums.push(checksum);
                 if let Some(entry) = dirty {
                     dirty_entries.push(entry);

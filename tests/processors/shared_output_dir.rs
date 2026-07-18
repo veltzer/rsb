@@ -13,6 +13,7 @@ use crate::common::run_rsconstruct_with_env;
 /// Set up a project with:
 ///   - `explicit.pandoc` owns `_site/about.html`
 ///   - `creator.mkdocs`  owns the `_site/` directory (writes index.html + assets/style.css)
+///
 /// Both processors contribute to the shared `_site/` folder.
 fn setup_shared_site_project() -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");

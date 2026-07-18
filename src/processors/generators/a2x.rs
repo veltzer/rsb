@@ -24,7 +24,15 @@ fn execute_a2x(ctx: &crate::build_context::BuildContext, config: &StandardConfig
     let stem = input.file_stem()
         .context("a2x input has no file stem")?;
     let generated = input.with_file_name(format!("{}.pdf", stem.to_string_lossy()));
-    if generated != *output && generated.exists() {
+    if generated != *output {
+        // a2x exiting 0 without producing the PDF must fail here, not later
+        // as a confusing cache-store error about a missing output.
+        if !generated.exists() {
+            anyhow::bail!(
+                "a2x reported success but did not produce {}",
+                generated.display()
+            );
+        }
         fs::rename(&generated, output)
             .with_context(|| format!("Failed to move a2x output from {} to {}", generated.display(), output.display()))?;
     }

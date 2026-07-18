@@ -15,10 +15,9 @@ fn setup_tags_project_with_config(md_files: &[(&str, &str)], tag_lists: &[(&str,
     fs::write(p.join("rsconstruct.toml"), config).unwrap();
 
     for (name, content) in md_files {
-        if let Some(parent) = std::path::Path::new(name).parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(p.join(parent)).unwrap();
-            }
+        if let Some(parent) = std::path::Path::new(name).parent()
+            && !parent.as_os_str().is_empty() {
+            fs::create_dir_all(p.join(parent)).unwrap();
         }
         fs::write(p.join(name), content).unwrap();
     }

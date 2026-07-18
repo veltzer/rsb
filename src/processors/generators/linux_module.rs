@@ -38,16 +38,21 @@ impl LinuxModuleProcessor {
         }
     }
 
-    /// Get the default KDIR path from the running kernel.
-    fn default_kdir() -> String {
-        let uname = Command::new("uname").arg("-r").output();
-        match uname {
-            Ok(output) if output.status.success() => {
-                let release = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                format!("/lib/modules/{release}/build")
-            }
-            _ => "/lib/modules/$(uname -r)/build".into(),
+    /// Get the default KDIR path from the running kernel. Fails when the
+    /// kernel release cannot be determined — commands run without a shell, so
+    /// a literal `$(uname -r)` fallback would never expand and `make -C`
+    /// would fail with a baffling path.
+    fn default_kdir() -> Result<String> {
+        let output = Command::new("uname").arg("-r").output()
+            .context("Failed to run 'uname -r' to locate kernel build directory (set 'kdir' in linux-module.yaml to override)")?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "'uname -r' failed while locating the kernel build directory (set 'kdir' in linux-module.yaml to override): {}",
+                String::from_utf8_lossy(&output.stderr).trim_end()
+            );
         }
+        let release = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(format!("/lib/modules/{release}/build"))
     }
 
     /// Generate a Kbuild file for building a kernel module.
@@ -74,13 +79,18 @@ impl LinuxModuleProcessor {
 
     /// Build a single kernel module. Runs make in the module's source directory.
     fn build_module(ctx: &crate::build_context::BuildContext, manifest: &LinuxModuleManifest, anchor_dir: &Path, module: &crate::config::LinuxModuleModuleDef, output_dir: &Path) -> Result<()> {
+        let cwd = std::env::current_dir()
+            .context("Failed to get current directory for linux module build")?;
         let module_dir = if anchor_dir.as_os_str().is_empty() {
-            std::env::current_dir()?
+            cwd
         } else {
-            std::env::current_dir()?.join(anchor_dir)
+            cwd.join(anchor_dir)
         };
 
-        let kdir = manifest.kdir.clone().unwrap_or_else(Self::default_kdir);
+        let kdir = match manifest.kdir.clone() {
+            Some(kdir) => kdir,
+            None => Self::default_kdir()?,
+        };
 
         Self::write_kbuild(&module_dir, module)?;
 
@@ -101,16 +111,23 @@ impl LinuxModuleProcessor {
         let output = run_command(ctx, &cmd)?;
         check_command_output(&output, format_args!("make modules for {}", module.name))?;
 
-        // Copy the .ko file to the output directory
+        // Copy the .ko file to the output directory. A successful make that
+        // produced no .ko (e.g. module name mismatch with obj-m) must fail
+        // here, not later as a missing declared output.
         let ko_name = format!("{}.ko", module.name);
         let ko_src = module_dir.join(&ko_name);
-        if ko_src.exists() {
-            crate::errors::ctx(fs::create_dir_all(output_dir), &format!("Failed to create output dir: {}", output_dir.display()))?;
-            fs::copy(&ko_src, output_dir.join(&ko_name))
-                .with_context(|| format!("Failed to copy {ko_name} to output"))?;
+        if !ko_src.exists() {
+            anyhow::bail!(
+                "make reported success but did not produce {} (check the module name in linux-module.yaml)",
+                ko_src.display()
+            );
         }
+        crate::errors::ctx(fs::create_dir_all(output_dir), &format!("Failed to create output dir: {}", output_dir.display()))?;
+        fs::copy(&ko_src, output_dir.join(&ko_name))
+            .with_context(|| format!("Failed to copy {ko_name} to output"))?;
 
-        // Clean up build artifacts from source directory
+        // Clean up build artifacts from the source directory. Failures leave
+        // the source tree polluted — report them.
         let mut clean_cmd = Command::new(&manifest.make);
         clean_cmd.arg("-C").arg(&kdir);
         if let Some(ref arch) = manifest.arch {
@@ -122,10 +139,12 @@ impl LinuxModuleProcessor {
         clean_cmd.arg(format!("M={}", module_dir.display()));
         clean_cmd.arg("clean");
         clean_cmd.current_dir(&module_dir);
-        let _ = run_command(ctx, &clean_cmd);
+        let clean_output = run_command(ctx, &clean_cmd)?;
+        check_command_output(&clean_output, format_args!("make clean for {}", module.name))?;
 
         // Remove the Kbuild we generated
-        let _ = fs::remove_file(module_dir.join("Kbuild"));
+        fs::remove_file(module_dir.join("Kbuild"))
+            .with_context(|| format!("Failed to remove generated Kbuild in {}", module_dir.display()))?;
 
         Ok(())
     }

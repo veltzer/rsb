@@ -141,6 +141,10 @@ impl ObjectStore {
             });
         }
 
+        // Canonical order: walk_files yields filesystem-dependent read_dir
+        // order, so an order shift between runs must not read as a change.
+        entries.sort_by(|a, b| a.path.cmp(&b.path));
+
         let changed = match prev {
             Some(CacheDescriptor::Tree { entries: ref prev_entries }) => {
                 entries.len() != prev_entries.len()

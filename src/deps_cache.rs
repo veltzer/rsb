@@ -76,7 +76,14 @@ pub struct DepsCache {
 impl DepsCache {
     /// Open or create the dependency cache
     pub fn open() -> Result<Self> {
-        let rsconstruct_dir = PathBuf::from(RSBUILD_DIR);
+        Self::open_in(Path::new(""))
+    }
+
+    /// Open the cache with `.rsconstruct` rooted under `base`. Lets tests use
+    /// a tempdir without mutating the process-global current directory (which
+    /// races the parallel test runner).
+    pub fn open_in(base: &Path) -> Result<Self> {
+        let rsconstruct_dir = base.join(RSBUILD_DIR);
         let db_path = rsconstruct_dir.join(DEPS_DB_FILE);
 
         // Ensure .rsconstruct directory exists
@@ -171,12 +178,22 @@ impl DepsCache {
         }
     }
 
+    /// Compute the source checksum for use with [`Self::set`]. Call this
+    /// BEFORE scanning the file: pairing a checksum taken after the scan with
+    /// deps derived from the pre-scan content would let a mid-build edit
+    /// poison the cache with a stale dependency list. Uses `checksum_fast` so
+    /// the mtime cache is populated alongside — subsequent `get()` calls can
+    /// then short-circuit on mtime.
+    pub fn source_checksum(ctx: &BuildContext, source: &Path) -> Result<String> {
+        let (checksum, _) = checksum_fast(ctx, source)?;
+        Ok(checksum)
+    }
+
     /// Store dependencies for a (analyzer, source) pair.
-    /// Uses `checksum_fast` so the mtime cache is populated alongside the
-    /// deps entry — subsequent `get()` calls can then short-circuit on mtime.
-    pub fn set(&self, ctx: &BuildContext, analyzer: &str, source: &Path, dependencies: &[PathBuf]) -> Result<()> {
+    /// `source_checksum` must come from [`Self::source_checksum`] taken
+    /// before the scan that produced `dependencies`.
+    pub fn set(&self, analyzer: &str, source: &Path, source_checksum: String, dependencies: &[PathBuf]) -> Result<()> {
         let key = key_for(analyzer, source);
-        let (source_checksum, _) = checksum_fast(ctx, source)?;
 
         let entry = DepsEntry {
             source_checksum,
@@ -390,16 +407,12 @@ mod tests {
     #[test]
     fn get_counts_miss_even_when_db_is_fresh() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // Open a DeCache rooted in the tempdir so the global .rsconstruct
-        // isn't touched. Since `DepsCache::open` uses a fixed path, we set
-        // the current dir for the duration of the test.
-        let orig = std::env::current_dir().unwrap();
-        std::env::set_current_dir(tmp.path()).unwrap();
+        // Root the cache in the tempdir directly — mutating the process-wide
+        // current dir would race other tests in the parallel runner.
         let ctx = crate::build_context::BuildContext::new();
-        let mut cache = DepsCache::open().expect("open fresh cache");
+        let mut cache = DepsCache::open_in(tmp.path()).expect("open fresh cache");
         let nonexistent = tmp.path().join("does_not_exist.py");
         let result = cache.get(&ctx, "python", &nonexistent);
-        std::env::set_current_dir(orig).unwrap();
 
         assert!(result.is_none(), "missing entry must return None");
         let stats = cache.stats();

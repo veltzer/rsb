@@ -211,15 +211,20 @@ impl FileIndex {
     /// discover products for files that don't exist on disk yet.
     /// Returns the number of files actually added (not already present).
     pub fn add_virtual_files(&mut self, paths: &[PathBuf]) -> usize {
-        let mut added = 0;
-        for path in paths {
-            if self.files.binary_search(path).is_err() {
-                self.files.push(path.clone());
-                added += 1;
-            }
-        }
+        // Collect first, insert after: pushing while binary-searching would
+        // unsort the vec and make later searches (including duplicates within
+        // `paths`) unreliable.
+        let mut to_add: Vec<PathBuf> = paths.iter()
+            .filter(|p| self.files.binary_search(p).is_err())
+            .cloned()
+            .collect();
+        to_add.sort();
+        to_add.dedup();
+        let added = to_add.len();
         if added > 0 {
+            self.files.extend(to_add);
             self.files.sort();
+            self.files.dedup();
         }
         added
     }

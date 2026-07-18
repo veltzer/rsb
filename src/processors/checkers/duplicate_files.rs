@@ -3,8 +3,9 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::config::DuplicateFilesConfig;
-use crate::graph::Product;
+use crate::config::{DuplicateFilesConfig, output_config_hash, resolve_extra_inputs};
+use crate::file_index::FileIndex;
+use crate::graph::{BuildGraph, Product};
 
 pub struct DuplicateFilesProcessor {
     config: DuplicateFilesConfig,
@@ -13,10 +14,6 @@ pub struct DuplicateFilesProcessor {
 impl DuplicateFilesProcessor {
     pub const fn new(config: DuplicateFilesConfig) -> Self {
         Self { config }
-    }
-
-    const fn execute_product(&self, _product: &Product) {
-        // Individual file checking is a no-op; duplicates are only detected in batch mode
     }
 
     fn check_files(&self, files: &[&Path]) -> Result<()> {
@@ -62,15 +59,31 @@ impl crate::processors::Processor for DuplicateFilesProcessor {
         Vec::new()
     }
 
-
-    fn execute(&self, _ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
-        self.execute_product(product);
+    /// Duplicate detection is a whole-set property: a single product spanning
+    /// every scanned file. Per-file products would be chunked and cache-skipped
+    /// by the executor, so pairs of duplicates could never be compared.
+    fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
+        let scan = &self.config.standard;
+        let mut inputs = file_index.scan(scan, true);
+        if inputs.is_empty() {
+            return Ok(());
+        }
+        let mut all_dep_inputs = scan.dep_inputs.clone();
+        for ai in &scan.dep_auto {
+            all_dep_inputs.extend(crate::processors::config_file_inputs(ai));
+        }
+        inputs.extend(resolve_extra_inputs(&all_dep_inputs)?);
+        let hash = Some(output_config_hash(
+            &self.config,
+            <DuplicateFilesConfig as crate::config::KnownFields>::checksum_fields(),
+        ));
+        graph.add_product(inputs, vec![], instance_name, hash)?;
         Ok(())
     }
 
-
-    fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
-        crate::processors::execute_checker_batch(ctx, products, |_ctx, files| self.check_files(files))
+    fn execute(&self, _ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
+        let files: Vec<&Path> = product.inputs.iter().map(std::path::PathBuf::as_path).collect();
+        self.check_files(&files)
     }
 }
 
@@ -92,7 +105,7 @@ inventory::submit! {
         description: "Detect duplicate files by content (SHA-256)",
         is_native: true,
         can_fix: false,
-        supports_batch: true,
+        supports_batch: false,
         max_jobs_cap: None,
     }
 }

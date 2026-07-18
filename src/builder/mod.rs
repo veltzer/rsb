@@ -18,7 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use crate::analyzers::DepAnalyzer;
 use crate::cli::{BuildPhase, DisplayOptions};
 use crate::color;
@@ -164,16 +164,17 @@ pub fn create_processor_for_instance(
 }
 
 /// Create all builtin processors with default configs.
-pub fn create_all_default_processors() -> ProcessorMap {
+pub fn create_all_default_processors() -> Result<ProcessorMap> {
     let mut processors: ProcessorMap = HashMap::new();
     for entry in registry_entries() {
         let mut empty_toml = toml::Value::Table(toml::map::Map::new());
         let mut prov = crate::config::ProvenanceMap::new();
         crate::registries::apply_all_defaults(entry.name, &mut empty_toml, &mut prov);
-        let proc = (entry.create)(&empty_toml).unwrap();
+        let proc = (entry.create)(&empty_toml)
+            .with_context(|| format!("Failed to create processor '{}' with default config", entry.name))?;
         processors.insert(entry.name.to_string(), proc);
     }
-    processors
+    Ok(processors)
 }
 
 pub struct Builder {
@@ -476,21 +477,21 @@ impl Builder {
 
     /// Return the set of processor type names whose files are detected in the project.
     /// Uses default configs for all builtin processors to check auto_detect.
-    pub fn detected_processors(&self) -> std::collections::HashSet<String> {
-        let processors = create_all_default_processors();
+    pub fn detected_processors(&self) -> Result<std::collections::HashSet<String>> {
+        let processors = create_all_default_processors()?;
         let mut detected = std::collections::HashSet::new();
         for (name, proc) in &processors {
             if proc.auto_detect(&self.file_index) {
                 detected.insert(name.clone());
             }
         }
-        detected
+        Ok(detected)
     }
 
     /// Return the set of processor type names whose files are detected AND whose
     /// required tools are all installed.
-    pub fn detected_and_available_processors(&self) -> std::collections::HashSet<String> {
-        let processors = create_all_default_processors();
+    pub fn detected_and_available_processors(&self) -> Result<std::collections::HashSet<String>> {
+        let processors = create_all_default_processors()?;
         let mut available = std::collections::HashSet::new();
         for (name, proc) in &processors {
             if !proc.auto_detect(&self.file_index) {
@@ -501,7 +502,7 @@ impl Builder {
                 available.insert(name.clone());
             }
         }
-        available
+        Ok(available)
     }
 
     /// Return the set of configured processor instance names that have 0 products
@@ -758,6 +759,11 @@ impl Builder {
     /// Get a reference to the object store.
     pub const fn object_store(&self) -> &ObjectStore {
         &self.object_store
+    }
+
+    /// The configured global output directory (default "out").
+    pub fn output_dir(&self) -> &str {
+        &self.config.build.output_dir
     }
 
     /// Return directories that should be watched for file changes.

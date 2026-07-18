@@ -47,6 +47,7 @@ mod processors {
     pub mod cppcheck;
     pub mod doctest;
     pub mod drawio;
+    pub mod duplicate_files;
     pub mod gem;
     pub mod generator;
     pub mod jinja2;

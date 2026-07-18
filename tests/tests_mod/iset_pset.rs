@@ -89,6 +89,24 @@ fn iset_valid_max_jobs_accepted() {
     );
 }
 
+/// `--iset` must reach named instances of multi-instance processors: the
+/// iname itself contains a dot (`ascii.one`), so the name/field split has to
+/// happen at the LAST dot.
+#[test]
+fn iset_multi_instance_dotted_iname() {
+    let temp = setup_project_with_config(
+        "[processor.ascii.one]\nsrc_dirs = [\"docs_a\"]\n\n[processor.ascii.two]\nsrc_dirs = [\"docs_b\"]\n",
+    );
+    fs::create_dir_all(temp.path().join("docs_a")).unwrap();
+    fs::create_dir_all(temp.path().join("docs_b")).unwrap();
+    let out = run_rsconstruct(temp.path(), &["build", "--iset", "ascii.one.max_jobs=2"]);
+    assert!(
+        out.status.success(),
+        "dotted iname override must resolve; stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// A valid `--pset` targeting all instances of a type must succeed.
 #[test]
 fn pset_valid_max_jobs_accepted() {

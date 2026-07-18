@@ -200,7 +200,7 @@ src_dirs = ["src/core"]
         let spans = build_span_map(src);
         let key = (Section::Processor, "ruff".to_string(), "args".to_string());
         let line = spans.get(&key).copied().unwrap_or(0);
-        assert!(line > 0, "expected a real line for ruff.args, got {} (span map: {:?})", line, spans);
+        assert!(line > 0, "expected a real line for ruff.args, got {line} (span map: {spans:?})");
     }
 
     #[test]

@@ -306,13 +306,17 @@ pub fn dot_to_svg(dot_content: &str) -> Result<String> {
     log_command(&cmd);
     let mut child = cmd
         .spawn()
-        .map_err(|_| anyhow::anyhow!("Graphviz 'dot' command not found. Install Graphviz to use SVG format"))?;
-    child.stdin.take()
+        .context("Failed to run Graphviz 'dot'. Install Graphviz to use SVG format")?;
+    // Always wait on the child even if the write fails — propagating first
+    // would leave a zombie.
+    let write_result = child.stdin.take()
         .context("stdin was not piped to dot command")?
-        .write_all(dot_content.as_bytes())?;
-    let output = child.wait_with_output()?;
+        .write_all(dot_content.as_bytes());
+    let output = child.wait_with_output()
+        .context("Failed to wait for Graphviz 'dot'")?;
     check_command_output(&output, "dot")?;
-    Ok(String::from_utf8(output.stdout)?)
+    write_result.context("Failed to write graph to dot stdin")?;
+    String::from_utf8(output.stdout).context("Graphviz 'dot' produced non-UTF-8 SVG output")
 }
 
 /// Append new words to a words file without truncating existing content.
@@ -346,10 +350,12 @@ pub fn flush_words(
         .with_context(|| format!("Failed to open words file: {}", words_path.display()))?;
     if !file_exists
         && let Some(header) = header_line {
-            writeln!(file, "{header}")?;
+            writeln!(file, "{header}")
+                .with_context(|| format!("Failed to write header to words file: {}", words_path.display()))?;
     }
     for word in &sorted {
-        writeln!(file, "{word}")?;
+        writeln!(file, "{word}")
+            .with_context(|| format!("Failed to append word to words file: {}", words_path.display()))?;
     }
     println!("Added {} word(s) to {}", sorted.len(), words_path.display());
     Ok(())
@@ -433,7 +439,8 @@ pub fn clean_outputs(product: &Product, label: &str, verbose: bool) -> Result<us
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(anyhow::Error::from(e)
+                .context(format!("Failed to remove {} output: {}", label, output.display()))),
         }
     }
     Ok(count)
@@ -659,6 +666,23 @@ fn run_checker_once(
     check_command_output(&output, tool)
 }
 
+/// Per-file batch execution for in-process checkers: each product gets its
+/// own result, so under --keep-going one bad file fails only its own product
+/// instead of the whole chunk (the processor contract requires per-file
+/// results from internal processors).
+pub fn execute_checker_batch_per_file<F>(
+    products: &[&Product],
+    check_fn: F,
+) -> Vec<Result<()>>
+where
+    F: Fn(&Path) -> Result<()>,
+{
+    products.iter().map(|p| check_fn(p.primary_input())).collect()
+}
+
+/// Single-invocation batch execution for external-tool checkers. The tool
+/// runs once over all files, so its exit status necessarily applies to the
+/// whole chunk.
 pub fn execute_checker_batch<F>(
     ctx: &crate::build_context::BuildContext,
     products: &[&Product],
@@ -895,6 +919,14 @@ pub trait Processor: Sync + Send {
     /// user config has `batch = true`.
     fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
         products.iter().map(|p| self.execute(ctx, p)).collect()
+    }
+
+    /// Instance-level fix capability, for processors whose fix support
+    /// depends on configuration (e.g. script's `fix_command`). Static
+    /// capability comes from the plugin's `can_fix` flag; `rsconstruct fix`
+    /// includes a processor when either is true.
+    fn config_has_fix(&self) -> bool {
+        false
     }
 
     /// Fix a single product (modify source files in place).
@@ -1149,6 +1181,9 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
                     "gunzip".to_string(), "-f".to_string(),
                     dl,
                 ],
+                ArchiveKind::Raw => vec![
+                    "mv".to_string(), dl, tmp.clone(),
+                ],
             };
             let chmod = vec!["chmod".to_string(), "+x".to_string(), tmp.clone()];
             let sudo = sudo_argv();
@@ -1205,6 +1240,10 @@ fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
             std::fs::rename(&download, &final_tmp)
                 .with_context(|| format!("rename {download} -> {final_tmp}"))?;
         }
+        ArchiveKind::Raw => {
+            std::fs::rename(&download, &final_tmp)
+                .with_context(|| format!("rename {download} -> {final_tmp}"))?;
+        }
     }
     crate::platform::set_permissions_mode(std::path::Path::new(&final_tmp), 0o755)
         .with_context(|| format!("chmod +x {final_tmp}"))?;
@@ -1223,6 +1262,8 @@ struct BinaryRecipe {
 enum ArchiveKind {
     TarGz { inner: &'static str },
     Gunzip,
+    /// The download is the binary itself, no extraction needed.
+    Raw,
 }
 
 fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
@@ -1236,6 +1277,11 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
             url: "https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz",
             archive: ArchiveKind::Gunzip,
             dest: "taplo",
+        }),
+        "hadolint" => Some(BinaryRecipe {
+            url: "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64",
+            archive: ArchiveKind::Raw,
+            dest: "hadolint",
         }),
         _ => None,
     }
@@ -1334,13 +1380,12 @@ pub static TOOLS: &[ToolInfo] = &[
     ]},
     ToolInfo { name: "svglint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svglint" }] },
     ToolInfo { name: "svgo", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svgo" }] },
-    ToolInfo { name: "cmake", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "cmake" }] },
+    ToolInfo { name: "cmakelint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "cmakelint" }] },
     ToolInfo { name: "protoc", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "protobuf-compiler" }] },
     ToolInfo { name: "sass", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "sass" }] },
     ToolInfo { name: "hadolint", runtime: "system", install_methods: &[
-        InstallMethod { method: "binary", package: "wget -O ~/.local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64 && chmod +x ~/.local/bin/hadolint" },
+        InstallMethod { method: "binary", package: "hadolint" },
         InstallMethod { method: "brew", package: "hadolint" },
-        InstallMethod { method: "nix", package: "hadolint" },
         InstallMethod { method: "apt", package: "hadolint" },
     ]},
     ToolInfo { name: "php", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "php-cli" }] },
@@ -1753,7 +1798,7 @@ mod tests {
     /// This prevents silent gaps like the missing `ar` tool.
     #[test]
     fn all_required_tools_have_registry_entries() {
-        let processors = create_all_default_processors();
+        let processors = create_all_default_processors().unwrap();
         for (proc_name, proc) in &processors {
             for tool in proc.required_tools() {
                 if tool.is_empty() {

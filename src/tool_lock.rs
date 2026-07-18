@@ -29,7 +29,7 @@ pub struct LockedTool {
 /// Extract the first version string from version output.
 /// Matches `X.Y.Z`, `X.Y`, or bare `X` (in that priority order).
 pub fn extract_semver(version_output: &str) -> Option<&str> {
-    let re = regex::Regex::new(r"\d+\.\d+\.\d+|\d+\.\d+").unwrap();
+    let re = regex::Regex::new(r"\d+\.\d+\.\d+|\d+\.\d+|\d+").unwrap();
     re.find(version_output).map(|m| m.as_str())
 }
 
@@ -121,13 +121,17 @@ pub fn create_lock(
     })
 }
 
-/// Write the lock file to disk.
+/// Write the lock file to disk atomically (temp file + rename), so a crash or
+/// concurrent reader never observes a truncated lock file.
 pub fn write_lock_file(lock: &ToolLockFile) -> Result<()> {
     let path = Path::new(LOCK_FILE);
     let json = serde_json::to_string_pretty(lock)
         .context("Failed to serialize lock file")?;
-    fs::write(path, format!("{json}\n"))
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    let tmp = format!("{LOCK_FILE}.tmp-{}", std::process::id());
+    fs::write(&tmp, format!("{json}\n"))
+        .with_context(|| format!("Failed to write {tmp}"))?;
+    fs::rename(&tmp, path)
+        .with_context(|| format!("Failed to move {tmp} into place as {}", path.display()))?;
     Ok(())
 }
 

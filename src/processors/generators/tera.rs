@@ -65,7 +65,7 @@ fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem
     for entry in glob::glob("**/*.tera")
         .context("Invalid glob pattern: **/*.tera")?
     {
-        let path = entry?;
+        let path = entry.context("Failed to read glob match for **/*.tera")?;
         // Skip directories and the main template we already registered
         if !path.is_file() || path == item.source_path {
             continue;
@@ -471,7 +471,9 @@ fn load_python_config(ctx: &crate::build_context::BuildContext, python_file: &Pa
     let absolute_path = if python_file.is_absolute() {
         python_file.to_path_buf()
     } else {
-        std::env::current_dir()?.join(python_file)
+        std::env::current_dir()
+            .context("Failed to get current directory to resolve Python config path")?
+            .join(python_file)
     };
 
     if !absolute_path.exists() {
@@ -550,7 +552,9 @@ fn load_lua_config(lua_file: &Path) -> Result<Map<String, Value>> {
     let absolute_path = if lua_file.is_absolute() {
         lua_file.to_path_buf()
     } else {
-        std::env::current_dir()?.join(lua_file)
+        std::env::current_dir()
+            .context("Failed to get current directory to resolve Lua config path")?
+            .join(lua_file)
     };
 
     if !absolute_path.exists() {

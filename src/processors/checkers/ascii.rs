@@ -73,8 +73,8 @@ impl crate::processors::Processor for AsciiProcessor {
     }
 
 
-    fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
-        crate::processors::execute_checker_batch(ctx, products, |_ctx, files| self.check_files(files))
+    fn execute_batch(&self, _ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
+        crate::processors::execute_checker_batch_per_file(products, |file| self.check_files(&[file]))
     }
 }
 

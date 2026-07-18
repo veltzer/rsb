@@ -23,7 +23,8 @@ impl JekyllProcessor {
     }
 
     fn execute_jekyll(&self, ctx: &crate::build_context::BuildContext, config_yml: &Path) -> Result<()> {
-        let mut cmd = Command::new("jekyll");
+        let command = self.config.standard.require_command("jekyll")?;
+        let mut cmd = Command::new(command);
         cmd.arg("build");
         for arg in &self.config.standard.args {
             cmd.arg(arg);
@@ -56,7 +57,7 @@ impl Processor for JekyllProcessor {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        vec!["jekyll".to_string(), "ruby".to_string()]
+        vec![self.config.standard.command.clone(), "ruby".to_string()]
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {

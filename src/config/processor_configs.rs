@@ -214,7 +214,8 @@ impl KnownFields for TeraConfig {
 }
 
 /// Mako template processor config. No custom fields.
-/// Unused StandardConfig fields: command, formats, output_dir.
+/// `command` is the Python interpreter used to render (default: python3).
+/// Unused StandardConfig fields: formats, output_dir.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct MakoConfig {
@@ -229,7 +230,8 @@ impl KnownFields for MakoConfig {
 }
 
 /// Jinja2 template processor config. No custom fields.
-/// Unused StandardConfig fields: command, formats, output_dir.
+/// `command` is the Python interpreter used to render (default: python3).
+/// Unused StandardConfig fields: formats, output_dir.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct Jinja2Config {
@@ -822,6 +824,7 @@ impl KnownFields for CargoConfig {
             ("command", "Cargo subcommand to run (e.g. build, test)"),
             ("args",    "Extra arguments passed to cargo"),
             ("profiles", "Build profiles to run (e.g. dev, release)"),
+            ("cache_output_dir", "Cache the entire output directory as a unit"),
         ]
     }
 }
@@ -993,12 +996,16 @@ impl KnownFields for TagsConfig {
         ]
     }
     fn checksum_fields() -> &'static [&'static str] {
-        // The validation-rule fields (required_fields, required_values, etc.)
-        // are excluded: they affect whether the build passes, not the bytes of
-        // the produced tags database. A change in those triggers a re-validation
-        // pass via dep_inputs, not a re-hash of the output. The *_limit fields
-        // affect only the `tags suggest` CLI output, not the cached database.
-        &["output", "tags_dir", "check_unused"]
+        // The validation-rule fields are included: validation runs during the
+        // cached build, so editing a rule (e.g. adding a required_fields
+        // entry) must invalidate cached PASS results — nothing else re-checks
+        // them. Only the *_limit fields are excluded; they shape `tags
+        // suggest` CLI output, not build results.
+        &[
+            "output", "tags_dir", "required_fields", "required_values",
+            "unique_fields", "field_types", "required_field_groups",
+            "sorted_tags", "check_unused",
+        ]
     }
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
         &[
@@ -1302,6 +1309,7 @@ impl KnownFields for SphinxConfig {
             ("output_dir",  "Directory where built docs are written"),
             ("working_dir", "Working directory for sphinx-build (defaults to conf.py location)"),
             ("args",        "Extra arguments passed to sphinx-build"),
+            ("cache_output_dir", "Cache the entire output directory as a unit"),
         ]
     }
 }
@@ -1342,6 +1350,7 @@ impl KnownFields for MdbookConfig {
             ("command",    "Path to the mdbook executable"),
             ("output_dir", "Directory where the built book is written"),
             ("args",       "Extra arguments passed to mdbook build"),
+            ("cache_output_dir", "Cache the entire output directory as a unit"),
         ]
     }
 }
@@ -1377,6 +1386,7 @@ impl KnownFields for NpmConfig {
         &[
             ("command", "Path to the npm executable"),
             ("args",    "Arguments passed to npm install"),
+            ("cache_output_dir", "Cache the entire output directory as a unit"),
         ]
     }
 }
@@ -1587,6 +1597,10 @@ pub struct PdflatexConfig {
     pub runs: usize,
     #[serde(default = "default_true")]
     pub qpdf: bool,
+    /// Pass -shell-escape to pdflatex. Historically always on; note it lets
+    /// any .tex input execute arbitrary shell commands during the build.
+    #[serde(default = "default_true")]
+    pub shell_escape: bool,
     #[serde(flatten)]
     pub standard: StandardConfig,
 }
@@ -1596,6 +1610,7 @@ impl Default for PdflatexConfig {
         Self {
             runs: 2,
             qpdf: true,
+            shell_escape: true,
             standard: StandardConfig {
                 command: "pdflatex".into(),
                 output_dir: "out/pdflatex".into(),
@@ -1608,19 +1623,20 @@ impl Default for PdflatexConfig {
 impl KnownFields for PdflatexConfig {
     fn known_fields() -> &'static [&'static str] {
         &[
-            "command", "args", "dep_inputs", "dep_auto", "runs", "qpdf", "output_dir", "batch", "max_jobs",
+            "command", "args", "dep_inputs", "dep_auto", "runs", "qpdf", "shell_escape", "output_dir", "batch", "max_jobs",
         ]
     }
     fn checksum_fields() -> &'static [&'static str] {
-        &["command", "args", "runs", "qpdf", "output_dir"]
+        &["command", "args", "runs", "qpdf", "shell_escape", "output_dir"]
     }
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
         &[
-            ("command",   "Path to the pdflatex executable"),
-            ("args",      "Extra arguments passed to pdflatex"),
-            ("runs",      "Number of pdflatex compilation passes"),
-            ("qpdf",      "Run qpdf to optimize the output PDF"),
-            ("output_dir","Directory where compiled PDFs are written"),
+            ("command",      "Path to the pdflatex executable"),
+            ("args",         "Extra arguments passed to pdflatex"),
+            ("runs",         "Number of pdflatex compilation passes"),
+            ("qpdf",         "Run qpdf to optimize the output PDF"),
+            ("shell_escape", "Pass -shell-escape to pdflatex (lets .tex files run shell commands)"),
+            ("output_dir",   "Directory where compiled PDFs are written"),
         ]
     }
 }
@@ -1662,6 +1678,7 @@ impl KnownFields for GemConfig {
             ("command",  "Path to the bundler executable"),
             ("gem_home", "Directory where gems are installed"),
             ("args",     "Extra arguments passed to bundler install"),
+            ("cache_output_dir", "Cache the entire output directory as a unit"),
         ]
     }
 }

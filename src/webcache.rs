@@ -31,7 +31,8 @@ pub fn fetch(url: &str) -> Result<String> {
         let read_txn = db.begin_read()
             .context("Failed to begin read transaction on webcache")?;
         if let Ok(table) = read_txn.open_table(TABLE)
-            && let Some(entry) = table.get(url)?
+            && let Some(entry) = table.get(url)
+                .with_context(|| format!("Failed to read webcache entry for {url}"))?
         {
             return Ok(entry.value().to_string());
         }
@@ -95,8 +96,8 @@ pub fn list() -> Result<Vec<CacheEntry>> {
         return Ok(Vec::new());
     };
     let mut entries = Vec::new();
-    for result in table.iter()? {
-        let (key, value) = result?;
+    for result in table.iter().context("Failed to iterate webcache entries")? {
+        let (key, value) = result.context("Failed to read webcache entry")?;
         entries.push(CacheEntry {
             url: key.value().to_string(),
             size: value.value().len(),

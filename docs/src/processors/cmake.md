@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Lints CMake files using `cmake --lint`.
+Lints CMake files using `cmakelint`.
 
 ## How It Works
 
 Discovers `CMakeLists.txt` files in the project (excluding common build tool
-directories), runs `cmake --lint` on each file, and records success in the cache.
-A non-zero exit code from cmake fails the product.
+directories), runs `cmakelint` on each file, and records success in the cache.
+A non-zero exit code from cmakelint fails the product.
 
 This processor supports batch mode.
 
@@ -27,7 +27,7 @@ dep_inputs = []
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `args` | string[] | `[]` | Extra arguments passed to cmake |
+| `args` | string[] | `[]` | Extra arguments passed to cmakelint |
 | `dep_inputs` | string[] | `[]` | Extra files whose changes trigger rebuilds |
 
 ## Batch support

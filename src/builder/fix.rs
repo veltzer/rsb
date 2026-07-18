@@ -16,7 +16,11 @@ impl Builder {
 
         let fixable: Vec<&str> = processors.keys()
             .filter(|name| {
-                if !crate::registries::processor::can_fix(name.as_str()) {
+                // Fix capability is either static (plugin can_fix) or
+                // config-dependent (e.g. script's fix_command).
+                if !crate::registries::processor::can_fix(name.as_str())
+                    && !processors[name.as_str()].config_has_fix()
+                {
                     return false;
                 }
                 if let Some(ref filter) = filter_set {

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -25,7 +25,7 @@ impl ExplicitProcessor {
     /// Resolve literal inputs. Unlike dep_inputs, missing files are silently
     /// skipped — they may be virtual files from upstream generators that only
     /// appear after fixed-point discovery injects them into the FileIndex.
-    fn resolve_inputs(&self, file_index: &FileIndex) -> Vec<PathBuf> {
+    fn resolve_inputs(&self, file_index: &FileIndex) -> Result<Vec<PathBuf>> {
         let mut resolved = Vec::new();
         // Literal inputs (in config order), only include files that exist
         // or are known to the file index (virtual files from upstream generators)
@@ -35,30 +35,35 @@ impl ExplicitProcessor {
                 resolved.push(path);
             }
         }
-        // Glob inputs (one glob at a time in config order, sorted within each glob)
+        // Glob inputs (one glob at a time in config order, sorted within each
+        // glob). A bad pattern or unreadable match is an error — silently
+        // resolving to zero inputs would hide a config typo behind missing
+        // dependencies.
         for pattern in &self.config.input_globs {
             let mut glob_results: Vec<PathBuf> = Vec::new();
             // Match against real files on disk
-            if let Ok(entries) = glob::glob(pattern) {
-                for entry in entries.flatten() {
-                    if entry.is_file() {
-                        glob_results.push(entry);
-                    }
+            let entries = glob::glob(pattern)
+                .with_context(|| format!("Invalid input_globs pattern: {pattern}"))?;
+            for entry in entries {
+                let entry = entry
+                    .with_context(|| format!("Failed to read glob match for pattern: {pattern}"))?;
+                if entry.is_file() {
+                    glob_results.push(entry);
                 }
             }
             // Also match against virtual files in the file index
-            if let Ok(pat) = glob::Pattern::new(pattern) {
-                for file in file_index.files() {
-                    if pat.matches(&file.to_string_lossy()) && !glob_results.contains(file) {
-                        glob_results.push(file.clone());
-                    }
+            let pat = glob::Pattern::new(pattern)
+                .with_context(|| format!("Invalid input_globs pattern: {pattern}"))?;
+            for file in file_index.files() {
+                if pat.matches(&file.to_string_lossy()) && !glob_results.contains(file) {
+                    glob_results.push(file.clone());
                 }
             }
             glob_results.sort();
             glob_results.dedup();
             resolved.extend(glob_results);
         }
-        resolved
+        Ok(resolved)
     }
 }
 
@@ -87,7 +92,7 @@ impl Processor for ExplicitProcessor {
             return Ok(());
         }
 
-        let inputs = self.resolve_inputs(file_index);
+        let inputs = self.resolve_inputs(file_index)?;
         if inputs.is_empty() && self.config.inputs.is_empty() && self.config.input_globs.is_empty() {
             return Ok(());
         }

@@ -8,7 +8,7 @@ RSConstruct is configured via an `rsconstruct.toml` file in the project root.
 [build]
 parallel = 1          # Number of parallel jobs (1 = sequential, 0 = auto-detect CPU cores)
                       # Also settable via RSCONSTRUCT_THREADS env var (CLI -j takes precedence)
-batch_size = 0        # Max files per batch for batch-capable processors (0 = no limit, omit to disable)
+batch_size = 0        # Max files per batch for batch-capable processors (0 = no limit)
 output_dir = "out"    # Global output directory prefix for generator processors
 
 # Declare processors by adding [processor.NAME] sections.
@@ -138,7 +138,7 @@ Variables are substituted before TOML parsing. The `"${var_name}"` (including qu
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `parallel` | integer | `1` | Number of parallel jobs. `1` = sequential, `0` = auto-detect CPU cores. Can also be set via the `RSCONSTRUCT_THREADS` environment variable (CLI `-j` takes precedence). |
-| `batch_size` | integer | `0` | Maximum files per batch for batch-capable processors. `0` = no limit (all files in one batch). Omit to disable batching entirely. |
+| `batch_size` | integer | `0` | Maximum files per batch for batch-capable processors. `0` = no limit (all files in one batch). To disable batching, pass `--batch-size -1` on the CLI or set `batch = false` on individual processors. |
 | `output_dir` | string | `"out"` | Global output directory prefix. Processor `output_dir` defaults that start with `out/` are remapped to use this prefix (e.g., setting `"build"` changes `out/marp` to `build/marp`). Individual processors can still override their `output_dir` explicitly. |
 
 The `output_dir` prefix is purely a layout choice — `rsconstruct clean outputs` does not special-case it. Cleanup is driven by per-product `outputs` and `output_dirs` declarations, then a generic empty-directory sweep walks parents bottom-up. See [Clean behavior](processors.md#clean-behavior) and [`rsconstruct clean`](commands.md#rsconstruct-clean) for details.
