@@ -6,6 +6,7 @@ use toml_edit::{Document, Item, Table};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldProvenance {
     UserToml { line: usize },
+    LocalToml { line: usize },
     ProcessorDefault,
     ScanDefault,
     OutputDirDefault,
@@ -17,6 +18,7 @@ impl fmt::Display for FieldProvenance {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UserToml { line } => write!(f, "from rsconstruct.toml:{line}"),
+            Self::LocalToml { line } => write!(f, "from rsconstruct.local.toml:{line}"),
             Self::ProcessorDefault => write!(f, "processor default"),
             Self::ScanDefault => write!(f, "scan default"),
             Self::OutputDirDefault => write!(f, "output dir default"),

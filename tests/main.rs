@@ -21,6 +21,8 @@ mod graph;
 mod init;
 #[path = "tests_mod/iset_pset.rs"]
 mod iset_pset;
+#[path = "tests_mod/local_overlay.rs"]
+mod local_overlay;
 #[path = "tests_mod/processor_cmd.rs"]
 mod processor_cmd;
 #[path = "tests_mod/product.rs"]

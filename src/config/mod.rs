@@ -20,6 +20,11 @@ use crate::errors;
 use variables::substitute_variables;
 
 const CONFIG_FILE: &str = "rsconstruct.toml";
+/// Optional per-repo overlay merged over `rsconstruct.toml` at load time.
+/// Lets many repos share one canonical main config while keeping
+/// repo-specific sections (dependencies, explicit generators, excludes)
+/// in a separate local file.
+pub const LOCAL_CONFIG_FILE: &str = "rsconstruct.local.toml";
 
 /// Scan field names in StandardConfig.
 /// These are automatically appended to every processor's known fields during validation.
@@ -303,6 +308,13 @@ pub struct BuildConfig {
     /// ~2MB; the default leaves headroom for env vars and the tool path.
     #[serde(default = "default_max_arg_len")]
     pub max_arg_len: usize,
+    /// When true, a `src_dirs` entry that doesn't exist on disk deactivates
+    /// the processor's scan of that directory instead of failing the build.
+    /// Lets one shared config file serve repos with different layouts: a
+    /// processor whose directories are all absent simply matches no files.
+    /// Default: false — a missing directory is treated as a typo and fails.
+    #[serde(default)]
+    pub skip_missing_src_dirs: bool,
 }
 
 const fn default_parallel() -> usize {
@@ -324,6 +336,7 @@ impl Default for BuildConfig {
             batch_size: 0, // Default: batching enabled, no size limit
             output_dir: "out".into(),
             max_arg_len: default_max_arg_len(),
+            skip_missing_src_dirs: false,
         }
     }
 }
@@ -948,7 +961,7 @@ impl ProcessorConfig {
                 // guarded while the value itself was still rewritten).
                 if matches!(
                     inst.provenance.get(*field),
-                    Some(FieldProvenance::UserToml { .. } | FieldProvenance::CliOverride),
+                    Some(FieldProvenance::UserToml { .. } | FieldProvenance::LocalToml { .. } | FieldProvenance::CliOverride),
                 ) {
                     continue;
                 }
@@ -1535,13 +1548,49 @@ fn validate_analyzer_section(
     }
 }
 
+/// Read a config file and apply `[vars]` substitution to its content.
+/// Substitution is per-file: each file's `${...}` references resolve against
+/// its own `[vars]` section only.
+fn read_and_substitute(path: &Path) -> Result<String> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+    substitute_variables(&content)
+        .with_context(|| format!("Failed to substitute variables in: {}", path.display()))
+}
+
+/// Deep-merge `overlay` into `base`: tables merge recursively, while arrays
+/// and scalars from the overlay replace the base value wholesale. Keys only
+/// present in the overlay are added.
+fn merge_toml_values(base: &mut toml::Value, overlay: toml::Value) {
+    match (base, overlay) {
+        (toml::Value::Table(base_table), toml::Value::Table(overlay_table)) => {
+            for (key, overlay_val) in overlay_table {
+                match base_table.get_mut(&key) {
+                    Some(base_val) if base_val.is_table() && overlay_val.is_table() => {
+                        merge_toml_values(base_val, overlay_val);
+                    }
+                    _ => {
+                        base_table.insert(key, overlay_val);
+                    }
+                }
+            }
+        }
+        (base_val, overlay_val) => *base_val = overlay_val,
+    }
+}
+
 impl Config {
     pub(crate) fn require_config() -> Result<()> {
         let config_path = Path::new(CONFIG_FILE);
         if !config_path.exists() {
+            let message = if Path::new(LOCAL_CONFIG_FILE).exists() {
+                format!("{LOCAL_CONFIG_FILE} found without {CONFIG_FILE} — the local overlay only extends a main config file. Run 'rsconstruct init' to create one.")
+            } else {
+                "No rsconstruct.toml found. Run 'rsconstruct init' to create one.".to_string()
+            };
             return Err(crate::exit_code::RsconstructError::new(
                 crate::exit_code::RsconstructExitCode::ConfigError,
-                "No rsconstruct.toml found. Run 'rsconstruct init' to create one.",
+                message,
             ).into());
         }
         Ok(())
@@ -1549,14 +1598,26 @@ impl Config {
 
     pub(crate) fn load() -> Result<Self> {
         let config_path = Path::new(CONFIG_FILE);
+        let local_path = Path::new(LOCAL_CONFIG_FILE);
 
-        let (mut config, span_map, global_span_map) = if config_path.exists() {
-            let content = fs::read_to_string(config_path)
-                .with_context(|| format!("Failed to read config file: {}", config_path.display()))?;
-            let substituted = substitute_variables(&content)
-                .with_context(|| format!("Failed to substitute variables in: {}", config_path.display()))?;
-            let raw: toml::Value = toml::from_str(&substituted)
+        let (mut config, span_map, global_span_map, local_span_map, local_global_span_map) = if config_path.exists() {
+            let substituted = read_and_substitute(config_path)?;
+            let mut raw: toml::Value = toml::from_str(&substituted)
                 .with_context(|| format!("Failed to parse config file: {}", config_path.display()))?;
+            // Overlay: rsconstruct.local.toml, when present, is deep-merged
+            // over the main config. Tables merge recursively; arrays and
+            // scalars from the local file replace the main file's values.
+            // `[vars]` substitution is per-file: each file's `${...}`
+            // references resolve against its own `[vars]` section only.
+            let local_substituted = if local_path.exists() {
+                let local_content = read_and_substitute(local_path)?;
+                let local_raw: toml::Value = toml::from_str(&local_content)
+                    .with_context(|| format!("Failed to parse config file: {}", local_path.display()))?;
+                merge_toml_values(&mut raw, local_raw);
+                Some(local_content)
+            } else {
+                None
+            };
             // Run both schema validators before serde sees the config, so users
             // get pretty per-section errors instead of serde's raw messages.
             // Errors from both validators are surfaced together under a single
@@ -1566,21 +1627,31 @@ impl Config {
             if !all_errors.is_empty() {
                 anyhow::bail!("Invalid config:\n{}", all_errors.join("\n"));
             }
-            let config: Config = toml::from_str(&substituted)
+            let config: Config = raw.try_into()
                 .with_context(|| format!("Failed to parse config file: {}", config_path.display()))?;
-            // Capture byte-level spans from the substituted source so we can
-            // report user-set fields as `rsconstruct.toml:<line>` instead of
-            // the sentinel `line: 0` we seeded during deserialization.
+            // Capture byte-level spans from the substituted sources so we can
+            // report user-set fields as `rsconstruct.toml:<line>` (or
+            // `rsconstruct.local.toml:<line>`) instead of the sentinel
+            // `line: 0` we seeded during deserialization.
             let spans = provenance::build_span_map(&substituted);
             let global_spans = provenance::build_global_span_map(&substituted);
-            (config, spans, global_spans)
+            let (local_spans, local_global_spans) = match &local_substituted {
+                Some(content) => (provenance::build_span_map(content), provenance::build_global_span_map(content)),
+                None => (SpanMap::new(), provenance::GlobalSpanMap::new()),
+            };
+            (config, spans, global_spans, local_spans, local_global_spans)
         } else {
-            (Config::default(), SpanMap::new(), provenance::GlobalSpanMap::new())
+            if local_path.exists() {
+                anyhow::bail!(
+                    "{LOCAL_CONFIG_FILE} found without {CONFIG_FILE} — the local overlay only extends a main config file",
+                );
+            }
+            (Config::default(), SpanMap::new(), provenance::GlobalSpanMap::new(), SpanMap::new(), provenance::GlobalSpanMap::new())
         };
         config.processor.resolve_scan_defaults();
         config.processor.apply_output_dir_defaults(&config.build.output_dir);
-        config.apply_span_map(&span_map);
-        config.populate_global_provenance(&global_span_map)?;
+        config.apply_span_map(&span_map, &local_span_map);
+        config.populate_global_provenance(&global_span_map, &local_global_span_map)?;
         crate::phases::run_phase(crate::phases::Phase::PostConfig, &mut config)?;
         Ok(config)
     }
@@ -1622,6 +1693,7 @@ impl Config {
     fn populate_global_provenance(
         &mut self,
         global_spans: &provenance::GlobalSpanMap,
+        local_global_spans: &provenance::GlobalSpanMap,
     ) -> Result<()> {
         // Serialize the whole config once so we can walk each section's
         // effective keys without reaching into every section struct.
@@ -1636,11 +1708,17 @@ impl Config {
             }
             let Some(section_table) = section_value.as_table() else { continue };
             let user_fields = global_spans.get(section_name);
+            let local_fields = local_global_spans.get(section_name);
             let mut map = ProvenanceMap::new();
             for field in section_table.keys() {
-                let source = match user_fields.and_then(|f| f.get(field)) {
-                    Some(&line) => FieldProvenance::UserToml { line },
-                    None => FieldProvenance::SerdeDefault,
+                // The local overlay wins the merge, so a field set in both
+                // files is attributed to rsconstruct.local.toml.
+                let source = if let Some(&line) = local_fields.and_then(|f| f.get(field)) {
+                    FieldProvenance::LocalToml { line }
+                } else if let Some(&line) = user_fields.and_then(|f| f.get(field)) {
+                    FieldProvenance::UserToml { line }
+                } else {
+                    FieldProvenance::SerdeDefault
                 };
                 map.insert(field.clone(), source);
             }
@@ -1653,12 +1731,12 @@ impl Config {
     /// from the toml_edit pass. Any user-set field that didn't get a span
     /// stays at line 0 (fine — the `config show` formatter falls back to
     /// "from rsconstruct.toml" without a line number).
-    fn apply_span_map(&mut self, spans: &SpanMap) {
+    fn apply_span_map(&mut self, spans: &SpanMap, local_spans: &SpanMap) {
         for inst in &mut self.processor.instances {
-            apply_spans_to_instance(&mut inst.provenance, spans, Section::Processor, &inst.instance_name);
+            apply_spans_to_instance(&mut inst.provenance, spans, local_spans, Section::Processor, &inst.instance_name);
         }
         for inst in &mut self.analyzer.instances {
-            apply_spans_to_instance(&mut inst.provenance, spans, Section::Analyzer, &inst.instance_name);
+            apply_spans_to_instance(&mut inst.provenance, spans, local_spans, Section::Analyzer, &inst.instance_name);
         }
     }
 }
@@ -1666,6 +1744,7 @@ impl Config {
 fn apply_spans_to_instance(
     provenance: &mut ProvenanceMap,
     spans: &SpanMap,
+    local_spans: &SpanMap,
     section: Section,
     instance_name: &str,
 ) {
@@ -1675,7 +1754,12 @@ fn apply_spans_to_instance(
             if *line != 0 {
                 continue; // already enriched
             }
-            if let Some(&real_line) = spans.get(&(section, instance_name.to_string(), key.clone())) {
+            let span_key = (section, instance_name.to_string(), key.clone());
+            // The local overlay wins the merge, so a field set in both files
+            // is attributed to rsconstruct.local.toml.
+            if let Some(&real_line) = local_spans.get(&span_key) {
+                provenance.insert(key, FieldProvenance::LocalToml { line: real_line });
+            } else if let Some(&real_line) = spans.get(&span_key) {
                 provenance.insert(key, FieldProvenance::UserToml { line: real_line });
             }
         }

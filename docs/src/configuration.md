@@ -1,6 +1,8 @@
 # Configuration
 
 RSConstruct is configured via an `rsconstruct.toml` file in the project root.
+An optional `rsconstruct.local.toml` overlay, when present, is merged over the
+main file at load time — see [Local overlay](#local-overlay-rsconstructlocaltoml).
 
 ## Full reference
 
@@ -10,6 +12,7 @@ parallel = 1          # Number of parallel jobs (1 = sequential, 0 = auto-detect
                       # Also settable via RSCONSTRUCT_THREADS env var (CLI -j takes precedence)
 batch_size = 0        # Max files per batch for batch-capable processors (0 = no limit)
 output_dir = "out"    # Global output directory prefix for generator processors
+skip_missing_src_dirs = false  # true: missing src_dirs entries skip instead of fail
 
 # Declare processors by adding [processor.NAME] sections.
 # Only declared processors run — no processors are enabled by default.
@@ -131,6 +134,42 @@ src_exclude_dirs = "${kernel_excludes}"
 
 Variables are substituted before TOML parsing. The `"${var_name}"` (including quotes) is replaced with the TOML-serialized value, preserving types (arrays stay arrays, strings stay strings). Undefined variable references produce an error.
 
+## Local overlay (`rsconstruct.local.toml`)
+
+If a file named `rsconstruct.local.toml` exists next to `rsconstruct.toml`, it
+is loaded automatically and deep-merged over the main config. This lets many
+repos share one canonical, identical `rsconstruct.toml` while keeping
+repo-specific configuration — `[dependencies]` lists, `[processor.explicit.*]`
+generators, exclude lists, one-off workarounds — in the local file.
+
+Merge semantics:
+
+- **Tables merge recursively.** A local `[processor.mypy]` with only
+  `batch = false` adds that one key to the main file's mypy section; the rest
+  of the section is untouched.
+- **Arrays and scalars replace wholesale.** If the local file sets
+  `src_dirs`, that exact list is used — values are never concatenated, so the
+  local file can also *remove* entries by setting a shorter list.
+- **Local-only sections are added.** The overlay can declare whole processors,
+  analyzers, or global sections the main file doesn't have.
+
+Rules and caveats:
+
+- The overlay only extends a main config: `rsconstruct.local.toml` without an
+  `rsconstruct.toml` is an error.
+- `[vars]` substitution is per-file — each file's `${...}` references resolve
+  against its own `[vars]` section only.
+- The merged result is validated as one config, so unknown fields or type
+  errors in the local file are reported the same way as in the main file.
+- `rsconstruct processors config <iname>` shows the merged values.
+- In watch mode, both files are watched for changes.
+
+Combined with [`skip_missing_src_dirs`](#build), this supports the
+shared-config pattern: one identical `rsconstruct.toml` distributed across
+many repos (each processor only activates where its directories exist), plus a
+small optional `rsconstruct.local.toml` per repo for what's genuinely
+repo-specific.
+
 ## Section details
 
 ### `[build]`
@@ -140,6 +179,7 @@ Variables are substituted before TOML parsing. The `"${var_name}"` (including qu
 | `parallel` | integer | `1` | Number of parallel jobs. `1` = sequential, `0` = auto-detect CPU cores. Can also be set via the `RSCONSTRUCT_THREADS` environment variable (CLI `-j` takes precedence). |
 | `batch_size` | integer | `0` | Maximum files per batch for batch-capable processors. `0` = no limit (all files in one batch). To disable batching, pass `--batch-size -1` on the CLI or set `batch = false` on individual processors. |
 | `output_dir` | string | `"out"` | Global output directory prefix. Processor `output_dir` defaults that start with `out/` are remapped to use this prefix (e.g., setting `"build"` changes `out/marp` to `build/marp`). Individual processors can still override their `output_dir` explicitly. |
+| `skip_missing_src_dirs` | boolean | `false` | When `true`, a `src_dirs` entry that doesn't exist on disk deactivates the processor's scan of that directory instead of failing the build. Lets one shared config file serve repos with different layouts: a processor whose directories are all absent simply matches no files. Skipped entries are listed when running with `--phases`. Leave `false` so a missing directory is caught as a typo. |
 
 The `output_dir` prefix is purely a layout choice — `rsconstruct clean outputs` does not special-case it. Cleanup is driven by per-product `outputs` and `output_dirs` declarations, then a generic empty-directory sweep walks parents bottom-up. See [Clean behavior](processors.md#clean-behavior) and [`rsconstruct clean`](commands.md#rsconstruct-clean) for details.
 
@@ -158,7 +198,7 @@ Common fields available to all processors:
 | `dep_auto` | array of strings | varies | Config files auto-detected as inputs (e.g., `.pylintrc`). |
 | `batch` | boolean | `true` | Whether to batch multiple files into a single tool invocation. Note: in fail-fast mode (default), chunk size is 1 regardless of this setting — batch mode only groups files with `--keep-going` or `--batch-size`. For external tools, a batch failure marks all products in the chunk as failed. Internal processors (`i`-prefixed) return per-file results, so partial failure is handled correctly. |
 | `max_jobs` | integer | none | Maximum concurrent jobs for this processor. When set, limits how many instances of this processor run in parallel, regardless of the global `-j` setting. Useful for heavyweight processors (e.g., `marp` spawns Chromium). Omit to use the global parallelism. |
-| `src_dirs` | array of strings | varies | Directories to scan for source files. **Required** for most processors (defaults to `[]`). Processors with a specific default (e.g., `tera` defaults to `"tera.templates"`, `cc_single_file` defaults to `"src"`) do not require this. Not required when `src_files` is set. **Every entry must exist on disk** (or be the declared output target of an upstream processor) — a missing directory fails the build with `src_dirs entry 'X' does not exist or is not a directory`. Use `rsconstruct processors defconfig <name>` to see a processor's defaults. |
+| `src_dirs` | array of strings | varies | Directories to scan for source files. **Required** for most processors (defaults to `[]`). Processors with a specific default (e.g., `tera` defaults to `"tera.templates"`, `cc_single_file` defaults to `"src"`) do not require this. Not required when `src_files` is set. **Every entry must exist on disk** (or be the declared output target of an upstream processor) — a missing directory fails the build with `src_dirs entry 'X' does not exist or is not a directory`, unless `[build] skip_missing_src_dirs = true` is set, in which case the missing entry is skipped and the processor simply matches no files there. Use `rsconstruct processors defconfig <name>` to see a processor's defaults. |
 | `src_extensions` | array of strings | varies | File extensions to match. |
 | `src_exclude_dirs` | array of strings | varies | Directory path segments to exclude from scanning. |
 | `src_exclude_files` | array of strings | `[]` | File names to exclude. |

@@ -611,7 +611,17 @@ impl Builder {
             }
         }
         if !missing.is_empty() {
-            anyhow::bail!("Invalid config:\n{}", missing.join("\n"));
+            if self.config.build.skip_missing_src_dirs {
+                if debug {
+                    for entry in &missing {
+                        eprintln!("{}", color::dim(&format!(
+                            "    skip_missing_src_dirs: {entry} (skipped)"
+                        )));
+                    }
+                }
+            } else {
+                anyhow::bail!("Invalid config:\n{}", missing.join("\n"));
+            }
         }
         Ok(())
     }
@@ -771,10 +781,12 @@ impl Builder {
     pub fn watch_paths(&self) -> Vec<PathBuf> {
         let mut paths: Vec<PathBuf> = Vec::new();
 
-        // Always watch rsconstruct.toml
-        let config_path = PathBuf::from("rsconstruct.toml");
-        if config_path.exists() {
-            paths.push(config_path);
+        // Always watch rsconstruct.toml and its local overlay
+        for name in ["rsconstruct.toml", crate::config::LOCAL_CONFIG_FILE] {
+            let config_path = PathBuf::from(name);
+            if config_path.exists() {
+                paths.push(config_path);
+            }
         }
 
         // Add scan directories from all processor configs

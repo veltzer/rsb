@@ -351,6 +351,49 @@ fn analyzer_validator_is_noop_without_analyzer_section() {
     assert!(errors.is_empty());
 }
 
+// Tests for merge_toml_values (rsconstruct.local.toml overlay semantics)
+
+use crate::config::merge_toml_values;
+
+#[test]
+fn merge_tables_recursively() {
+    let mut base = toml_of("[processor.mypy]\nsrc_dirs = [\"src\"]\nbatch = true\n");
+    let overlay = toml_of("[processor.mypy]\nbatch = false\n");
+    merge_toml_values(&mut base, overlay);
+    let mypy = base.get("processor").unwrap().get("mypy").unwrap();
+    // Untouched key survives; overlaid key is replaced.
+    assert_eq!(mypy.get("src_dirs").unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(mypy.get("batch").unwrap().as_bool(), Some(false));
+}
+
+#[test]
+fn merge_arrays_replace_wholesale() {
+    let mut base = toml_of("[processor.ruff]\nsrc_dirs = [\"src\", \"config\"]\n");
+    let overlay = toml_of("[processor.ruff]\nsrc_dirs = [\"scripts\"]\n");
+    merge_toml_values(&mut base, overlay);
+    let dirs = base.get("processor").unwrap().get("ruff").unwrap()
+        .get("src_dirs").unwrap().as_array().unwrap().clone();
+    assert_eq!(dirs, vec![toml::Value::String("scripts".into())]);
+}
+
+#[test]
+fn merge_adds_overlay_only_sections() {
+    let mut base = toml_of("[processor.tera]\n");
+    let overlay = toml_of("[dependencies]\npip = [\"requests\"]\n\n[processor.ruff]\nsrc_dirs = [\"src\"]\n");
+    merge_toml_values(&mut base, overlay);
+    assert!(base.get("dependencies").is_some());
+    assert!(base.get("processor").unwrap().get("tera").is_some());
+    assert!(base.get("processor").unwrap().get("ruff").is_some());
+}
+
+#[test]
+fn merge_scalar_replaces_scalar() {
+    let mut base = toml_of("[build]\noutput_dir = \"out\"\n");
+    let overlay = toml_of("[build]\noutput_dir = \"dist\"\n");
+    merge_toml_values(&mut base, overlay);
+    assert_eq!(base.get("build").unwrap().get("output_dir").unwrap().as_str(), Some("dist"));
+}
+
 #[test]
 fn processor_and_analyzer_validators_are_independent() {
     // Processor errors and analyzer errors must both be reported — neither
