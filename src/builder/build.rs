@@ -75,6 +75,54 @@ fn expand_aliases(filter: &[String], processors: &ProcessorMap) -> Vec<String> {
     expanded
 }
 
+/// Verify that every enabled processor's required tools exist on PATH.
+/// `only` restricts the check to the named processor instances (used by the
+/// deferred, product-aware check in shared-config mode); `None` checks every
+/// enabled instance that passes `processor_filter`.
+fn check_required_tools(
+    processors: &ProcessorMap,
+    processor_filter: Option<&[String]>,
+    only: Option<&std::collections::HashSet<&str>>,
+) -> Result<()> {
+    let active_names: Vec<&String> = processors.keys()
+        .filter(|k| processor_filter.is_none_or(|filter| filter.iter().any(|f| f == *k)))
+        .filter(|k| only.is_none_or(|set| set.contains(k.as_str())))
+        .filter(|k| processors[*k].scan_config().enabled)
+        .collect();
+    let mut missing: Vec<(String, Vec<String>)> = Vec::new();
+    let mut checked: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for name in &active_names {
+        for tool in processors[*name].required_tools() {
+            if !checked.insert(tool.clone()) {
+                continue;
+            }
+            if which::which(&tool).is_err() {
+                let procs: Vec<String> = active_names.iter()
+                    .filter(|n| processors[**n].required_tools().contains(&tool))
+                    .map(|n| (*n).clone())
+                    .collect();
+                missing.push((tool, procs));
+            }
+        }
+    }
+    if !missing.is_empty() {
+        missing.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut msg = String::from("Missing required tools:\n");
+        for (tool, procs) in &missing {
+            let install_hint = crate::processors::tool_install_command(tool)
+                .map(|cmd| format!("  install: {cmd}"))
+                .unwrap_or_default();
+            msg.push_str(&format!("  {} (needed by: {}){}\n", tool, procs.join(", "), install_hint));
+        }
+        msg.push_str("\nRun `rsconstruct tools install` to install missing tools.");
+        return Err(crate::exit_code::RsconstructError::new(
+            crate::exit_code::RsconstructExitCode::ToolError,
+            msg.trim_end(),
+        ).into());
+    }
+    Ok(())
+}
+
 impl Builder {
     /// Execute an incremental build using the dependency graph
     pub fn build(&mut self, ctx: &crate::build_context::BuildContext, opts: &BuildOptions, interrupted: Arc<std::sync::atomic::AtomicBool>, init_timings: Vec<(String, Duration)>) -> Result<(), anyhow::Error> {
@@ -160,42 +208,13 @@ impl Builder {
         // Pre-flight: verify all required tools are available for declared processors.
         // Disabled instances (`enabled = false`) are exempt — disabling a
         // processor exists precisely to keep its stanza while its tool is absent.
-        {
-            let active_names: Vec<&String> = processors.keys()
-                .filter(|k| processor_filter.is_none_or(|filter| filter.iter().any(|f| f == *k)))
-                .filter(|k| processors[*k].scan_config().enabled)
-                .collect();
-            let mut missing: Vec<(String, Vec<String>)> = Vec::new();
-            let mut checked: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for name in &active_names {
-                for tool in processors[*name].required_tools() {
-                    if !checked.insert(tool.clone()) {
-                        continue;
-                    }
-                    if which::which(&tool).is_err() {
-                        let procs: Vec<String> = active_names.iter()
-                            .filter(|n| processors[**n].required_tools().contains(&tool))
-                            .map(|n| (*n).clone())
-                            .collect();
-                        missing.push((tool, procs));
-                    }
-                }
-            }
-            if !missing.is_empty() {
-                missing.sort_by(|a, b| a.0.cmp(&b.0));
-                let mut msg = String::from("Missing required tools:\n");
-                for (tool, procs) in &missing {
-                    let install_hint = crate::processors::tool_install_command(tool)
-                        .map(|cmd| format!("  install: {cmd}"))
-                        .unwrap_or_default();
-                    msg.push_str(&format!("  {} (needed by: {}){}\n", tool, procs.join(", "), install_hint));
-                }
-                msg.push_str("\nRun `rsconstruct tools install` to install missing tools.");
-                return Err(crate::exit_code::RsconstructError::new(
-                    crate::exit_code::RsconstructExitCode::ToolError,
-                    msg.trim_end(),
-                ).into());
-            }
+        // In shared-config mode (skip_missing_src_dirs), the check is deferred
+        // until after the graph is built and restricted to processors that
+        // actually discovered products — a processor with no work in this
+        // repo doesn't need its tool installed.
+        let deferred_tool_check = self.config.build.skip_missing_src_dirs;
+        if !deferred_tool_check {
+            check_required_tools(&processors, processor_filter, None)?;
         }
 
         // Check for config changes and display diffs
@@ -203,6 +222,13 @@ impl Builder {
 
         // Build the dependency graph (may stop early based on stop_after)
         let (mut graph, mut phase_timings) = self.build_graph_with_processors_and_phase(ctx, &processors, opts.stop_after, processor_filter, opts.verbose)?;
+
+        if deferred_tool_check {
+            let with_products: std::collections::HashSet<&str> = graph.products().iter()
+                .map(|p| p.processor.as_str())
+                .collect();
+            check_required_tools(&processors, processor_filter, Some(&with_products))?;
+        }
 
         // Filter by target patterns if specified
         if let Some(ref targets) = opts.targets {

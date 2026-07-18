@@ -48,6 +48,50 @@ fn skip_missing_src_dirs_allows_missing_dirs() {
 }
 
 #[test]
+fn skip_missing_src_dirs_defers_tool_check_to_processors_with_products() {
+    // In shared-config mode a declared processor whose tool is absent must
+    // not fail the build when it also has no products in this repo.
+    let temp_dir = setup_project_with_config(concat!(
+        "[build]\n",
+        "skip_missing_src_dirs = true\n",
+        "\n",
+        "[processor.tera]\n",
+        "\n",
+        "[processor.script.ghost_check]\n",
+        "command = \"scripts/does_not_exist.py\"\n",
+        "src_dirs = [\"ghost_src\"]\n",
+        "src_extensions = [\".md\"]\n",
+    ));
+    let project = temp_dir.path();
+    write_file(project, "tera.templates/out.txt.tera", "ok");
+
+    let output = run_rsconstruct(project, &["build"]);
+    assert!(
+        output.status.success(),
+        "tool-less zero-product processor should not fail the build: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(project.join("out.txt").exists());
+}
+
+#[test]
+fn missing_tool_still_fails_without_skip_flag() {
+    let temp_dir = setup_project_with_config(concat!(
+        "[processor.script.ghost_check]\n",
+        "command = \"scripts/does_not_exist.py\"\n",
+        "src_dirs = [\"ghost_src\"]\n",
+        "src_extensions = [\".md\"]\n",
+    ));
+    let output = run_rsconstruct(temp_dir.path(), &["build"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Missing required tools"),
+        "expected strict tool preflight, got: {stderr}"
+    );
+}
+
+#[test]
 fn local_overlay_disables_processor() {
     let temp_dir = setup_project_with_config("[processor.tera]\n");
     let project = temp_dir.path();
