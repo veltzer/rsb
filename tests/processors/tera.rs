@@ -988,3 +988,140 @@ fn copyright_years_uses_first_commit_year() {
         report
     );
 }
+
+#[test]
+fn analyzer_tracks_load_python_without_dep_inputs() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Analyzers run only when declared, and the whole point of these tests is
+    // the analyzer's own dependency discovery — no dep_inputs anywhere.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[analyzer.tera]\n\n[processor.tera]\n"
+    ).unwrap();
+
+    fs::write(
+        project_path.join("config/tracked.py"),
+        "name = 'Original'"
+    ).unwrap();
+
+    // No dep_inputs anywhere: the analyzer alone must discover that the
+    // template reads config/tracked.py through load_python(path="...").
+    fs::write(
+        project_path.join("tera.templates/tracked.txt.tera"),
+        "{% set c = load_python(path='config/tracked.py') %}Name: {{ c.name }}"
+    ).unwrap();
+
+    let output1 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output1.status.success(),
+        "First build failed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output1.stdout),
+        String::from_utf8_lossy(&output1.stderr));
+
+    // Wait so mtime differs
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    fs::write(
+        project_path.join("config/tracked.py"),
+        "name = 'Modified'"
+    ).unwrap();
+
+    let output2 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output2.status.success());
+    let content = fs::read_to_string(project_path.join("tracked.txt")).unwrap();
+    assert!(content.contains("Modified"),
+        "Editing a load_python config must rebuild the product: {}", content);
+}
+
+#[test]
+fn analyzer_tracks_version_str_default_path() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Analyzers run only when declared, and the whole point of these tests is
+    // the analyzer's own dependency discovery — no dep_inputs anywhere.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[analyzer.tera]\n\n[processor.tera]\n"
+    ).unwrap();
+
+    // version_str() with no arguments reads config/version.py; the analyzer
+    // must track that default even though no path appears in the template.
+    fs::write(
+        project_path.join("config/version.py"),
+        "tup = (1, 2, 3)"
+    ).unwrap();
+
+    fs::write(
+        project_path.join("tera.templates/version.txt.tera"),
+        "version: {{ version_str() }}"
+    ).unwrap();
+
+    let output1 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output1.status.success(),
+        "First build failed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output1.stdout),
+        String::from_utf8_lossy(&output1.stderr));
+    let content = fs::read_to_string(project_path.join("version.txt")).unwrap();
+    assert!(content.contains("1.2.3"), "Got: {}", content);
+
+    // Wait so mtime differs
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    fs::write(
+        project_path.join("config/version.py"),
+        "tup = (1, 2, 4)"
+    ).unwrap();
+
+    let output2 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output2.status.success());
+    let content = fs::read_to_string(project_path.join("version.txt")).unwrap();
+    assert!(content.contains("1.2.4"),
+        "Bumping config/version.py must rebuild a version_str() product: {}", content);
+}
+
+#[test]
+fn analyzer_tracks_version_str_explicit_lua_path() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Analyzers run only when declared, and the whole point of these tests is
+    // the analyzer's own dependency discovery — no dep_inputs anywhere.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[analyzer.tera]\n\n[processor.tera]\n"
+    ).unwrap();
+
+    fs::write(
+        project_path.join("config/version.lua"),
+        "tup = { 2, 0, 0 }"
+    ).unwrap();
+
+    fs::write(
+        project_path.join("tera.templates/vlua.txt.tera"),
+        r#"version: {{ version_str(path="config/version.lua") }}"#
+    ).unwrap();
+
+    let output1 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output1.status.success(),
+        "First build failed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output1.stdout),
+        String::from_utf8_lossy(&output1.stderr));
+    let content = fs::read_to_string(project_path.join("vlua.txt")).unwrap();
+    assert!(content.contains("2.0.0"), "Got: {}", content);
+
+    // Wait so mtime differs
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    fs::write(
+        project_path.join("config/version.lua"),
+        "tup = { 2, 0, 1 }"
+    ).unwrap();
+
+    let output2 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output2.status.success());
+    let content = fs::read_to_string(project_path.join("vlua.txt")).unwrap();
+    assert!(content.contains("2.0.1"),
+        "Bumping the version_str(path=...) file must rebuild the product: {}", content);
+}

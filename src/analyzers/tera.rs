@@ -2,6 +2,10 @@
 //!
 //! Scans Tera template files for `{% include %}`, `{% import %}`, and `{% extends %}`
 //! directives and adds referenced template files as dependencies to products in the build graph.
+//! Also scans for the file-reading template functions (`load_python`/`load_lua`/`load_data`/
+//! `load_json`/`load_toml`/`load_csv` and `version_str`) so the files they read are
+//! content-tracked inputs, and for `glob`/`git_count_files`/`grep_count`/`shell_output`
+//! whose resolved path sets and command literals enter the cache hash.
 
 use anyhow::{Result, bail};
 use regex::Regex;
@@ -87,10 +91,20 @@ fn scan_template_recursive(
             .expect(errors::INVALID_REGEX)
     });
 
-    // load_lua/load_data/load_json/load_toml/load_csv(path="...")
+    // load_python/load_lua/load_data/load_json/load_toml/load_csv(path="...")
     static LOAD_RE: OnceLock<Regex> = OnceLock::new();
     let load_re = LOAD_RE.get_or_init(|| {
-        Regex::new(r#"load_(?:lua|data|json|toml|csv)\s*\(\s*path\s*=\s*["']([^"']+)["']"#)
+        Regex::new(r#"load_(?:python|lua|data|json|toml|csv)\s*\(\s*path\s*=\s*["']([^"']+)["']"#)
+            .expect(errors::INVALID_REGEX)
+    });
+
+    // version_str() / version_str(path="...") — reads a `tup` from the file at
+    // `path`, defaulting to config/version.py when called without arguments.
+    // The default must mirror VersionStrFunction in processors/generators/tera.rs
+    // or the analyzer would track a different file than the renderer reads.
+    static VERSION_STR_RE: OnceLock<Regex> = OnceLock::new();
+    let version_str_re = VERSION_STR_RE.get_or_init(|| {
+        Regex::new(r#"version_str\s*\(\s*(?:path\s*=\s*["']([^"']+)["'])?\s*\)"#)
             .expect(errors::INVALID_REGEX)
     });
 
@@ -176,6 +190,20 @@ fn scan_template_recursive(
     }
     for caps in load_re.captures_iter(&content) {
         let path_str = &caps[1];
+        if path_str.is_empty() {
+            continue;
+        }
+        let candidates = [source_dir.join(path_str), PathBuf::from(path_str)];
+        for candidate in &candidates {
+            if candidate.is_file() && !seen.contains(candidate) {
+                seen.insert(candidate.clone());
+                paths.push(candidate.clone());
+                break;
+            }
+        }
+    }
+    for caps in version_str_re.captures_iter(&content) {
+        let path_str = caps.get(1).map_or("config/version.py", |m| m.as_str());
         if path_str.is_empty() {
             continue;
         }
