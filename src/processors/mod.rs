@@ -1313,13 +1313,14 @@ fn resolve_latest_deb_asset(repo: &str, asset_pattern: &str) -> anyhow::Result<S
     release["assets"].as_array()
         .with_context(|| format!("GitHub release for {repo} has no 'assets' array"))?
         .iter()
-        .filter_map(|a| {
+        .find_map(|a| {
             let name = a["name"].as_str()?;
-            (name.contains(asset_pattern) && name.ends_with(".deb"))
+            let is_deb = std::path::Path::new(name).extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("deb"));
+            (name.contains(asset_pattern) && is_deb)
                 .then(|| a["browser_download_url"].as_str())?
                 .map(std::string::ToString::to_string)
         })
-        .next()
         .with_context(|| format!(
             "No .deb asset matching '{asset_pattern}' in the latest {repo} release"
         ))

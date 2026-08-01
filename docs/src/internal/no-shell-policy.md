@@ -75,7 +75,7 @@ The complete list of allowed shell call sites, as of this writing, is:
 | `src/processors/generators/cc_single_file.rs` (two)     | `EXTRA_COMPILE_SHELL` / `EXTRA_LINK_SHELL` and backtick expansion in C source pragmas. Users write things like `pkg-config --cflags gtk+-3.0` in source comments and expect shell semantics. |
 | `src/analyzers/mod.rs`                                  | `include_path_commands` config in the icpp analyzer. Documented to run via `sh -c` so users can write commands like `gcc -print-file-name=plugin`.                                          |
 | `src/processors/generators/tera.rs`                     | The `shell_output()` Tera template function. The function name *is* the contract — it executes a shell command and returns the output for use in templates.                               |
-| `src/builder/tools.rs` (one branch in `tools install`) | Free-form `binary` / `manual` install methods in the static tool registry contain shell pipelines (`curl ... \| tar -xz ...`). The data is internal and not user-supplied, but it is shaped as a shell pipeline. |
+| `src/processors/mod.rs` (`run` / `run_binary` in `tools install`) | Not a shell exception: installers run argv-style via `Command`, never through `sh -c`. They are the documented exception to the *central-runner* rule instead — they inherit the terminal so `sudo` can prompt and apt/dnf can render progress. |
 
 Each exception above is **opt-in** from the user's perspective: the user
 writes a string into a place documented as "this is shell syntax". None of
