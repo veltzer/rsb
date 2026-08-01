@@ -104,8 +104,17 @@ impl ObjectStore {
         match descriptor {
             CacheDescriptor::Marker => ExplainAction::Skip,
             CacheDescriptor::Blob { checksum, .. } => {
-                for p in output_paths {
-                    if !p.exists() {
+                // Same tiered verification as needs_rebuild_descriptor: the
+                // first output is content-verified (its checksum is the
+                // descriptor), extras are existence-checked only — --explain
+                // must never disagree with what the build would do.
+                for (i, p) in output_paths.iter().enumerate() {
+                    let needs_restore = if i == 0 {
+                        !p.exists() || Self::calculate_checksum(p).ok().as_ref() != Some(&checksum)
+                    } else {
+                        !p.exists()
+                    };
+                    if needs_restore {
                         let display = p.display().to_string();
                         if self.has_object(&checksum) {
                             return ExplainAction::Restore(RebuildReason::OutputMissing(display));

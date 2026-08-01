@@ -6,10 +6,17 @@ RSConstruct uses a content-addressed cache to enable fast incremental builds. Th
 
 The cache lives in `.rsconstruct/` and consists of:
 
-- `objects/` — content-addressed object store (all cache data)
+- `objects/` — content-addressed blob store, sharded by the first two hex
+  characters of the content hash
+- `descriptors/` — cache descriptors (marker/blob/tree JSON), sharded the
+  same way but addressed by the descriptor key rather than by content
+- `db.redb` — redb database holding the `processor_configs` table used for
+  config-change diffing
 - `deps.redb` — source file dependency cache (see [Dependency Caching](dependency-caching.md))
-
-There is no separate database. The object store is the cache.
+- `mtime.redb` — mtime→checksum pre-check cache that lets unchanged files
+  skip re-hashing
+- `webcache.redb` — HTTP request cache for processors that fetch remote
+  resources
 
 ## Data model
 
@@ -31,15 +38,15 @@ A blob is pure content — it has no knowledge of where it will be restored. Thi
 
 ### Trees
 
-A tree is a serialized list of `(path, mode, blob_checksum)` entries describing a set of output files. Trees are stored in the object store, addressed by the cache key (not by content hash). A tree maps relative file paths to content-addressed blobs. Multiple trees can point to the same blobs — deduplication happens at the blob level.
+A tree is a serialized list of `(path, mode, blob_checksum)` entries describing a set of output files. Trees are stored as descriptors under `descriptors/`, addressed by the descriptor key (not by content hash). A tree maps relative file paths to content-addressed blobs. Multiple trees can point to the same blobs — deduplication happens at the blob level.
 
 ### Markers
 
-A marker is a zero-byte object indicating that a check passed. Markers are stored in the object store, addressed by the cache key.
+A marker is a minimal descriptor indicating that a check passed. Markers are stored under `descriptors/`, addressed by the descriptor key, and reference no blobs.
 
 ### Cache entries
 
-A cache entry is a small descriptor stored in the object store at the path derived from the cache key. It contains:
+A cache entry is a small JSON descriptor stored under `.rsconstruct/descriptors/` at the path derived from the descriptor key. It contains:
 
 ```json
 {"type": "blob", "checksum": "abc123...", "mode": 493}
@@ -61,28 +68,37 @@ or:
 
 The actual file content lives in separate content-addressed blob objects. The cache entry is just a pointer (for generators) or a manifest (for creators).
 
-### Object store layout
+### On-disk layout
 
 ```
 .rsconstruct/objects/
-  a1/b2c3d4...    # could be a blob (raw file content)
-  ff/0011aa...    # could be a cache entry (JSON descriptor)
-  cd/ef5678...    # could be another blob
+  a1/b2c3d4...    # blob (raw file content), addressed by content hash
+  cd/ef5678...    # another blob (".zst" suffix when compressed)
+.rsconstruct/descriptors/
+  ff/0011aa...    # descriptor (JSON), addressed by descriptor key
 ```
 
-Cache entries and blobs share the same object store. Cache entries are addressed by cache key hash; blobs are addressed by content hash.
+Descriptors and blobs live in separate directories with the same two-hex-char
+sharding. Keeping them separate is what lets `cache trim` delete unreferenced
+blobs by scanning the descriptors.
 
 ## Cache keys
 
-The cache key identifies a product. It is computed as:
+The descriptor key identifies a product build. It is computed as
+(`Product::descriptor_key` in `src/graph.rs`):
 
 ```
-hash(processor_name, config_hash, input_content_hash)
+hash(processor_name, processor_version, config_hash, variant, input_content_hash)
 ```
 
 Where:
 - `processor_name` — the processor type (e.g., `pandoc`, `ruff`)
+- `processor_version` — the processor's cache version from the plugin
+  registry; bumping it invalidates every entry the processor ever produced
+  (see [Processor versioning](processor-versioning.md))
 - `config_hash` — hash of the processor configuration (compiler flags, args, etc.)
+- `variant` — distinguishes multiple products from the same input (e.g. one
+  per output format)
 - `input_content_hash` — combined SHA-256 hash of all input file contents
 
 The key is **content-addressed**: it depends on what the inputs contain, not what they're named. Renaming a file without changing its content produces the same cache key.
@@ -91,13 +107,9 @@ The key is **content-addressed**: it depends on what the inputs contain, not wha
 
 For processors that produce multiple output formats from the same input (e.g., pandoc producing PDF, HTML, and DOCX), each format is a separate product with a separate cache key. The output format is part of the config hash, so each format gets its own key naturally.
 
-### Output depends on input name
+### Output depends on input name (known limitation)
 
-Most processors produce output that depends only on input content. However, some processors embed the input filename in the output (e.g., a `// Generated from foo.c` header). For these processors, the `output_depends_on_input_name` property is set to `true`, and the input file path is included in the cache key:
-
-```
-hash(processor_name, config_hash, input_content_hash, input_path)
-```
+Most processors produce output that depends only on input content. However, a processor that embeds the input filename in its output (e.g., a `// Generated from foo.c` header) can get a false cache hit when a file is renamed without a content change, because the descriptor key hashes input *content*, not input *path*. A per-processor `output_depends_on_input_name` opt-in is planned but not implemented (see `todo.md`). In practice the common rename case is covered anyway: the output path is part of the product's identity via `Product::cache_key()`, so a rename that also changes the output name forces a rebuild.
 
 ## Flows
 
@@ -181,7 +193,7 @@ Hardlinks work because blob objects contain raw file content (not wrapped in a d
 - **Checkers**: Nothing to delete. Next build skips.
 - **Creators**: Output directories deleted. Next build restores from tree.
 
-**`rsconstruct cache clear`** wipes everything — descriptors and blobs. A cleared cache means "forget everything, rebuild from scratch." The entire `.rsconstruct/` directory is removed. If only blobs were cleared but descriptors survived, the cache would think outputs are available but fail to restore them. Clearing both together avoids this inconsistency.
+**`rsconstruct cache clear`** wipes everything — descriptors and blobs. A cleared cache means "forget everything, rebuild from scratch." The entire `.rsconstruct/` directory is removed, which also takes the auxiliary caches (`mtime.redb`, `deps.redb`, `webcache.redb`) with it. If only blobs were cleared but descriptors survived, the cache would think outputs are available but fail to restore them. Clearing both together avoids this inconsistency.
 
 ## Incremental rebuild after partial failure
 

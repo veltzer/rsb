@@ -23,7 +23,10 @@ use crate::config::{
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 
-/// Processor name constants — auto-generated from the central registry in `src/registry.rs`.
+/// Processor name constants for the handful of processors referenced by name
+/// in core code. The authoritative plugin registry is
+/// `src/registries/processor.rs`, populated at link time via
+/// `inventory::submit!` from each processor file.
 pub mod names {
     pub const TERA: &str = "tera";
     pub const CC_SINGLE_FILE: &str = "cc_single_file";

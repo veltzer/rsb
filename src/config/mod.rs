@@ -1555,7 +1555,8 @@ fn read_and_substitute(path: &Path) -> Result<String> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;
     substitute_variables(&content)
-        .with_context(|| format!("Failed to substitute variables in: {}", path.display()))
+        .map_err(|e| crate::exit_code::config_error(
+            format!("Failed to substitute variables in {}: {e:#}", path.display())))
 }
 
 /// Deep-merge `overlay` into `base`: tables merge recursively, while arrays
@@ -1603,7 +1604,8 @@ impl Config {
         let (mut config, span_map, global_span_map, local_span_map, local_global_span_map) = if config_path.exists() {
             let substituted = read_and_substitute(config_path)?;
             let mut raw: toml::Value = toml::from_str(&substituted)
-                .with_context(|| format!("Failed to parse config file: {}", config_path.display()))?;
+                .map_err(|e| crate::exit_code::config_error(
+                    format!("Failed to parse config file {}: {e}", config_path.display())))?;
             // Overlay: rsconstruct.local.toml, when present, is deep-merged
             // over the main config. Tables merge recursively; arrays and
             // scalars from the local file replace the main file's values.
@@ -1612,7 +1614,8 @@ impl Config {
             let local_substituted = if local_path.exists() {
                 let local_content = read_and_substitute(local_path)?;
                 let local_raw: toml::Value = toml::from_str(&local_content)
-                    .with_context(|| format!("Failed to parse config file: {}", local_path.display()))?;
+                    .map_err(|e| crate::exit_code::config_error(
+                        format!("Failed to parse config file {}: {e}", local_path.display())))?;
                 merge_toml_values(&mut raw, local_raw);
                 Some(local_content)
             } else {
@@ -1625,10 +1628,12 @@ impl Config {
             let mut all_errors = validate_processor_fields_raw(&raw);
             all_errors.extend(validate_analyzer_fields_raw(&raw));
             if !all_errors.is_empty() {
-                anyhow::bail!("Invalid config:\n{}", all_errors.join("\n"));
+                return Err(crate::exit_code::config_error(
+                    format!("Invalid config:\n{}", all_errors.join("\n"))));
             }
             let config: Config = raw.try_into()
-                .with_context(|| format!("Failed to parse config file: {}", config_path.display()))?;
+                .map_err(|e| crate::exit_code::config_error(
+                    format!("Failed to parse config file {}: {e}", config_path.display())))?;
             // Capture byte-level spans from the substituted sources so we can
             // report user-set fields as `rsconstruct.toml:<line>` (or
             // `rsconstruct.local.toml:<line>`) instead of the sentinel
@@ -1652,7 +1657,7 @@ impl Config {
         config.processor.apply_output_dir_defaults(&config.build.output_dir);
         config.apply_span_map(&span_map, &local_span_map);
         config.populate_global_provenance(&global_span_map, &local_global_span_map)?;
-        crate::phases::run_phase(crate::phases::Phase::PostConfig, &mut config)?;
+        crate::phases::run_post_config_hooks(&mut config)?;
         Ok(config)
     }
 
@@ -1930,7 +1935,6 @@ fn eatmydata_ci_default(config: &mut Config) -> anyhow::Result<()> {
 
 inventory::submit! { crate::phases::PhaseHook {
     name: "eatmydata_ci_default",
-    phase: crate::phases::Phase::PostConfig,
     description: "When CI=true, enable eatmydata wrapping for apt/dnf/pacman installs",
     function: concat!(module_path!(), "::eatmydata_ci_default"),
     location: concat!(file!(), ":", line!()),

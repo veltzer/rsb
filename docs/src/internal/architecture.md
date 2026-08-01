@@ -6,7 +6,7 @@ This page describes RSConstruct's internal design for contributors and those int
 
 ### Processors
 
-Processors implement the `ProductDiscovery` trait. Each processor:
+Processors implement the `Processor` trait (`src/processors/mod.rs`). Each processor:
 
 1. **Auto-detects** whether it is relevant for the current project
 2. Scans the project for source files matching its conventions
@@ -19,63 +19,28 @@ Run `rsconstruct processors list` to see all available processors and their auto
 
 Every processor implements `auto_detect()`, which returns `true` if the processor appears relevant for the current project based on filesystem heuristics. This allows RSConstruct to guess which processors a project needs without requiring manual configuration.
 
-The `ProductDiscovery` trait requires four methods:
+Only two `Processor` methods are required — `scan_config()` and
+`execute(ctx, product)`. Everything else has a default implementation driven
+by the processor's `StandardConfig`. The main methods:
 
 | Method | Purpose |
 |---|---|
-| `auto_detect(file_index)` | Return `true` if the project looks like it needs this processor |
-| `discover(graph, file_index)` | Query the file index and add products to the build graph |
-| `execute(product)` | Build a single product |
-| `clean(product)` | Remove a product's outputs |
+| `auto_detect(&FileIndex) -> bool` | Return `true` if the project looks like it needs this processor |
+| `discover(&mut BuildGraph, &FileIndex, instance_name)` | Query the file index and add products to the build graph |
+| `execute(&BuildContext, &Product)` | Build a single product |
+| `clean(&Product, verbose) -> Result<usize>` | Remove a product's outputs, returning how many files were removed |
+
+Batch execution (`execute_batch`), fixing (`fix`, `fix_batch`,
+`config_has_fix`), and tool declaration (`required_tools`,
+`tool_version_commands`) round out the trait.
 
 Both `auto_detect` and `discover` receive a `&FileIndex` — a pre-built index of all non-ignored files in the project (see [File indexing](#file-indexing) below).
 
-Detection heuristics per processor:
-
-| Processor | Type | Detected when |
-|---|---|---|
-| `tera` | Generator | `templates/` directory contains files matching configured extensions |
-| `ruff` | Checker | Project contains `.py` files |
-| `pylint` | Checker | Project contains `.py` files |
-| `mypy` | Checker | Project contains `.py` files |
-| `pyrefly` | Checker | Project contains `.py` files |
-| `cc_single_file` | Generator | Configured source directory contains `.c` or `.cc` files |
-| `cppcheck` | Checker | Configured source directory contains `.c` or `.cc` files |
-| `clang_tidy` | Checker | Configured source directory contains `.c` or `.cc` files |
-| `shellcheck` | Checker | Project contains `.sh` or `.bash` files |
-| `zspell` | Checker | Project contains files matching configured extensions (e.g., `.md`) |
-| `aspell` | Checker | Project contains `.md` files |
-| `ascii` | Checker | Project contains `.md` files |
-| `rumdl` | Checker | Project contains `.md` files |
-| `mdl` | Checker | Project contains `.md` files |
-| `markdownlint` | Checker | Project contains `.md` files |
-| `make` | Checker | Project contains `Makefile` files |
-| `cargo` | Mass Generator | Project contains `Cargo.toml` files |
-| `sphinx` | Mass Generator | Project contains `conf.py` files |
-| `mdbook` | Mass Generator | Project contains `book.toml` files |
-| `yamllint` | Checker | Project contains `.yml` or `.yaml` files |
-| `jq` | Checker | Project contains `.json` files |
-| `jsonlint` | Checker | Project contains `.json` files |
-| `json_schema` | Checker | Project contains `.json` files |
-| `taplo` | Checker | Project contains `.toml` files |
-| `pip` | Mass Generator | Project contains `requirements.txt` files |
-| `npm` | Mass Generator | Project contains `package.json` files |
-| `gem` | Mass Generator | Project contains `Gemfile` files |
-| `pandoc` | Generator | Project contains `.md` files |
-| `markdown2html` | Generator | Project contains `.md` files |
-| `marp` | Generator | Project contains `.md` files |
-| `mermaid` | Generator | Project contains `.mmd` files |
-| `drawio` | Generator | Project contains `.drawio` files |
-| `a2x` | Generator | Project contains `.txt` (AsciiDoc) files |
-| `pdflatex` | Generator | Project contains `.tex` files |
-| `libreoffice` | Generator | Project contains `.odp` files |
-| `pdfunite` | Generator | Source directory contains subdirectories with PDF-source files |
-| `iyamlschema` | Checker | Project contains `.yml` or `.yaml` files |
-| `yaml2json` | Generator | Project contains `.yml` or `.yaml` files |
-| `imarkdown2html` | Generator | Project contains `.md` files |
-| `tags` | Generator | Project contains `.md` files with YAML frontmatter |
-
-Run `rsconstruct processors list` to see the auto-detection results for the current project.
+Detection heuristics are per-processor filesystem checks (e.g. `ruff`
+detects when the project contains `.py` files, `cargo` when it contains
+`Cargo.toml`). The authoritative, always-current list is
+`rsconstruct processors list`, which shows every processor together with its
+auto-detection result for the current project.
 
 ### Products
 
@@ -105,15 +70,22 @@ Each product is cached independently after successful execution. If a build is
 interrupted or fails partway through, the next run only rebuilds products that
 don't have valid cache entries:
 
-- **Non-batch mode** (default fail-fast, `chunk_size=1`): Each product executes
-  and is cached individually. If the build stops after 400 of 800 products, the
-  next run skips the 400 cached successes and rebuilds the remaining 400.
+- **Non-batch mode**: Each product executes and is cached individually. If
+  the build stops after 400 of 800 products, the next run skips the 400
+  cached successes and rebuilds the remaining 400. Products go down this
+  path when batching is disabled (`--batch-size -1`), when the processor
+  doesn't support batching, or when fewer than two of its products need
+  rebuilding.
 
-- **Batch mode with external tools** (`--keep-going` or explicit `--batch-size`):
-  The external tool receives all files in the batch in one invocation. If the tool
-  exits with an error, all products in that batch are marked failed — there is no
-  way to determine which outputs are valid from a single exit code. On the next
-  run, all products from the failed batch are rebuilt.
+- **Batch mode with external tools** (the default for batch-capable
+  processors): The external tool receives all files in the batch in one
+  invocation — with no `--batch-size` limit set, that is every rebuilding
+  product of the processor in the level. If the tool exits with an error,
+  all products in that batch are marked failed — there is no way to
+  determine which outputs are valid from a single exit code. On the next
+  run, all products from the failed batch are rebuilt. Use
+  `--batch-size N` to bound the blast radius, or `--batch-size -1` for
+  per-product execution and caching.
 
 - **Batch mode with internal processors** (e.g., `imarkdown2html`, `isass`, `ipdfunite`):
   These process files sequentially in-process and return per-file results, so
@@ -122,16 +94,19 @@ don't have valid cache entries:
 
 ## Interrupt handling
 
-All external subprocess execution goes through `run_command()` in `src/processors/mod.rs`. Instead of calling `Command::output()` (which blocks until the process finishes), `run_command()` uses `Command::spawn()` followed by a poll loop:
+All external subprocess execution goes through `run_command()` in
+`src/processors/mod.rs`, which spawns children via `tokio::process::Command`
+with `kill_on_drop(true)` and then awaits a biased `tokio::select!` racing
+the child's exit against a `tokio::sync::watch` interrupt receiver obtained
+from `BuildContext::interrupt_receiver()` (plus an optional timeout arm).
 
-1. Spawn the child process with piped stdout/stderr
-2. Every 50ms, call `try_wait()` to check if the process has exited
-3. Between polls, check the global `INTERRUPTED` flag (set by the Ctrl+C handler)
-4. If interrupted, kill the child process immediately and return an error
-
-This ensures that pressing Ctrl+C terminates running subprocesses within 50ms, even for long-running compilations or linter invocations.
-
-The global `INTERRUPTED` flag is an `AtomicBool` set once by the `ctrlc` handler in `main.rs` and checked by all threads.
+The Ctrl+C handler — a dedicated thread in `main.rs` awaiting
+`tokio::signal::ctrl_c()` — calls `BuildContext::interrupt()`, which sets an
+`AtomicBool` and broadcasts on the watch channel. Every waiting subprocess
+wakes immediately (there is no polling interval) and its child is killed on
+drop. The executor also consults `is_interrupted()` between products and
+levels to stop scheduling new work. A second Ctrl+C force-exits with
+status 130.
 
 ## File indexing
 
@@ -167,6 +142,7 @@ loop (max 10 passes):
     if no new products were added → break
     collect outputs from new products
     inject them as virtual files into file_index
+    if no new virtual files were injected → break
 ```
 
 On each pass, processors may re-declare existing products (silently
@@ -227,11 +203,13 @@ Independent products at the same dependency level run in parallel (controlled
 by `-j` / `RSCONSTRUCT_THREADS`). Batch-capable processors group their
 products into a single tool invocation.
 
-**Batch chunk sizing:** In fail-fast mode (default), batch chunk size is 1 —
-each product executes independently even for batch-capable processors. With
-`--keep-going`, all products are sent in one chunk. With `--batch-size N`,
-chunks are limited to N products. This means fail-fast mode gives the best
-incremental recovery after partial failure.
+**Batch chunk sizing:** By default a batch group is sent as one chunk — all
+of a batch-capable processor's rebuilding products in the level go to the
+tool in a single invocation. With `--batch-size N`, chunks are limited to N
+products. `--batch-size -1` disables batching entirely, giving per-product
+execution and caching — the best incremental recovery after partial failure,
+at the cost of one tool invocation per file. In fail-fast mode (no
+`--keep-going`), a failing chunk stops later chunks from being dispatched.
 
 For each product:
 1. Compute input checksum (if not already done in classify)
@@ -251,10 +229,10 @@ src/processors/
 │                   # SimpleChecker, SimpleGenerator, ProcessorBase, …)
 ├── checkers/       # One file per checker (ruff.rs, pylint.rs, cppcheck.rs, …)
 │   └── mod.rs      # Re-exports
-├── generators/     # One file per generator (generator.rs, marp.rs, sass.rs, …)
-│   ├── mod.rs      # Shared helpers: find_templates, output_path, discover_single_format, …
-│   └── tags/       # Tags generator (multi-file, has its own subfolder)
-├── creators/       # One file per creator (cargo.rs, npm.rs, gem.rs, pip.rs, …)
+├── generators/     # One file per generator (generator.rs, marp.rs, sass.rs, tags.rs, …)
+│   └── mod.rs      # Shared helpers: find_templates, output_path, discover_single_format, …
+├── creators/       # One file per creator (cargo.rs, cc.rs, gem.rs, jekyll.rs,
+│   │               # mdbook.rs, npm.rs, pip.rs, sphinx.rs)
 │   ├── mod.rs      # Re-exports
 │   └── creator.rs  # Generic creator processor
 ├── explicit/       # Explicit processor (user-defined command with declared outputs)

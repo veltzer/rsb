@@ -288,7 +288,7 @@ If `eatmydata` is not installed, the commands run unwrapped — no error, no war
 
 The CLI flag `--no-eatmydata` always wins. Otherwise the policy is driven entirely by `CI=true`. There is no `rsconstruct.toml` field for this — the env var is the knob.
 
-The mechanism is a [post-config phase hook](processors.md): `eatmydata_ci_default` runs after config load and flips the in-memory `dependencies.eatmydata` flag when `CI=true`. List it with `rsconstruct phases hooks`.
+The mechanism is a [post-config hook](processors.md): `eatmydata_ci_default` runs after config load and flips the in-memory `dependencies.eatmydata` flag when `CI=true`. List it with `rsconstruct hooks`.
 
 ##### What's never wrapped
 

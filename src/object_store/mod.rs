@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::{Database, TableDefinition};
 
 use crate::config::RestoreMethod;
 use crate::remote_cache::RemoteCache;
@@ -43,7 +43,6 @@ const OBJECTS_DIR: &str = "objects";
 const DESCRIPTORS_DIR: &str = "descriptors";
 const DB_FILE: &str = "db.redb";
 
-const CACHE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("cache");
 const CONFIGS_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("processor_configs");
 
 /// Reason why a product needs to be rebuilt.
@@ -138,22 +137,6 @@ pub struct TreeEntry {
     pub(super) mode: Option<u32>,
 }
 
-// --- Legacy types kept temporarily for migration ---
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct CacheEntry {
-    input_checksum: String,
-    outputs: Vec<OutputEntry>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct OutputEntry {
-    path: String,
-    checksum: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    mode: Option<u32>,
-}
-
 /// Per-processor cache statistics
 #[derive(Debug, Default, Serialize)]
 pub struct ProcessorCacheStats {
@@ -234,15 +217,4 @@ impl ObjectStore {
         Self::new_at(dir, "db.redb")
     }
 
-    /// Check if a cache entry exists for the given key (legacy DB format).
-    pub fn has_cache_entry(&self, cache_key: &str) -> bool {
-        self.get_entry(cache_key).is_some()
-    }
-
-    fn get_entry(&self, cache_key: &str) -> Option<CacheEntry> {
-        let read_txn = self.db.begin_read().ok()?;
-        let table = read_txn.open_table(CACHE_TABLE).ok()?;
-        let data = table.get(cache_key).ok()??;
-        serde_json::from_slice(data.value()).ok()
-    }
 }

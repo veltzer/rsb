@@ -41,18 +41,12 @@ fn effective_supports_batch(name: &str, proc: &dyn crate::processors::Processor)
     plugin_ok && proc.scan_config().batch
 }
 
-/// Chunk size for one batch group. `Some(0)` means no limit (one chunk);
-/// with no explicit batch size, keep-going batches everything while
-/// fail-fast (the default) runs one file per invocation so the build stops
-/// at the first failure. Never returns 0 — `chunks(0)` panics.
-fn batch_chunk_size(batch_size: Option<usize>, keep_going: bool, n_items: usize) -> usize {
-    let size = match batch_size {
-        Some(0) => n_items,
-        Some(n) => n,
-        None if keep_going => n_items,
-        None => 1,
-    };
-    size.max(1)
+/// Chunk size for one batch group. `0` means no limit — the whole group in
+/// one chunk. Batching disabled (`batch_size: None`) never forms batch
+/// groups (see [`should_batch`]), so this only sees explicit sizes. Never
+/// returns 0 — `chunks(0)` panics.
+fn batch_chunk_size(batch_size: usize, n_items: usize) -> usize {
+    if batch_size == 0 { n_items.max(1) } else { batch_size }
 }
 
 /// Whether a processor's items take the batch path. Batching requires an
@@ -395,7 +389,10 @@ impl Executor<'_> {
         let proc_total = items.len();
         let mut proc_current = items.len() - to_execute.len();
 
-        let chunk_size = batch_chunk_size(self.batch_size, lctx.keep_going, to_execute.len());
+        let chunk_size = batch_chunk_size(
+            self.batch_size.expect("batch groups only form when batching is enabled"),
+            to_execute.len(),
+        );
 
         // Process in chunks
         for chunk in to_execute.chunks(chunk_size) {
@@ -797,26 +794,19 @@ impl Executor<'_> {
 mod tests {
     use super::*;
 
-    /// The full decision table for batch chunk sizing. Fail-fast (no explicit
-    /// batch size, not keep-going) must stay at 1 — that is what stops the
-    /// build after the first failing file instead of smearing one exit code
-    /// over a whole chunk.
+    /// `0` means the whole group in one chunk; an explicit size wins.
     #[test]
     fn batch_chunk_size_decision_table() {
-        assert_eq!(batch_chunk_size(Some(0), false, 7), 7, "0 means no limit");
-        assert_eq!(batch_chunk_size(Some(0), true, 7), 7);
-        assert_eq!(batch_chunk_size(Some(3), false, 7), 3, "explicit size wins");
-        assert_eq!(batch_chunk_size(Some(3), true, 7), 3);
-        assert_eq!(batch_chunk_size(None, true, 7), 7, "keep-going batches everything");
-        assert_eq!(batch_chunk_size(None, false, 7), 1, "fail-fast runs one file at a time");
+        assert_eq!(batch_chunk_size(0, 7), 7, "0 means no limit");
+        assert_eq!(batch_chunk_size(3, 7), 3, "explicit size wins");
+        assert_eq!(batch_chunk_size(3, 2), 3, "size larger than group is harmless");
     }
 
     /// `chunks(0)` panics; the sizing function must never return 0 even for
     /// degenerate inputs.
     #[test]
     fn batch_chunk_size_never_zero() {
-        assert_eq!(batch_chunk_size(Some(0), false, 0), 1);
-        assert_eq!(batch_chunk_size(None, true, 0), 1);
+        assert_eq!(batch_chunk_size(0, 0), 1);
     }
 
     /// Batching needs all three conditions; in particular a single rebuilding

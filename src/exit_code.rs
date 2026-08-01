@@ -66,50 +66,28 @@ impl fmt::Display for RsconstructError {
 
 impl std::error::Error for RsconstructError {}
 
+/// Shorthand for a typed ConfigError.
+pub fn config_error(message: impl Into<String>) -> anyhow::Error {
+    RsconstructError::new(RsconstructExitCode::ConfigError, message.into()).into()
+}
+
 /// Classify an anyhow error into an exit code.
-/// First tries downcasting to RsconstructError, then falls back to message pattern matching.
+///
+/// Only typed information is consulted: a [`RsconstructError`] anywhere in
+/// the chain wins, a raw `std::io::Error` in the chain means IoError, and
+/// everything else is a BuildError. There is deliberately no message
+/// pattern matching — error chains embed subprocess stderr, so substring
+/// matching turns arbitrary tool output into wrong exit codes (a linter
+/// printing "unknown field" is not a config error).
 pub fn classify_error(err: &anyhow::Error) -> RsconstructExitCode {
-    // Primary: downcast to our typed error
     if let Some(rsconstruct_err) = err.downcast_ref::<RsconstructError>() {
         return rsconstruct_err.exit_code;
     }
-
-    // Fallback: message pattern matching
-    let msg = format!("{err:#}");
-    let lower = msg.to_lowercase();
-
-    if lower.contains("interrupted") || lower.contains("ctrl+c") {
-        RsconstructExitCode::Interrupted
-    } else if lower.contains("no rsconstruct.toml found")
-        || lower.contains("rsconstruct.toml already exists")
-        || lower.contains("unknown processor")
-        || lower.contains("unknown shell")
-        || lower.contains("undefined variable")
-        || lower.contains("failed to parse config")
-        || lower.contains("failed to substitute variables")
-        || lower.contains("deny_unknown_fields")
-        || lower.contains("unknown field")
-        || lower.contains("invalid config")
-    {
-        RsconstructExitCode::ConfigError
-    } else if lower.contains("tool version mismatch")
-        || lower.contains("tools are missing")
-    {
-        RsconstructExitCode::ToolError
-    } else if lower.contains("cycle detected")
-        || lower.contains("output conflict")
-    {
-        RsconstructExitCode::GraphError
-    } else if lower.contains("build completed with") && lower.contains("error") {
-        RsconstructExitCode::BuildError
-    } else if err.chain().any(|c| c.downcast_ref::<std::io::Error>().is_some()) {
+    if err.chain().any(|c| c.downcast_ref::<std::io::Error>().is_some()) {
         // A raw IO error anywhere in the chain: filesystem-level failure.
-        // Makes the advertised exit code 5 actually reachable.
-        RsconstructExitCode::IoError
-    } else {
-        // Default to BuildError for unclassified errors
-        RsconstructExitCode::BuildError
+        return RsconstructExitCode::IoError;
     }
+    RsconstructExitCode::BuildError
 }
 
 #[cfg(test)]
@@ -125,61 +103,39 @@ mod tests {
         assert_eq!(classify_error(&err), RsconstructExitCode::GraphError);
     }
 
+    /// The typed error must win even when wrapped in layers of context —
+    /// downcast_ref on anyhow searches the whole chain.
     #[test]
-    fn classify_interrupted() {
-        let err = anyhow::anyhow!("Build was interrupted by Ctrl+C");
-        assert_eq!(classify_error(&err), RsconstructExitCode::Interrupted);
-
-        let err = anyhow::anyhow!("operation interrupted");
-        assert_eq!(classify_error(&err), RsconstructExitCode::Interrupted);
+    fn classify_typed_error_survives_context_wrapping() {
+        let err: anyhow::Error = RsconstructError::new(RsconstructExitCode::ToolError, "tool gone").into();
+        let wrapped = err.context("while preflighting").context("during build");
+        assert_eq!(classify_error(&wrapped), RsconstructExitCode::ToolError);
     }
 
+    /// A raw io::Error anywhere in the chain classifies as IoError — the
+    /// only way exit code 5 is reachable.
     #[test]
-    fn classify_config_errors() {
+    fn classify_io_error_in_chain() {
+        let io = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let err = anyhow::Error::new(io).context("Failed to write output");
+        assert_eq!(classify_error(&err), RsconstructExitCode::IoError);
+    }
+
+    /// Subprocess stderr embedded in an error message must never influence
+    /// the exit code — a linter printing "unknown field" is not a config
+    /// error, and a tool printing "interrupted" is not exit 130.
+    #[test]
+    fn classify_never_pattern_matches_messages() {
         for msg in [
-            "No rsconstruct.toml found in current directory",
-            "rsconstruct.toml already exists",
-            "unknown processor 'foo'",
-            "unknown shell 'fish'",
-            "undefined variable 'x'",
-            "failed to parse config",
-            "failed to substitute variables",
-            "unknown field `blah`",
-            "Invalid config:\n[processor.pandoc]: field 'src_dirs' must be an array",
+            "tool output: unknown field `foo`",
+            "tool output: operation interrupted",
+            "tool output: cycle detected",
+            "tool output: tool version mismatch",
+            "something totally unexpected",
         ] {
-            assert_eq!(classify_error(&anyhow::anyhow!("{msg}")), RsconstructExitCode::ConfigError,
-                "expected ConfigError for: {msg}");
+            assert_eq!(classify_error(&anyhow::anyhow!("{msg}")), RsconstructExitCode::BuildError,
+                "untyped message must default to BuildError: {msg}");
         }
-    }
-
-    #[test]
-    fn classify_tool_errors() {
-        let err = anyhow::anyhow!("tool version mismatch: gcc 12 vs 13");
-        assert_eq!(classify_error(&err), RsconstructExitCode::ToolError);
-
-        let err = anyhow::anyhow!("Required tools are missing: ruff");
-        assert_eq!(classify_error(&err), RsconstructExitCode::ToolError);
-    }
-
-    #[test]
-    fn classify_graph_errors() {
-        let err = anyhow::anyhow!("Cycle detected in dependency graph");
-        assert_eq!(classify_error(&err), RsconstructExitCode::GraphError);
-
-        let err = anyhow::anyhow!("Output conflict: foo.o produced by both [cc] and [cc2]");
-        assert_eq!(classify_error(&err), RsconstructExitCode::GraphError);
-    }
-
-    #[test]
-    fn classify_build_error() {
-        let err = anyhow::anyhow!("Build completed with 3 error(s)");
-        assert_eq!(classify_error(&err), RsconstructExitCode::BuildError);
-    }
-
-    #[test]
-    fn classify_unknown_defaults_to_build_error() {
-        let err = anyhow::anyhow!("something totally unexpected");
-        assert_eq!(classify_error(&err), RsconstructExitCode::BuildError);
     }
 
     #[test]

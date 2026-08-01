@@ -516,12 +516,13 @@ impl Builder {
         ];
 
         for product in products {
-            let cache_key = product.cache_key();
             let display = product.display(opts.display_opts);
 
             let Ok(input_checksum) = crate::checksum::combined_input_checksum(ctx, &product.inputs) else {
-                // Can't compute checksum — classify as new or stale based on cache
-                let idx = if self.object_store.has_cache_entry(&cache_key) { 2 } else { 3 };
+                // Can't compute checksum (an input is unreadable) — without a
+                // descriptor key, stale and new are indistinguishable; report
+                // as new.
+                let idx = 3;
                 if opts.verbose {
                     println!("{} [{}] {}", status_labels[idx], product.processor, display);
                 }
@@ -530,25 +531,16 @@ impl Builder {
                 continue;
             };
 
+            // Same classification with and without --explain — the flag only
+            // adds the reason text.
             let desc_key = product.descriptor_key(&input_checksum);
-            let (status_idx, reason) = if opts.explain {
-                let action = self.object_store.explain_descriptor(&desc_key, &product.outputs, opts.force);
-                let reason = format!(" ({action})");
-                let idx = match action {
-                    ExplainAction::Skip => 0,
-                    ExplainAction::Restore(_) => 1,
-                    ExplainAction::Rebuild(crate::object_store::RebuildReason::NoCacheEntry) => 3,
-                    ExplainAction::Rebuild(_) => 2,
-                };
-                (idx, reason)
-            } else if !opts.force && !self.object_store.needs_rebuild_descriptor(&desc_key, &product.outputs) {
-                (0, String::new())
-            } else if !opts.force && self.object_store.can_restore_descriptor(&desc_key) {
-                (1, String::new())
-            } else if self.object_store.has_cache_entry(&cache_key) {
-                (2, String::new()) // stale: was built before
-            } else {
-                (3, String::new()) // new: never built
+            let action = self.object_store.explain_descriptor(&desc_key, &product.outputs, opts.force);
+            let reason = if opts.explain { format!(" ({action})") } else { String::new() };
+            let status_idx = match action {
+                ExplainAction::Skip => 0,
+                ExplainAction::Restore(_) => 1,
+                ExplainAction::Rebuild(crate::object_store::RebuildReason::NoCacheEntry) => 3,
+                ExplainAction::Rebuild(_) => 2,
             };
 
             if opts.verbose {

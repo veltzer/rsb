@@ -14,7 +14,7 @@ All config structs now embed `StandardConfig` via `#[serde(flatten)]`.
 
 ## Cache correctness
 
-- Implement `output_depends_on_input_name` flag. Documented in `docs/src/cache.md` but not implemented. Needed for processors that embed the input filename in their output (e.g., a `// Generated from foo.c` header). Without it, renaming such a file would produce a cache hit with stale content.
+- Implement `output_depends_on_input_name` flag. Documented as a known limitation in `docs/src/internal/cache.md` but not implemented. Needed for processors that embed the input filename in their output (e.g., a `// Generated from foo.c` header). Without it, renaming such a file would produce a cache hit with stale content.
 
 - Write a test for identical content processed by different processors. Verify two different processors processing the same file get separate cache entries (the processor name is in the descriptor key).
 
