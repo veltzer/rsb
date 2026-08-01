@@ -11,6 +11,18 @@ fn complete_bash_generates_output() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(!stdout.is_empty(), "Expected completion output for bash");
     assert!(stdout.contains("rsconstruct"), "Expected 'rsconstruct' in bash completion script");
+
+    // Iname injection must have run: the helper calls must be wired into the
+    // script, and generation must be warning-free.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.is_empty(), "Expected no warnings from complete bash, got: {stderr}");
+    for helper_call in [
+        "compgen -W \"$(_rsconstruct_inames)\"",
+        "compgen -W \"$(_rsconstruct_analyzer_inames)\"",
+        "compgen -W \"$(_rsconstruct_fixer_inames)\"",
+    ] {
+        assert!(stdout.contains(helper_call), "Expected injected helper call in bash completion script: {helper_call}");
+    }
 }
 
 #[test]

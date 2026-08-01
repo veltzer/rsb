@@ -402,7 +402,7 @@ fn run() -> (Result<()>, bool) {
             };
 
             for shell in shells_to_generate {
-                print_completions(shell);
+                print_completions(shell)?;
             }
         }
         Commands::Analyzers { action } => {

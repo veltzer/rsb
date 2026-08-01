@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 use std::str::FromStr;
@@ -985,15 +986,24 @@ pub fn parse_cli() -> Cli {
 /// Generate shell completions and print to stdout.
 /// Post-processes the generated script to inject processor name completions
 /// for `processors config`, `processors defconfig`, and `processors files`.
-pub fn print_completions(shell: Shell) {
+pub fn print_completions(shell: Shell) -> Result<()> {
+    let script = generate_completion_script(shell)?;
+    print!("{script}");
+    Ok(())
+}
+
+/// Generate the completion script for a shell as a string.
+/// Separated from `print_completions` so tests can round-trip the real
+/// clap_complete output through the bash injection.
+fn generate_completion_script(shell: Shell) -> Result<String> {
     let mut cmd = Cli::command();
     let mut buf = Vec::new();
     generate(shell, &mut cmd, "rsconstruct", &mut buf);
     let script = String::from_utf8(buf).expect("completion script should be UTF-8");
 
     match shell {
-        Shell::Bash => print!("{}", inject_bash_processor_completions(&script)),
-        _ => print!("{script}"),
+        Shell::Bash => inject_bash_processor_completions(&script),
+        _ => Ok(script),
     }
 }
 
@@ -1008,7 +1018,14 @@ pub fn print_completions(shell: Shell) {
 ///   names** (inames) from `rsconstruct.toml` — you can only build a processor
 ///   that is declared in the project.
 /// - `processors defconfig` is handled automatically by clap via `#[arg(value_parser = ...)]`.
-fn inject_bash_processor_completions(script: &str) -> String {
+///
+/// Errors if any injection point is not found in the script — clap-complete
+/// controls the script format, so a miss means its output changed and the
+/// target labels/needles below must be updated. The unit test
+/// `bash_iname_injection_matches_clap_complete_output` round-trips the real
+/// generated script, so a format change fails `cargo test` before it can
+/// reach a user.
+fn inject_bash_processor_completions(script: &str) -> Result<String> {
     // Bash helpers: extract instance names from rsconstruct.toml.
     let helper = r#"
 _rsconstruct_inames() {
@@ -1047,11 +1064,11 @@ _rsconstruct_fixer_inames() {
     // Replace instance-name targets to call _rsconstruct_inames at tab time.
     // For each target section, replace the early-return COMPREPLY with a call to our helper.
     let iname_targets = [
-        ("rsconstruct__processors__files)", 3),
-        ("rsconstruct__processors__config)", 3),
-        ("rsconstruct__processors__delete)", 3),
-        ("rsconstruct__processors__disable)", 3),
-        ("rsconstruct__processors__enable)", 3),
+        ("rsconstruct__subcmd__processors__subcmd__files)", 3),
+        ("rsconstruct__subcmd__processors__subcmd__config)", 3),
+        ("rsconstruct__subcmd__processors__subcmd__delete)", 3),
+        ("rsconstruct__subcmd__processors__subcmd__disable)", 3),
+        ("rsconstruct__subcmd__processors__subcmd__enable)", 3),
     ];
 
     // Failed injections must be reported: silently shipping completions
@@ -1090,9 +1107,9 @@ _rsconstruct_fixer_inames() {
 
     // Inject analyzer iname completion for delete/disable/enable.
     let analyzer_iname_targets = [
-        "rsconstruct__analyzers__delete)",
-        "rsconstruct__analyzers__disable)",
-        "rsconstruct__analyzers__enable)",
+        "rsconstruct__subcmd__analyzers__subcmd__delete)",
+        "rsconstruct__subcmd__analyzers__subcmd__disable)",
+        "rsconstruct__subcmd__analyzers__subcmd__enable)",
     ];
     for target in &analyzer_iname_targets {
         if let Some(section_start) = result.find(target) {
@@ -1143,7 +1160,7 @@ _rsconstruct_fixer_inames() {
     // our fixer helper so tab-completing shows only fix-capable processors
     // declared in the project.
     let iname_targets_fix = [
-        "rsconstruct__fix__run)",
+        "rsconstruct__subcmd__fix__subcmd__run)",
     ];
     for target in &iname_targets_fix {
         if let Some(section_start) = result.find(target) {
@@ -1167,12 +1184,51 @@ _rsconstruct_fixer_inames() {
     }
 
     if !missed.is_empty() {
-        eprintln!(
-            "Warning: bash completion iname injection failed for: {} — clap-complete output format may have changed; completions were generated without iname support for these",
+        bail!(
+            "bash completion iname injection failed for: {} — clap-complete output format changed; update the labels/needles in inject_bash_processor_completions",
             missed.join(", ")
         );
     }
 
     // Prepend the helper function before the completion function is defined.
-    format!("{helper}{result}")
+    Ok(format!("{helper}{result}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bash iname injection locates its patch points in clap_complete's
+    /// generated script by exact string matching. clap-complete owns that
+    /// format and has changed it before (case labels went from
+    /// `rsconstruct__processors__files` to
+    /// `rsconstruct__subcmd__processors__subcmd__files`). Round-trip the real
+    /// generated script through the injection so any future format change
+    /// fails here instead of surfacing when a user sources their completions.
+    #[test]
+    fn bash_iname_injection_matches_clap_complete_output() {
+        let script = generate_completion_script(Shell::Bash)
+            .expect("bash iname injection failed — clap-complete output format changed");
+
+        for helper_call in [
+            "compgen -W \"$(_rsconstruct_inames)\"",
+            "compgen -W \"$(_rsconstruct_analyzer_inames)\"",
+            "compgen -W \"$(_rsconstruct_fixer_inames)\"",
+        ] {
+            assert!(
+                script.contains(helper_call),
+                "injected helper call missing from bash completion script: {helper_call}"
+            );
+        }
+    }
+
+    /// Non-bash shells must still generate without error.
+    #[test]
+    fn zsh_and_fish_completion_scripts_generate() {
+        for shell in [Shell::Zsh, Shell::Fish] {
+            let script = generate_completion_script(shell)
+                .unwrap_or_else(|e| panic!("completion generation failed for {shell}: {e}"));
+            assert!(!script.is_empty(), "empty completion script for {shell}");
+        }
+    }
 }
