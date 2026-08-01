@@ -839,7 +839,7 @@ pub enum ProcessorType {
 
 impl ProcessorType {
     /// Returns the string representation
-    pub const fn as_str(&self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Generator => "generator",
             Self::Checker => "checker",
@@ -850,7 +850,7 @@ impl ProcessorType {
     }
 
     /// Returns a human-readable description of this processor type.
-    pub const fn description(&self) -> &'static str {
+    pub const fn description(self) -> &'static str {
         match self {
             Self::Generator => "Generates output files from input files (1 input -> 1 output per format)",
             Self::Checker => "Validates input files without producing outputs",
@@ -1645,7 +1645,7 @@ impl BuildStats {
             // Phase timings
             if !self.phase_timings.is_empty() {
                 let rows: Vec<Vec<String>> = self.phase_timings.iter()
-                    .map(|(name, dur)| vec![name.to_string(), format!("{:.3}s", dur.as_secs_f64())])
+                    .map(|(name, dur)| vec![name.clone(), format!("{:.3}s", dur.as_secs_f64())])
                     .collect();
                 crate::tables::print_table(&["Phase", "Duration"], &rows);
             }

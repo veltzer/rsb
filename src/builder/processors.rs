@@ -352,7 +352,7 @@ impl Builder {
                         let proc = &processors[name.as_str()];
                         let detected_str = tables::yes_no(proc.auto_detect(&self.file_index));
                         vec![
-                            name.to_string(),
+                            (*name).clone(),
                             crate::registries::processor::processor_type_of(name.as_str()).as_str().to_string(),
                             detected_str.to_string(),
                             crate::registries::processor::description_of(name.as_str()).to_string(),
@@ -364,7 +364,7 @@ impl Builder {
                         let proc = &processors[name.as_str()];
                         let detected_str = tables::yes_no(proc.auto_detect(&self.file_index));
                         vec![
-                            name.to_string(),
+                            (*name).clone(),
                             crate::registries::processor::processor_type_of(name.as_str()).as_str().to_string(),
                             detected_str.to_string(),
                         ]

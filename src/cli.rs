@@ -928,6 +928,11 @@ pub struct BuildOptions {
     pub timings: bool,
     pub keep_going: bool,
     pub summary: bool,
+    /// Three distinct states, which is why this is nested rather than flat:
+    /// `None` = not set on the CLI (fall back to `[build] batch_size`),
+    /// `Some(None)` = `--batch-size -1`, batching explicitly disabled,
+    /// `Some(Some(n))` = an explicit size.
+    #[allow(clippy::option_option)]
     pub batch_size: Option<Option<usize>>,
     pub stop_after: BuildPhase,
     pub processor_filter: Option<Vec<String>>,

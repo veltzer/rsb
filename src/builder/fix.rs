@@ -74,7 +74,7 @@ impl Builder {
 
             if processor.supports_fix_batch() && proc_products.len() > 1 {
                 // Batch fix
-                let refs: Vec<&crate::graph::Product> = proc_products.to_vec();
+                let refs: Vec<&crate::graph::Product> = proc_products.clone();
                 let results = processor.fix_batch(ctx, &refs);
                 for result in results {
                     match result {
@@ -141,7 +141,7 @@ impl Builder {
 
         let rows: Vec<Vec<String>> = fixers.iter().map(|name| {
             vec![
-                name.to_string(),
+                (*name).clone(),
                 crate::registries::processor::processor_type_of(name.as_str()).as_str().to_string(),
                 crate::registries::processor::description_of(name.as_str()).to_string(),
             ]

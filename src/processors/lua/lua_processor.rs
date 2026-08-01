@@ -435,7 +435,7 @@ impl Processor for LuaProcessor {
         ensure_stub_dir(&self.stub_dir, &self.name)?;
 
         let lua = self.lua.lock();
-        lua.set_app_data(CtxPtr(ctx as *const _));
+        lua.set_app_data(CtxPtr(std::ptr::from_ref(ctx)));
 
         // The pointer must not outlive this call: clear it on every exit path
         // so later callbacks (clean, auto_detect) can't dereference a stale

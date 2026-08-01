@@ -84,7 +84,11 @@ impl ObjectStore {
         }
 
         for path in to_remove {
-            // Make writable before removing (objects are read-only)
+            // Make writable before removing (objects are stored read-only so a
+            // restored hardlink can't corrupt the cache). The file is unlinked
+            // on the next line, so the widened mode never outlives this loop
+            // iteration — which is what the lint is warning about.
+            #[allow(clippy::permissions_set_readonly_false)]
             if let Ok(mut perms) = fs::metadata(&path).map(|m| m.permissions()) {
                 perms.set_readonly(false);
                 fs::set_permissions(&path, perms)
@@ -118,6 +122,9 @@ impl ObjectStore {
             ) {
                 let key = format!("{prefix}{rest}");
                 if !valid_descriptor_keys.contains(&key) {
+                    // Same as in `trim`: descriptors are read-only, and this
+                    // one is unlinked immediately below.
+                    #[allow(clippy::permissions_set_readonly_false)]
                     if let Ok(mut perms) = fs::metadata(&path).map(|m| m.permissions()) {
                         perms.set_readonly(false);
                         fs::set_permissions(&path, perms)

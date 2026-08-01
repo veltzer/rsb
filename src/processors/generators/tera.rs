@@ -46,7 +46,7 @@ fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem
     let mut tera = Tera::default();
 
     // Register template functions
-    let ctx_ptr = CtxPtr(ctx as *const _);
+    let ctx_ptr = CtxPtr(std::ptr::from_ref(ctx));
     tera.register_function("load_python", LoadPythonFunction { ctx: ctx_ptr });
     tera.register_function("load_lua", LoadLuaFunction);
     tera.register_function("version_str", VersionStrFunction { ctx: ctx_ptr });

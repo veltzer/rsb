@@ -142,7 +142,7 @@ fn check_property_ordering(
                 for (key, prop_schema) in props {
                     if let Some(value) = data_map.get(key) {
                         let child_path = if path.is_empty() {
-                            key.to_string()
+                            key.clone()
                         } else {
                             format!("{path}.{key}")
                         };

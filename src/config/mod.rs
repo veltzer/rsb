@@ -63,6 +63,12 @@ pub trait KnownFields {
 
 /// Default scan configuration for a processor, as plain data.
 /// Used to resolve None scan fields in `StandardConfig` after TOML deserialization.
+///
+/// The shared `src_` prefix is deliberate: these field names are the TOML
+/// keys users write in `rsconstruct.toml`, so renaming them to satisfy
+/// `struct_field_names` would desynchronize the struct from the config
+/// format it mirrors.
+#[allow(clippy::struct_field_names)]
 pub struct ScanDefaultsData {
     pub src_dirs: &'static [&'static str],
     pub src_extensions: &'static [&'static str],

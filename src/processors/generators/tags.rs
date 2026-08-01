@@ -675,7 +675,7 @@ pub fn count_tags(db_path: &str) -> Result<()> {
         println!("{}", serde_json::to_string(&json_entries).expect(crate::errors::JSON_SERIALIZE));
     } else {
         let rows: Vec<Vec<String>> = entries.iter()
-            .map(|(tag, count)| vec![count.to_string(), tag.to_string()])
+            .map(|(tag, count)| vec![count.to_string(), tag.clone()])
             .collect();
         tables::print_table(&["Count", "Tag"], &rows);
     }

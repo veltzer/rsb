@@ -22,7 +22,7 @@ use anyhow::{Context as _, Result};
 use crate::analyzers::DepAnalyzer;
 use crate::cli::{BuildPhase, DisplayOptions};
 use crate::color;
-use crate::config::*;
+use crate::config::{find_registry_entry, registry_entries, Config, ProcessorConfig};
 use crate::deps_cache::DepsCache;
 use crate::errors;
 use crate::file_index::FileIndex;
@@ -168,11 +168,11 @@ pub fn create_all_default_processors() -> Result<ProcessorMap> {
     let mut processors: ProcessorMap = HashMap::new();
     for entry in registry_entries() {
         let mut empty_toml = toml::Value::Table(toml::map::Map::new());
-        let mut prov = crate::config::ProvenanceMap::new();
-        crate::registries::apply_all_defaults(entry.name, &mut empty_toml, &mut prov);
-        let proc = (entry.create)(&empty_toml)
+        let mut provenance = crate::config::ProvenanceMap::new();
+        crate::registries::apply_all_defaults(entry.name, &mut empty_toml, &mut provenance);
+        let processor = (entry.create)(&empty_toml)
             .with_context(|| format!("Failed to create processor '{}' with default config", entry.name))?;
-        processors.insert(entry.name.to_string(), proc);
+        processors.insert(entry.name.to_string(), processor);
     }
     Ok(processors)
 }
