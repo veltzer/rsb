@@ -251,3 +251,114 @@ fn cache_survives_input_rename() {
     let content = fs::read_to_string(project_path.join("renamed.txt")).unwrap();
     assert_eq!(content.trim(), "rename test content");
 }
+
+/// Upgrading a build tool must invalidate everything that tool produced.
+///
+/// This used to be opt-in: `processor_tool_hashes` returned an empty map
+/// unless a `.tools.versions` lock file existed, so in the common case (no
+/// lock file) a tool upgrade left every cached result valid — the build
+/// would happily reuse output produced by the previous version.
+///
+/// The tool here is a shell script the test owns, so "upgrading" it is a
+/// file write. `script` declares its `command` as a required tool, which is
+/// what feeds the tool component of the cache key.
+#[cfg(unix)]
+#[test]
+fn tool_upgrade_invalidates_cached_results() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // A "tool" we can upgrade, on PATH via a bin dir we control.
+    let bin_dir = project_path.join("toolbin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let tool = bin_dir.join("faketool");
+    fs::write(&tool, "#!/bin/sh\nexit 0\n").unwrap();
+    crate::common::make_executable(&tool);
+
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.script]\ncommand = \"faketool\"\nsrc_dirs = [\"src\"]\nsrc_extensions = [\".txt\"]\n",
+    ).unwrap();
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    fs::write(project_path.join("src/a.txt"), "content\n").unwrap();
+
+    let path_env = format!("{}:{}", bin_dir.display(), std::env::var("PATH").unwrap_or_default());
+
+    // First build populates the cache.
+    let build1 = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build1.status.success(),
+        "first build failed: {}", String::from_utf8_lossy(&build1.stderr));
+
+    // Second build with the tool unchanged: cached, nothing re-run.
+    let build2 = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build2.status.success(),
+        "second build failed: {}", String::from_utf8_lossy(&build2.stderr));
+    let stdout2 = String::from_utf8_lossy(&build2.stdout);
+    assert!(!stdout2.contains("Processing:"),
+        "unchanged tool + unchanged inputs must not re-run anything: {}", stdout2);
+
+    // "Upgrade" the tool. Inputs and config are untouched.
+    fs::write(&tool, "#!/bin/sh\n# v2\nexit 0\n").unwrap();
+    crate::common::make_executable(&tool);
+
+    let build3 = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build3.status.success(),
+        "build after tool upgrade failed: {}", String::from_utf8_lossy(&build3.stderr));
+    let stdout3 = String::from_utf8_lossy(&build3.stdout);
+    assert!(stdout3.contains("Processing:"),
+        "a tool upgrade must invalidate cached results: {}", stdout3);
+}
+
+/// `[build] hash_tool_versions = false` restores the old behavior for
+/// projects that must not have tool identity in their cache keys.
+#[cfg(unix)]
+#[test]
+fn hash_tool_versions_false_ignores_tool_upgrade() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    let bin_dir = project_path.join("toolbin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let tool = bin_dir.join("faketool2");
+    fs::write(&tool, "#!/bin/sh\nexit 0\n").unwrap();
+    crate::common::make_executable(&tool);
+
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[build]\nhash_tool_versions = false\n\n\
+         [processor.script]\ncommand = \"faketool2\"\nsrc_dirs = [\"src\"]\nsrc_extensions = [\".txt\"]\n",
+    ).unwrap();
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    fs::write(project_path.join("src/a.txt"), "content\n").unwrap();
+
+    let path_env = format!("{}:{}", bin_dir.display(), std::env::var("PATH").unwrap_or_default());
+
+    let build1 = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build1.status.success(),
+        "first build failed: {}", String::from_utf8_lossy(&build1.stderr));
+
+    fs::write(&tool, "#!/bin/sh\n# v2\nexit 0\n").unwrap();
+    crate::common::make_executable(&tool);
+
+    let build2 = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build2.status.success(),
+        "second build failed: {}", String::from_utf8_lossy(&build2.stderr));
+    let stdout2 = String::from_utf8_lossy(&build2.stdout);
+    assert!(!stdout2.contains("Processing:"),
+        "with hash_tool_versions=false a tool upgrade must not invalidate: {}", stdout2);
+}

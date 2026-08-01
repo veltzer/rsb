@@ -69,6 +69,21 @@ pub fn setup_project_with_config(config: &str) -> TempDir {
     temp_dir
 }
 
+/// Mark a file executable, so a test can put a script on PATH and have the
+/// build actually invoke it. No-op on non-unix, where PATH lookup does not
+/// consult the executable bit.
+pub fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms).unwrap();
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
 /// Create a file at the given path, creating parent directories as needed.
 pub fn write_file(base: &Path, relative: &str, content: &str) {
     let path = base.join(relative);

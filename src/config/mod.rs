@@ -320,6 +320,21 @@ pub struct BuildConfig {
     /// silently truncating the graph.
     #[serde(default = "default_max_discovery_passes")]
     pub max_discovery_passes: usize,
+    /// When true (the default), the versions of the external tools a
+    /// processor invokes are mixed into its products' cache keys, so
+    /// upgrading a tool invalidates everything that tool produced.
+    ///
+    /// This used to be opt-in via `rsconstruct tools lock`: without a lock
+    /// file no version was mixed in at all, and a tool upgrade silently left
+    /// every cached PASS valid. Versions are now queried live (cached per
+    /// build in `.rsconstruct/toolver.redb`, keyed by the tool's path, size
+    /// and mtime, so the `--version` subprocesses are paid once per upgrade
+    /// rather than once per build).
+    ///
+    /// Set to false for a build that must not shell out to `--version` at
+    /// all; cache keys then ignore tool identity, as they did before.
+    #[serde(default = "default_hash_tool_versions")]
+    pub hash_tool_versions: bool,
 }
 
 const fn default_parallel() -> usize {
@@ -338,6 +353,10 @@ const fn default_max_discovery_passes() -> usize {
     10
 }
 
+const fn default_hash_tool_versions() -> bool {
+    true
+}
+
 impl Default for BuildConfig {
     fn default() -> Self {
         Self {
@@ -347,6 +366,7 @@ impl Default for BuildConfig {
             max_arg_len: default_max_arg_len(),
             skip_missing_src_dirs: false,
             max_discovery_passes: default_max_discovery_passes(),
+            hash_tool_versions: default_hash_tool_versions(),
         }
     }
 }

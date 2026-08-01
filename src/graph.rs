@@ -4,6 +4,7 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::cache_key::{CacheKey, Component as KeyComponent};
 use crate::cli::{DisplayOptions, InputDisplay, OutputDisplay, PathFormat};
 use crate::errors;
 use crate::processors::names as proc_names;
@@ -20,9 +21,12 @@ pub struct Product {
     pub processor: String,
     /// Unique identifier for this product
     pub id: usize,
-    /// Optional hash of processor config (compiler flags, etc.)
-    pub config_hash: Option<String>,
-    /// Optional variant/profile name (e.g., compiler profile name)
+    /// Every piece of non-input state that contributes to this product's
+    /// cache key: processor config, analyzer pieces, tool versions, variant.
+    /// See `src/cache_key.rs` — all contributors go through `CacheKey::push`.
+    pub cache_key: CacheKey,
+    /// Optional variant/profile name (e.g., compiler profile name).
+    /// Also mixed into `cache_key`; kept here for display.
     pub variant: Option<String>,
     /// Output directories for creators / creators (relative to project root).
     /// When non-empty, the executor caches/restores these directories instead of individual output files.
@@ -36,7 +40,7 @@ impl Product {
             outputs,
             processor: processor.to_string(),
             id,
-            config_hash,
+            cache_key: CacheKey::from_config_hash(config_hash),
             variant: None,
             output_dirs: Vec::new(),
         }
@@ -44,12 +48,14 @@ impl Product {
 
     /// Create a new product with a variant/profile name
     pub fn with_variant(inputs: Vec<PathBuf>, outputs: Vec<PathBuf>, processor: &str, id: usize, config_hash: Option<String>, variant: &str) -> Self {
+        let mut cache_key = CacheKey::from_config_hash(config_hash);
+        cache_key.push(KeyComponent::Variant, variant);
         Self {
             inputs,
             outputs,
             processor: processor.to_string(),
             id,
-            config_hash,
+            cache_key,
             variant: Some(variant.to_string()),
             output_dirs: Vec::new(),
         }
@@ -72,46 +78,17 @@ impl Product {
         !self.output_dirs.is_empty()
     }
 
-    /// Mix an analyzer-supplied piece into the product's config_hash.
-    /// Idempotent under the same `piece`. Used by analyzers that need to
-    /// contribute non-content state (e.g. the sorted set of paths matching
-    /// a glob pattern) into the cache key. The original config_hash and
-    /// the piece are concatenated and re-hashed; on a None original, the
-    /// piece itself becomes the new hash.
+    /// Mix an analyzer-supplied piece into the product's cache key.
+    /// Used by analyzers that need to contribute non-content state (e.g. the
+    /// sorted set of paths matching a glob pattern) into the key.
     pub fn extend_config_hash(&mut self, piece: &str) {
-        let combined = match &self.config_hash {
-            Some(existing) => format!("{existing}|{piece}"),
-            None => piece.to_string(),
-        };
-        self.config_hash = Some(crate::checksum::bytes_checksum(combined.as_bytes()));
+        self.cache_key.push(KeyComponent::Analyzer, piece);
     }
 
-    /// Compute a content-addressed descriptor key from processor identity and input content.
-    /// This key does NOT include file paths — renaming a file with identical content
-    /// produces the same key. The blob in the cache is path-free; the product knows
-    /// where to restore it.
-    ///
-    /// The key mixes in the processor's implementation `version` (from its plugin
-    /// registration). Bumping that version invalidates every cache entry produced
-    /// by this processor — see docs/src/processor-versioning.md for the bump rule.
-    /// For processors not in the builtin registry (e.g. Lua plugins), `v0` is used.
+    /// Compute the content-addressed descriptor key for this product.
+    /// Composition lives in `CacheKey` — see `src/cache_key.rs`.
     pub fn descriptor_key(&self, input_checksum: &str) -> String {
-        let mut parts = String::new();
-        parts.push_str(&self.processor);
-        parts.push_str(":v");
-        let version = crate::registries::processor_version(&self.processor).unwrap_or(0);
-        parts.push_str(&version.to_string());
-        if let Some(ref hash) = self.config_hash {
-            parts.push(':');
-            parts.push_str(hash);
-        }
-        if let Some(ref variant) = self.variant {
-            parts.push(':');
-            parts.push_str(variant);
-        }
-        parts.push(':');
-        parts.push_str(input_checksum);
-        crate::checksum::bytes_checksum(parts.as_bytes())
+        self.cache_key.descriptor_key(&self.processor, input_checksum)
     }
 
     /// Format a path according to the given format
@@ -198,7 +175,7 @@ impl Product {
         } else {
             format!("{}>{}", inputs.join(":"), outputs.join(":"))
         };
-        match &self.config_hash {
+        match self.cache_key.digest() {
             Some(hash) => format!("{}:{}:{}", self.processor, hash, io_part),
             None => format!("{}:{}", self.processor, io_part),
         }
@@ -414,16 +391,14 @@ impl BuildGraph {
         Ok(id)
     }
 
-    /// Incorporate tool version hashes into product config hashes.
+    /// Incorporate tool version hashes into product cache keys.
     /// For each product whose processor has an entry in the map, the tool
-    /// version hash is appended to (or becomes) the product's config_hash.
+    /// version hash becomes a `ToolVersion` component of its cache key, so
+    /// that upgrading a tool invalidates everything that tool produced.
     pub fn apply_tool_version_hashes(&mut self, processor_tool_hashes: &HashMap<String, String>) {
         for product in &mut self.products {
             if let Some(tool_hash) = processor_tool_hashes.get(&product.processor) {
-                product.config_hash = Some(match &product.config_hash {
-                    Some(existing) => format!("{existing}:{tool_hash}"),
-                    None => tool_hash.clone(),
-                });
+                product.cache_key.push(KeyComponent::ToolVersion, tool_hash.clone());
             }
         }
     }
@@ -1129,8 +1104,8 @@ mod tests {
     fn cache_key_includes_config_hash() {
         let p1 = Product::new(vec!["a.c".into()], vec![], "cc", 0, None);
         let p2 = Product::new(vec!["a.c".into()], vec![], "cc", 0, Some("abc123".into()));
-        assert!(!p1.cache_key().contains("abc123"));
-        assert!(p2.cache_key().contains("abc123"));
+        assert_ne!(p1.cache_key(), p2.cache_key());
+        assert_ne!(p1.descriptor_key("chk"), p2.descriptor_key("chk"));
     }
 
     #[test]
@@ -1138,14 +1113,56 @@ mod tests {
         let mut g = BuildGraph::new();
         g.add_product(vec!["a.c".into()], vec![], "cc", Some("cfg1".into())).unwrap();
         g.add_product(vec!["b.py".into()], vec![], "ruff", None).unwrap();
+        let before_cc = g.get_product(0).unwrap().descriptor_key("chk");
+        let before_ruff = g.get_product(1).unwrap().descriptor_key("chk");
+
         let mut hashes = HashMap::new();
         hashes.insert("cc".into(), "toolv1".into());
         g.apply_tool_version_hashes(&hashes);
-        // cc product gets tool hash appended
-        assert!(g.get_product(0).unwrap().config_hash.as_ref().unwrap().contains("toolv1"));
-        assert!(g.get_product(0).unwrap().config_hash.as_ref().unwrap().contains("cfg1"));
-        // ruff product (no tool hash mapping) stays None
-        assert!(g.get_product(1).unwrap().config_hash.is_none());
+
+        // The cc product keeps its config component and gains a tool component.
+        let cc_key = &g.get_product(0).unwrap().cache_key;
+        let components: Vec<_> = cc_key.components().iter()
+            .map(|(c, v)| (c.tag(), v.as_str()))
+            .collect();
+        assert_eq!(components, vec![("config", "cfg1"), ("tool", "toolv1")]);
+        assert_ne!(before_cc, g.get_product(0).unwrap().descriptor_key("chk"),
+            "a tool version change must invalidate the descriptor key");
+
+        // The ruff product has no tool hash mapping and is untouched.
+        assert!(g.get_product(1).unwrap().cache_key.is_empty());
+        assert_eq!(before_ruff, g.get_product(1).unwrap().descriptor_key("chk"));
+    }
+
+    #[test]
+    fn variant_is_a_cache_key_component() {
+        // Variants used to be spliced into descriptor_key separately from
+        // config_hash; they are now a normal component, so a variant change
+        // is visible in `product show` like every other contributor.
+        let plain = Product::new(vec!["a.c".into()], vec![], "cc", 0, Some("cfg".into()));
+        let debug = Product::with_variant(vec!["a.c".into()], vec![], "cc", 0, Some("cfg".into()), "debug");
+        let release = Product::with_variant(vec!["a.c".into()], vec![], "cc", 0, Some("cfg".into()), "release");
+        assert_ne!(plain.descriptor_key("chk"), debug.descriptor_key("chk"));
+        assert_ne!(debug.descriptor_key("chk"), release.descriptor_key("chk"));
+        assert_eq!(
+            debug.cache_key.components().iter().map(|(c, _)| c.tag()).collect::<Vec<_>>(),
+            vec!["config", "variant"],
+        );
+    }
+
+    #[test]
+    fn analyzer_pieces_accumulate_distinctly() {
+        // extend_config_hash used to rehash into an opaque string; each piece
+        // is now its own component, so contributions stay attributable.
+        let mut p = Product::new(vec!["a.tera".into()], vec![], "tera", 0, None);
+        let empty = p.descriptor_key("chk");
+        p.extend_config_hash("glob:one");
+        let one = p.descriptor_key("chk");
+        p.extend_config_hash("glob:two");
+        let two = p.descriptor_key("chk");
+        assert_ne!(empty, one);
+        assert_ne!(one, two);
+        assert_eq!(p.cache_key.components().len(), 2);
     }
 
     #[test]

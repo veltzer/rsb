@@ -43,7 +43,7 @@ When implementing a processor (built-in or Lua plugin):
 
 2. **Never call `cmd.env()`** to pass environment variables to external tools, unless the variable is derived from explicit config (not from `std::env`). The user's environment is inherited by default — the goal is to avoid *adding* env-based configuration on top.
 
-3. **Tool paths come from `PATH`** — RSConstruct does inherit the user's `PATH` to find tools like `gcc`, `ruff`, etc. This is acceptable because the tool lock file (`.tools.versions`) detects when tool versions change and triggers rebuilds. Use `rsconstruct tools lock` to pin versions.
+3. **Tool paths come from `PATH`** — RSConstruct does inherit the user's `PATH` to find tools like `gcc`, `ruff`, etc. This is acceptable because each tool's identity is part of the cache key of everything it produces: resolving a different binary, or the same binary with different content, invalidates that processor's cached results. See [`hash_tool_versions`](configuration.md#build). `rsconstruct tools lock` additionally pins exact versions and makes drift a hard error.
 
 4. **Config values, not env vars** — if a tool needs a flag that varies per project, put it in `rsconstruct.toml` under the processor's config section. Config values are hashed into cache keys automatically.
 

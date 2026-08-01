@@ -144,11 +144,35 @@ fn print_text(
         }
     }
 
-    println!(
-        "{} {}",
-        color::dim("config_hash:"),
-        product.config_hash.as_deref().unwrap_or("(none)"),
-    );
+    // Every non-input contributor to the cache key, in the order the build
+    // contributed them. A changed descriptor_key is always attributable to
+    // exactly one of these lines (or to input_checksum below).
+    if product.cache_key.is_empty() {
+        println!("{} {}", color::dim("cache_key:"), color::dim("(inputs only)"));
+    } else {
+        println!(
+            "{} {}",
+            color::dim("cache_key:"),
+            product.cache_key.digest().unwrap_or_default(),
+        );
+        for (component, value) in product.cache_key.components() {
+            // Analyzer components carry the raw contributed piece, which can
+            // be a multi-line file list. Summarize it here — the hash_pieces
+            // section below renders the same content in full (under
+            // --verbose), and dumping it twice would bury the other
+            // components.
+            if value.contains('\n') {
+                let lines = value.lines().count();
+                println!(
+                    "  {} {}",
+                    color::cyan(component.tag()),
+                    color::dim(&format!("({lines} lines, see hash_pieces below)")),
+                );
+            } else {
+                println!("  {} {}", color::cyan(component.tag()), value);
+            }
+        }
+    }
 
     if hash_pieces.is_empty() {
         println!("{} {}", color::dim("hash_pieces:"), color::dim("(none)"));
@@ -224,7 +248,10 @@ fn print_json(
             "configured": configured,
             "analyzer": analyzer_inputs_json,
         },
-        "config_hash": product.config_hash,
+        "cache_key": product.cache_key.digest(),
+        "cache_key_components": product.cache_key.components().iter()
+            .map(|(c, v)| serde_json::json!({"component": c.tag(), "value": v}))
+            .collect::<Vec<_>>(),
         "hash_pieces": hash_pieces_json,
         "input_checksum": input_checksum,
         "descriptor_key": descriptor_key,

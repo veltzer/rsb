@@ -695,12 +695,15 @@ impl Builder {
             eprintln!("{}", color::dim("  Phase: apply_tool_version_hashes"));
         }
         let t = Instant::now();
-        let tool_hashes = tool_lock::processor_tool_hashes(
-            processors,
-            &|_name| true, // All declared processors are active
-        )?;
-        if !tool_hashes.is_empty() {
-            graph.apply_tool_version_hashes(&tool_hashes);
+        if self.config.build.hash_tool_versions {
+            let tool_hashes = tool_lock::processor_tool_hashes(
+                ctx,
+                processors,
+                &|_name| true, // All declared processors are active
+            )?;
+            if !tool_hashes.is_empty() {
+                graph.apply_tool_version_hashes(&tool_hashes);
+            }
         }
         phase_timings.push(("tool_version_hashes".to_string(), t.elapsed()));
         print_graph_stats(GraphSnapshot::AfterApplyToolHashes, &graph);

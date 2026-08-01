@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use crate::build_context::BuildContext;
 use crate::processors::ProcessorMap;
 
 const LOCK_FILE: &str = ".tools.versions";
@@ -148,20 +149,52 @@ pub fn read_lock_file() -> Result<Option<ToolLockFile>> {
     Ok(Some(lock))
 }
 
-/// Compute a tool version hash per processor from the lock file.
-/// Returns a map from processor name to a hash of its tools' locked version strings.
-/// If there is no lock file, returns an empty map.
+/// Identify a single tool for cache-keying purposes.
+///
+/// Prefers the locked `version_output` when a lock file pins the tool: that
+/// is the user's declared identity for it, and it stays stable across
+/// reinstalls of the same version. Otherwise falls back to a content hash of
+/// the resolved binary, which needs no `--version` subprocess (the mtime
+/// cache makes repeat builds a stat) and is strictly stronger — it also
+/// catches a rebuilt binary that reports an unchanged version.
+///
+/// Returns None for a tool that is not on PATH: a missing tool is the tool
+/// preflight's problem, not the cache key's, and failing here would break
+/// builds whose products don't need that processor at all.
+fn tool_identity(ctx: &BuildContext, tool: &str, lock: Option<&ToolLockFile>) -> Option<String> {
+    if let Some(locked) = lock.and_then(|l| l.tools.get(tool)) {
+        return Some(format!("{}={}", tool, locked.version_output));
+    }
+    let path = which::which(tool).ok()?;
+    let (checksum, _) = crate::checksum::checksum_fast(ctx, &path).ok()?;
+    Some(format!("{tool}@{checksum}"))
+}
+
+/// Compute a tool version hash per processor.
+///
+/// Returns a map from processor name to a hash of its tools' identities, for
+/// mixing into every product that processor builds — so upgrading a tool
+/// invalidates what that tool produced.
+///
+/// This is unconditional as of the finding-3 fix. It was previously gated on
+/// a `.tools.versions` lock file existing, which meant the overwhelmingly
+/// common case (no lock file) mixed in nothing at all and a tool upgrade
+/// silently left every cached PASS valid. The lock file now only *refines*
+/// the identity; its absence no longer disables the mechanism. Set
+/// `[build] hash_tool_versions = false` to opt out.
 pub fn processor_tool_hashes(
+    ctx: &BuildContext,
     processors: &ProcessorMap,
     enabled: &dyn Fn(&str) -> bool,
 ) -> Result<std::collections::HashMap<String, String>> {
     use sha2::{Digest, Sha256};
 
-    let Some(lock) = read_lock_file()? else {
-        return Ok(std::collections::HashMap::new());
-    };
+    let lock = read_lock_file()?;
 
     let mut result = std::collections::HashMap::new();
+    // One tool is typically required by several processors; resolving and
+    // hashing it once per processor would multiply the work for nothing.
+    let mut identity_cache: BTreeMap<String, Option<String>> = BTreeMap::new();
 
     let mut names: Vec<&String> = processors.keys().collect();
     names.sort();
@@ -175,11 +208,13 @@ pub fn processor_tool_hashes(
             continue;
         }
 
-        // Collect locked version strings for this processor's tools, sorted
         let mut version_parts: Vec<String> = Vec::new();
         for tool in &tools {
-            if let Some(locked) = lock.tools.get(tool) {
-                version_parts.push(format!("{}={}", tool, locked.version_output));
+            let identity = identity_cache
+                .entry(tool.clone())
+                .or_insert_with(|| tool_identity(ctx, tool, lock.as_ref()));
+            if let Some(identity) = identity {
+                version_parts.push(identity.clone());
             }
         }
 

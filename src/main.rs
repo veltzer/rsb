@@ -63,6 +63,7 @@ mod errors;
 mod analyzers;
 mod build_context;
 mod builder;
+mod cache_key;
 mod checksum;
 mod cli;
 mod color;

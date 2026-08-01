@@ -85,10 +85,10 @@ blobs by scanning the descriptors.
 ## Cache keys
 
 The descriptor key identifies a product build. It is computed as
-(`Product::descriptor_key` in `src/graph.rs`):
+(`CacheKey::descriptor_key` in `src/cache_key.rs`):
 
 ```
-hash(processor_name, processor_version, config_hash, variant, input_content_hash)
+hash(processor_name, processor_version, cache_key_digest, input_content_hash)
 ```
 
 Where:
@@ -96,12 +96,35 @@ Where:
 - `processor_version` — the processor's cache version from the plugin
   registry; bumping it invalidates every entry the processor ever produced
   (see [Processor versioning](processor-versioning.md))
-- `config_hash` — hash of the processor configuration (compiler flags, args, etc.)
-- `variant` — distinguishes multiple products from the same input (e.g. one
-  per output format)
+- `cache_key_digest` — a digest of every piece of **non-input** state that
+  affects the output (below)
 - `input_content_hash` — combined SHA-256 hash of all input file contents
 
 The key is **content-addressed**: it depends on what the inputs contain, not what they're named. Renaming a file without changing its content produces the same cache key.
+
+### Cache key components
+
+`CacheKey` is the single owner of key composition. Key material used to be
+assembled in five uncoordinated places, all splicing into one opaque
+`config_hash: Option<String>` with three different separator conventions —
+so a component that silently failed to be mixed in was invisible, and a
+changed key could not be attributed to a cause. Contributors now append a
+named, typed component and one function folds them into the digest:
+
+| Component | Contributed by | Covers |
+|---|---|---|
+| `config` | discovery, via `output_config_hash` over the processor's `checksum_fields()` | compiler flags, args, output declarations |
+| `variant` | `Product::with_variant` | multiple products from one input (e.g. one per output format) |
+| `analyzer` | `Product::extend_config_hash` | non-content state an analyzer resolves, e.g. the sorted set of paths matching a glob |
+| `tool` | `apply_tool_version_hashes`, gated on [`hash_tool_versions`](../configuration.md#build) | identity of the external tools the processor invokes |
+
+The component *kind* is part of the digest, so a `config` value and a `tool`
+value that happen to be equal do not collide. Order is significant and
+deterministic (discovery, then analyzers, then tool versions).
+
+`rsconstruct product show <path>` prints the components individually, so any
+descriptor-key change is attributable to exactly one of them (or to
+`input_checksum`).
 
 ### Multi-format processors
 
