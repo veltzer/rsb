@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use redb::ReadableDatabase;
+use redb::ReadableTable;
 use redb::TableDefinition;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -195,6 +196,55 @@ fn hash_checksums(checksums: &[String]) -> String {
 pub enum ChecksumPath {
     MtimeShortcut,
     FullRead,
+}
+
+/// Drop mtime-cache entries whose file no longer exists. Returns the number
+/// removed.
+///
+/// The cache is keyed by path and nothing ever removed an entry, so deleting
+/// or renaming a file left its row behind forever — the database grew
+/// monotonically with the history of every path the project ever had.
+/// Called by `rsconstruct cache trim`.
+pub fn prune_mtime_cache(ctx: &BuildContext) -> Result<usize> {
+    if !PathBuf::from(".rsconstruct").join("mtime.redb").exists() {
+        return Ok(0);
+    }
+
+    let stale: Vec<String> = {
+        let db_guard = get_mtime_db(ctx)?;
+        let Some(db) = db_guard.as_ref() else { return Ok(0) };
+        let read_txn = crate::errors::ctx(db.begin_read(), "Failed to begin read transaction for mtime prune")?;
+        let Ok(table) = read_txn.open_table(MTIME_TABLE) else {
+            return Ok(0);
+        };
+        let mut stale = Vec::new();
+        for entry in table.iter().context("Failed to iterate mtime cache")? {
+            let (key, _) = entry.context("Failed to read mtime cache entry")?;
+            let path_str = key.value();
+            if !Path::new(path_str).exists() {
+                stale.push(path_str.to_string());
+            }
+        }
+        stale
+    };
+
+    if stale.is_empty() {
+        return Ok(0);
+    }
+
+    let db_guard = get_mtime_db(ctx)?;
+    let db = crate::errors::ctx_opt(db_guard.as_ref(), "Mtime database not available")?;
+    let write_txn = crate::errors::ctx(db.begin_write(), "Failed to begin write transaction for mtime prune")?;
+    {
+        let mut table = write_txn.open_table(MTIME_TABLE)
+            .context("Failed to open mtime cache table for prune")?;
+        for path_str in &stale {
+            table.remove(path_str.as_str())
+                .with_context(|| format!("Failed to remove mtime entry for {path_str}"))?;
+        }
+    }
+    crate::errors::ctx(write_txn.commit(), "Failed to commit mtime cache prune")?;
+    Ok(stale.len())
 }
 
 /// Compute a file's checksum, consulting the persistent mtime cache first.

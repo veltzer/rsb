@@ -419,6 +419,22 @@ pub struct CacheConfig {
     /// Whether to use mtime pre-check to skip unchanged file checksums (default: true)
     #[serde(default = "default_true")]
     pub mtime_check: bool,
+    /// How long a cached HTTP response (remote JSON schemas, etc.) stays
+    /// fresh, in seconds. Default: 7 days.
+    ///
+    /// The webcache previously had no expiry at all: a URL fetched once was
+    /// served from disk forever, so a schema that changed upstream was never
+    /// picked up and the database only ever grew. Set to 0 to disable the
+    /// webcache (always re-fetch).
+    #[serde(default = "default_webcache_ttl_secs")]
+    pub webcache_ttl_secs: u64,
+}
+
+/// Seven days. Long enough that a normal working week of builds hits the
+/// cache, short enough that an upstream schema change lands without anyone
+/// having to know `rsconstruct cache webcache clear` exists.
+const fn default_webcache_ttl_secs() -> u64 {
+    7 * 24 * 60 * 60
 }
 
 impl Default for CacheConfig {
@@ -430,6 +446,7 @@ impl Default for CacheConfig {
             remote_push: true,
             remote_pull: true,
             mtime_check: true,
+            webcache_ttl_secs: default_webcache_ttl_secs(),
         }
     }
 }

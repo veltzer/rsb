@@ -38,6 +38,7 @@ remote = "s3://my-bucket/rsconstruct-cache"  # Optional: remote cache URL
 remote_push = true       # Push local builds to remote (default: true)
 remote_pull = true       # Pull from remote cache on cache miss (default: true)
 mtime_check = true       # Use mtime pre-check to skip unchanged file checksums (default: true)
+webcache_ttl_secs = 604800  # How long a fetched HTTP response stays fresh (default: 7 days)
 
 [analyzer]
 auto_detect = true
@@ -218,6 +219,9 @@ Processor-specific fields are documented on each processor's page under [Process
 | `remote_push` | boolean | `true` | Push locally built artifacts to remote cache. |
 | `remote_pull` | boolean | `true` | Pull from remote cache on local cache miss. |
 | `mtime_check` | boolean | `true` | Persist file checksums across builds using an mtime database. Set to `false` in CI/CD environments where the cache won't survive the build and the write overhead isn't worth it. Can also be disabled via `--no-mtime-cache` flag. See [Checksum Cache](internal/checksum-cache.md). |
+| `webcache_ttl_secs` | integer | `604800` (7 days) | How long a cached HTTP response (remote JSON schemas fetched by `iyamlschema`) stays fresh. An entry older than this is re-fetched. Set to `0` to disable the web cache entirely and always re-fetch. Expired entries are reclaimed by [`rsconstruct cache trim`](commands.md#rsconstruct-cache). |
+
+`rsconstruct cache trim` reclaims three kinds of dead weight: unreferenced objects in the store, mtime-database rows for files that no longer exist, and expired web-cache entries. Without it these grow with the history of the project rather than its current size.
 
 ### `[analyzer]`
 

@@ -192,6 +192,7 @@ impl Builder {
         if !self.config.cache.mtime_check {
             ctx.set_mtime_check(false);
         }
+        ctx.set_webcache_ttl_secs(self.config.cache.webcache_ttl_secs);
     }
 
     pub fn new() -> Result<Self> {

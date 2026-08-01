@@ -261,12 +261,25 @@ fn run() -> (Result<()>, bool) {
                 }
                 CacheAction::Trim => {
                     let builder = Builder::new()?;
+                    builder.apply_config_to_context(&ctx);
                     let (bytes, count) = builder.object_store().trim()?;
+                    // The object store is not the only thing that grows
+                    // without bound: mtime rows for deleted files and expired
+                    // HTTP responses accumulate forever otherwise.
+                    let mtime_pruned = checksum::prune_mtime_cache(&ctx)?;
+                    let web_pruned = webcache::prune(ctx.webcache_ttl_secs())?;
                     if json_output::is_json_mode() {
-                        let out = serde_json::json!({ "removed_bytes": bytes, "removed_objects": count });
+                        let out = serde_json::json!({
+                            "removed_bytes": bytes,
+                            "removed_objects": count,
+                            "removed_mtime_entries": mtime_pruned,
+                            "removed_webcache_entries": web_pruned,
+                        });
                         println!("{}", serde_json::to_string_pretty(&out)?);
                     } else {
                         println!("Removed {bytes} bytes ({count} unreferenced objects)");
+                        println!("Removed {mtime_pruned} mtime entries for deleted files");
+                        println!("Removed {web_pruned} expired webcache entries");
                     }
                 }
                 CacheAction::RemoveStale => {
@@ -726,7 +739,12 @@ fn run() -> (Result<()>, bool) {
                     let entries = webcache::list()?;
                     if json_output::is_json_mode() {
                         let rows: Vec<serde_json::Value> = entries.iter().map(|e| {
-                            serde_json::json!({ "url": e.url, "size": e.size })
+                            serde_json::json!({
+                                "url": e.url,
+                                "size": e.size,
+                                "age_secs": e.age_secs,
+                                "expired": e.expired,
+                            })
                         }).collect();
                         println!("{}", serde_json::to_string_pretty(&rows)?);
                     } else if entries.is_empty() {
@@ -735,8 +753,10 @@ fn run() -> (Result<()>, bool) {
                         let rows: Vec<Vec<String>> = entries.iter().map(|entry| vec![
                             entry.url.clone(),
                             humansize::format_size(entry.size, humansize::BINARY),
+                            format_age(entry.age_secs),
+                            if entry.expired { "expired" } else { "fresh" }.to_string(),
                         ]).collect();
-                        tables::print_table(&["URL", "Size"], &rows);
+                        tables::print_table(&["URL", "Size", "Age", "State"], &rows);
                     }
                 }
             }
@@ -751,6 +771,24 @@ fn run() -> (Result<()>, bool) {
 
     })(); // end closure
     (result, show_status)
+}
+
+/// Render an age in seconds as a compact human string ("3d", "5h", "12m").
+/// Coarse on purpose — this exists to answer "is this entry old?", and the
+/// exact second a schema was fetched is never the question.
+fn format_age(secs: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    if secs >= DAY {
+        format!("{}d", secs / DAY)
+    } else if secs >= HOUR {
+        format!("{}h", secs / HOUR)
+    } else if secs >= MINUTE {
+        format!("{}m", secs / MINUTE)
+    } else {
+        format!("{secs}s")
+    }
 }
 
 /// List all exit codes and their meanings.

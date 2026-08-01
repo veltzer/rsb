@@ -6,12 +6,15 @@ use crate::config::IyamlschemaConfig;
 use crate::graph::Product;
 
 /// Custom retriever that fetches remote schemas via the webcache.
-struct WebCacheRetriever;
+/// Carries the TTL because `Retrieve::retrieve` takes only the URI.
+struct WebCacheRetriever {
+    ttl_secs: u64,
+}
 
 impl jsonschema::Retrieve for WebCacheRetriever {
     fn retrieve(&self, uri: &jsonschema::Uri<String>) -> std::result::Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         let url = uri.as_str();
-        let body = crate::webcache::fetch(url)?;
+        let body = crate::webcache::fetch(url, self.ttl_secs)?;
         let value: Value = serde_json::from_str(&body)?;
         Ok(value)
     }
@@ -26,15 +29,15 @@ impl IyamlschemaProcessor {
         Self { config }
     }
 
-    fn execute_product(&self, product: &Product) -> Result<()> {
-        self.check_files(&[product.primary_input()])
+    fn execute_product(&self, ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
+        self.check_files(ctx, &[product.primary_input()])
     }
 
-    fn check_files(&self, files: &[&Path]) -> Result<()> {
+    fn check_files(&self, ctx: &crate::build_context::BuildContext, files: &[&Path]) -> Result<()> {
         let mut errors = Vec::new();
 
         for file in files {
-            if let Err(e) = self.validate_file(file) {
+            if let Err(e) = self.validate_file(ctx, file) {
                 errors.push(format!("{}: {}", file.display(), e));
             }
         }
@@ -46,7 +49,8 @@ impl IyamlschemaProcessor {
         }
     }
 
-    fn validate_file(&self, path: &Path) -> Result<()> {
+    fn validate_file(&self, ctx: &crate::build_context::BuildContext, path: &Path) -> Result<()> {
+        let ttl_secs = ctx.webcache_ttl_secs();
         let contents = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
@@ -60,14 +64,14 @@ impl IyamlschemaProcessor {
             .ok_or_else(|| anyhow::anyhow!("no $schema field found"))?;
 
         // Fetch schema (cached)
-        let schema_str = crate::webcache::fetch(schema_url)
+        let schema_str = crate::webcache::fetch(schema_url, ttl_secs)
             .with_context(|| format!("Failed to fetch schema {schema_url}"))?;
         let schema: Value = serde_json::from_str(&schema_str)
             .with_context(|| format!("Failed to parse schema from {schema_url}"))?;
 
         // Validate data against schema (with custom retriever for remote $ref resolution)
         let validator = jsonschema::options()
-            .with_retriever(WebCacheRetriever)
+            .with_retriever(WebCacheRetriever { ttl_secs })
             .build(&schema)
             .with_context(|| format!("Failed to compile schema from {schema_url}"))?;
 
@@ -206,12 +210,12 @@ impl crate::processors::Processor for IyamlschemaProcessor {
         )
     }
 
-    fn execute(&self, _ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
-        self.execute_product(product)
+    fn execute(&self, ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
+        self.execute_product(ctx, product)
     }
 
-    fn execute_batch(&self, _ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
-        crate::processors::execute_checker_batch_per_file(products, |file| self.check_files(&[file]))
+    fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
+        crate::processors::execute_checker_batch_per_file(products, |file| self.check_files(ctx, &[file]))
     }
 }
 

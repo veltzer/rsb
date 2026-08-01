@@ -29,6 +29,10 @@ pub struct BuildContext {
     /// Stored on the context so any processor can read it without having to be
     /// handed the full `Config`.
     pub(crate) max_arg_len: std::sync::atomic::AtomicUsize,
+    /// TTL for cached HTTP responses (sourced from `cache.webcache_ttl_secs`).
+    /// On the context for the same reason as `max_arg_len`: the iyamlschema
+    /// checker needs it and has no route to the full `Config`.
+    pub(crate) webcache_ttl_secs: std::sync::atomic::AtomicU64,
 }
 
 impl BuildContext {
@@ -44,6 +48,7 @@ impl BuildContext {
             mtime_db: Mutex::new(None),
             mtime_enabled: AtomicBool::new(true),
             max_arg_len: std::sync::atomic::AtomicUsize::new(1_000_000),
+            webcache_ttl_secs: std::sync::atomic::AtomicU64::new(7 * 24 * 60 * 60),
         }
     }
 
@@ -53,6 +58,14 @@ impl BuildContext {
 
     pub(crate) fn set_max_arg_len(&self, n: usize) {
         self.max_arg_len.store(n, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_webcache_ttl_secs(&self, n: u64) {
+        self.webcache_ttl_secs.store(n, Ordering::Relaxed);
+    }
+
+    pub(crate) fn webcache_ttl_secs(&self) -> u64 {
+        self.webcache_ttl_secs.load(Ordering::Relaxed)
     }
 
     pub fn max_arg_len(&self) -> usize {
