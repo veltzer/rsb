@@ -9,7 +9,7 @@ use crate::config::RestoreMethod;
 
 /// Distinguishes concurrent temp files within one process; combined with the
 /// pid so concurrent rsconstruct invocations never collide either.
-static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(0);
+pub(super) static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(0);
 
 impl ObjectStore {
     /// Calculate SHA-256 checksum of a file by reading its contents directly.
@@ -40,6 +40,19 @@ impl ObjectStore {
         let mut path = self.object_path(checksum).into_os_string();
         path.push(".zst");
         PathBuf::from(path)
+    }
+
+    /// On-disk size of a stored object, whichever format it was written in.
+    /// Callers must not assume `object_path` — under `compression = true` the
+    /// object only exists at `compressed_object_path`, and stat'ing the plain
+    /// path silently reports zero.
+    pub(super) fn object_size(&self, checksum: &str) -> u64 {
+        for path in [self.object_path(checksum), self.compressed_object_path(checksum)] {
+            if let Ok(metadata) = fs::metadata(&path) {
+                return metadata.len();
+            }
+        }
+        0
     }
 
     /// Store content in object store, returns checksum.

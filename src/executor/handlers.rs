@@ -42,7 +42,9 @@ impl Executor<'_> {
 
         if ctx.keep_going {
             let msg = format!("{}: {}", self.product_display(ctx.product), prefixed_error);
-            println!("{}", color::red(&format!("Error: {msg}")));
+            // stderr: errors must survive --json, and must not corrupt the
+            // JSON event stream on stdout.
+            eprintln!("{}", color::red(&format!("Error: {msg}")));
             ctx.shared.failed_messages.lock().push(msg);
         } else {
             if mark_processor_failed {

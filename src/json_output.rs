@@ -15,6 +15,19 @@ pub fn is_json_mode() -> bool {
     crate::runtime_flags::json_mode()
 }
 
+/// Whether human-readable text may be written to stdout.
+///
+/// False under `--json` (stdout carries only JSON events, so any prose
+/// would corrupt the stream) and under `--quiet`. Every human-facing
+/// `println!` on the build path must be gated on this — checking only
+/// `quiet()` is the mistake that let progress lines leak into `--json`
+/// output.
+/// Uses the non-panicking flag accessors so it is safe to call from library
+/// code exercised by unit tests, which never run `runtime_flags::init`.
+pub fn human_output_enabled() -> bool {
+    !crate::runtime_flags::json_mode_or_default() && !crate::runtime_flags::quiet_or_default()
+}
+
 /// Status of a completed product in a build.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]

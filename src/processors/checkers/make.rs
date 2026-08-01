@@ -47,10 +47,6 @@ impl Processor for MakeProcessor {
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
-        if !crate::processors::scan_root_valid(&self.config.standard) {
-            return Ok(());
-        }
-
         discover_directory_products(graph, DirectoryProductOpts {
             scan: &self.config.standard,
             file_index,

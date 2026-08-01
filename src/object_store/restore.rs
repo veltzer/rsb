@@ -59,8 +59,25 @@ impl ObjectStore {
         }
     }
 
+    /// Checksum an output for verification, consulting the persistent mtime
+    /// cache so an unchanged file is not re-read.
+    ///
+    /// Output verification runs on every no-op build (classify, then again
+    /// per level), so full-reading each output is what made cached trees
+    /// like `.venv` catastrophically slow. `checksum_fast` degrades to the
+    /// same full read when the mtime doesn't match, so the answer is
+    /// identical — only the cost changes.
+    fn verify_checksum(ctx: &crate::build_context::BuildContext, path: &Path) -> Option<String> {
+        crate::checksum::checksum_output(ctx, path).ok().map(|(c, _)| c)
+    }
+
     /// Check if a product needs rebuilding based on its descriptor.
-    pub fn needs_rebuild_descriptor(&self, cache_key: &str, output_paths: &[PathBuf]) -> bool {
+    pub fn needs_rebuild_descriptor(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        cache_key: &str,
+        output_paths: &[PathBuf],
+    ) -> bool {
         let Some(descriptor) = self.get_descriptor(cache_key) else { return true };
         match descriptor {
             CacheDescriptor::Marker => false,
@@ -69,13 +86,13 @@ impl ObjectStore {
                 // consistent with the Tree path; extra outputs are
                 // existence-checked only (their checksums aren't recorded).
                 let content_ok = output_paths.first().is_none_or(|p|
-                    Self::calculate_checksum(p).ok().as_ref() == Some(&checksum));
+                    Self::verify_checksum(ctx, p).as_ref() == Some(&checksum));
                 !content_ok || output_paths.iter().skip(1).any(|p| !p.exists())
             }
             CacheDescriptor::Tree { entries } => {
                 entries.iter().any(|e| {
                     let p = Path::new(&e.path);
-                    !p.exists() || Self::calculate_checksum(p).ok().as_ref() != Some(&e.checksum)
+                    !p.exists() || Self::verify_checksum(ctx, p).as_ref() != Some(&e.checksum)
                 })
             }
         }
@@ -94,7 +111,13 @@ impl ObjectStore {
     }
 
     /// Explain what action will be taken based on descriptor state.
-    pub fn explain_descriptor(&self, descriptor_key: &str, output_paths: &[PathBuf], force: bool) -> ExplainAction {
+    pub fn explain_descriptor(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        descriptor_key: &str,
+        output_paths: &[PathBuf],
+        force: bool,
+    ) -> ExplainAction {
         if force {
             return ExplainAction::Rebuild(RebuildReason::Force);
         }
@@ -110,7 +133,7 @@ impl ObjectStore {
                 // must never disagree with what the build would do.
                 for (i, p) in output_paths.iter().enumerate() {
                     let needs_restore = if i == 0 {
-                        !p.exists() || Self::calculate_checksum(p).ok().as_ref() != Some(&checksum)
+                        !p.exists() || Self::verify_checksum(ctx, p).as_ref() != Some(&checksum)
                     } else {
                         !p.exists()
                     };
@@ -128,7 +151,7 @@ impl ObjectStore {
                 for entry in &entries {
                     let p = Path::new(&entry.path);
                     let needs_restore = !p.exists()
-                        || Self::calculate_checksum(p).ok().as_ref() != Some(&entry.checksum);
+                        || Self::verify_checksum(ctx, p).as_ref() != Some(&entry.checksum);
                     if needs_restore {
                         if self.has_object(&entry.checksum) {
                             return ExplainAction::Restore(RebuildReason::OutputMissing(entry.path.clone()));
@@ -153,12 +176,16 @@ mod tests {
     fn marker_never_rebuilds_missing_descriptor_always_does() {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = ObjectStore::new_in(tmp.path());
+        let ctx = BuildContext::new();
+        // The mtime cache is CWD-relative (.rsconstruct/mtime.redb); disable it
+        // so parallel unit tests do not share persistent state.
+        ctx.set_mtime_check(false);
 
-        assert!(store.needs_rebuild_descriptor("absent99", &[]));
+        assert!(store.needs_rebuild_descriptor(&ctx, "absent99", &[]));
         assert!(!store.can_restore_descriptor("absent99"));
 
         store.store_marker("cafe1234").unwrap();
-        assert!(!store.needs_rebuild_descriptor("cafe1234", &[]));
+        assert!(!store.needs_rebuild_descriptor(&ctx, "cafe1234", &[]));
         assert!(store.can_restore_descriptor("cafe1234"));
     }
 
@@ -170,6 +197,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = ObjectStore::new_in(tmp.path());
         let ctx = BuildContext::new();
+        // The mtime cache is CWD-relative (.rsconstruct/mtime.redb); disable it
+        // so parallel unit tests do not share persistent state.
+        ctx.set_mtime_check(false);
         let key = "beef5678";
 
         let first = tmp.path().join("first.out");
@@ -178,15 +208,15 @@ mod tests {
         store.store_blob_descriptor(&ctx, key, &first).unwrap();
 
         let outputs = vec![first.clone(), second.clone()];
-        assert!(store.needs_rebuild_descriptor(key, &outputs),
+        assert!(store.needs_rebuild_descriptor(&ctx, key, &outputs),
             "second output missing → rebuild");
 
         fs::write(&second, b"anything at all").unwrap();
-        assert!(!store.needs_rebuild_descriptor(key, &outputs),
+        assert!(!store.needs_rebuild_descriptor(&ctx, key, &outputs),
             "extra outputs are existence-checked only");
 
         fs::write(&first, b"tampered").unwrap();
-        assert!(store.needs_rebuild_descriptor(key, &outputs),
+        assert!(store.needs_rebuild_descriptor(&ctx, key, &outputs),
             "first output is content-verified");
     }
 
@@ -198,6 +228,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = ObjectStore::new_in(tmp.path());
         let ctx = BuildContext::new();
+        // The mtime cache is CWD-relative (.rsconstruct/mtime.redb); disable it
+        // so parallel unit tests do not share persistent state.
+        ctx.set_mtime_check(false);
         let key = "feed9abc";
 
         let out = tmp.path().join("out.txt");
@@ -224,6 +257,9 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = ObjectStore::new_in(tmp.path());
         let ctx = BuildContext::new();
+        // The mtime cache is CWD-relative (.rsconstruct/mtime.redb); disable it
+        // so parallel unit tests do not share persistent state.
+        ctx.set_mtime_check(false);
         let key = "dead4321";
 
         let outdir = tmp.path().join("outdir");
@@ -233,14 +269,14 @@ mod tests {
         let dirs = [std::sync::Arc::new(outdir.clone())];
         store.store_tree_descriptor(&ctx, key, &dirs, &[], &|_| false).unwrap();
 
-        assert!(!store.needs_rebuild_descriptor(key, &[]));
+        assert!(!store.needs_rebuild_descriptor(&ctx, key, &[]));
 
         fs::write(outdir.join("b.txt"), b"tampered").unwrap();
-        assert!(store.needs_rebuild_descriptor(key, &[]),
+        assert!(store.needs_rebuild_descriptor(&ctx, key, &[]),
             "any corrupted tree entry must flag a rebuild");
 
         assert!(store.restore_from_descriptor(key, &[]).unwrap());
         assert_eq!(fs::read(outdir.join("b.txt")).unwrap(), b"beta");
-        assert!(!store.needs_rebuild_descriptor(key, &[]));
+        assert!(!store.needs_rebuild_descriptor(&ctx, key, &[]));
     }
 }

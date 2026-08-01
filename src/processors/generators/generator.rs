@@ -6,7 +6,7 @@ use crate::config::GeneratorConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{
-    Processor, scan_root_valid,
+    Processor,
     run_command, check_command_output, execute_generator_batch,
     config_file_inputs,
 };
@@ -24,7 +24,7 @@ impl GeneratorProcessor {
     }
 
     const fn should_process(&self) -> bool {
-        scan_root_valid(&self.config.standard) && !self.config.standard.command.is_empty()
+        !self.config.standard.command.is_empty()
     }
 
     fn execute_product(&self, ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {

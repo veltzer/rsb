@@ -58,10 +58,7 @@
 #![allow(clippy::significant_drop_tightening)]
 
 
-#[macro_use]
 mod registries;
-
-#[macro_use]
 mod errors;
 mod analyzers;
 mod build_context;
@@ -151,15 +148,16 @@ fn run() -> (Result<()>, bool) {
 
     // Initialize runtime flags from CLI arguments (once, before any reads)
     let t = Instant::now();
-    let color_enabled = match cli.color {
+    // JSON mode never emits color: stdout must be machine-readable, and
+    // --color=always must not smuggle ANSI escapes into it.
+    let color_enabled = !cli.json && match cli.color {
         cli::ColorMode::Always => true,
         cli::ColorMode::Never => false,
         cli::ColorMode::Auto => {
             // Disable if NO_COLOR is set to a non-empty value (per the
             // no-color.org spec, an empty value does NOT disable color)
-            // or if stdout is not a tty. Also disable in JSON mode.
+            // or if stdout is not a tty.
             std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty())
-                && !cli.json
                 && std::io::IsTerminal::is_terminal(&std::io::stdout())
         }
     };
@@ -582,15 +580,8 @@ fn run() -> (Result<()>, bool) {
         }
         Commands::Terms { action } => {
             let config = Config::load()?;
-            let mut terms_config: config::TermsConfig = config.processor
-                .first_instance_of_type("terms")
-                .map(|inst| inst.config_toml.clone().try_into())
-                .transpose()
-                .context("Failed to parse terms config")?
-                .unwrap_or_default();
-            if let Some(defaults) = config::scan_defaults_for("terms") {
-                terms_config.standard.resolve_scan(&defaults);
-            }
+            let terms_config: config::TermsConfig =
+                config.processor.instance_config_or_default("terms")?;
             match action {
                 cli::TermsAction::Fix { remove_non_terms } => {
                     processors::terms::fix_all(&terms_config, remove_non_terms)?;
@@ -624,21 +615,13 @@ fn run() -> (Result<()>, bool) {
                 cli::TagsAction::Coverage => processors::tags_cmd::coverage_tags(&db_path)?,
                 cli::TagsAction::Orphans => processors::tags_cmd::orphan_files(&db_path)?,
                 cli::TagsAction::Check => {
-                    let tags_config: config::TagsConfig = config.processor
-                        .first_instance_of_type("tags")
-                        .map(|inst| inst.config_toml.clone().try_into())
-                        .transpose()
-                        .context("Failed to parse tags config")?
-                        .unwrap_or_default();
+                    let tags_config: config::TagsConfig =
+                        config.processor.instance_config_or_default("tags")?;
                     processors::tags_cmd::check_tags(&tags_config)?;
                 }
                 cli::TagsAction::Suggest { path } => {
-                    let tags_config: config::TagsConfig = config.processor
-                        .first_instance_of_type("tags")
-                        .map(|inst| inst.config_toml.clone().try_into())
-                        .transpose()
-                        .context("Failed to parse tags config")?
-                        .unwrap_or_default();
+                    let tags_config: config::TagsConfig =
+                        config.processor.instance_config_or_default("tags")?;
                     processors::tags_cmd::suggest_tags(&db_path, &path, &tags_config)?;
                 }
                 cli::TagsAction::Merge { path } => processors::tags_cmd::merge_tags(&tags_dir, &path)?,

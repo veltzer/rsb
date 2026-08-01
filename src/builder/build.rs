@@ -243,7 +243,7 @@ impl Builder {
 
         // If we stopped early (before classify), we're done
         if opts.stop_after != BuildPhase::Build && opts.stop_after != BuildPhase::Classify {
-            if !crate::runtime_flags::quiet() {
+            if crate::json_output::human_output_enabled() {
                 println!("Stopped after {:?} phase.", opts.stop_after);
             }
             return Ok(());
@@ -259,14 +259,14 @@ impl Builder {
         }
         let t = Instant::now();
         let order = graph.topological_sort()?;
-        if !crate::runtime_flags::quiet() {
+        if crate::json_output::human_output_enabled() {
             println!("[build] {} products to check for updates", order.len());
         }
         let policy = crate::executor::IncrementalPolicy;
         let classification =
             crate::executor::classify_products(ctx, &policy, &graph, &order, &self.object_store, opts.force);
         phase_timings.push(("classify".to_string(), t.elapsed()));
-        if !crate::runtime_flags::quiet() {
+        if crate::json_output::human_output_enabled() {
             println!("[build] {} to build, {} to restore ({} up-to-date)",
                 classification.build_count, classification.restore_count, classification.skip_count);
         }
@@ -291,7 +291,7 @@ impl Builder {
         } else {
             parallel
         };
-        if !crate::runtime_flags::quiet() {
+        if crate::json_output::human_output_enabled() {
             println!("[rsconstruct] using {effective_parallel} threads");
         }
         // CLI overrides config for batch_size (CLI -1 maps to None = disable)
@@ -534,7 +534,7 @@ impl Builder {
             // Same classification with and without --explain — the flag only
             // adds the reason text.
             let desc_key = product.descriptor_key(&input_checksum);
-            let action = self.object_store.explain_descriptor(&desc_key, &product.outputs, opts.force);
+            let action = self.object_store.explain_descriptor(ctx, &desc_key, &product.outputs, opts.force);
             let reason = if opts.explain { format!(" ({action})") } else { String::new() };
             let status_idx = match action {
                 ExplainAction::Skip => 0,
@@ -654,7 +654,7 @@ fn write_trace_file(path: &str, stats: &BuildStats) -> Result<()> {
     let trace_json = serde_json::to_string_pretty(&trace)?;
     std::fs::write(path, trace_json)
         .with_context(|| format!("Failed to write trace file: {path}"))?;
-    if !crate::runtime_flags::quiet() {
+    if crate::json_output::human_output_enabled() {
         println!("Wrote trace to {}", color::bold(path));
     }
     Ok(())

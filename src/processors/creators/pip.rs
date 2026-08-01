@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::config::{PipConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{Processor, scan_root_valid, run_in_anchor_dir, anchor_display_dir, check_command_output};
+use crate::processors::{Processor, run_in_anchor_dir, anchor_display_dir, check_command_output};
 
 pub struct PipProcessor {
     config: PipConfig,
@@ -40,7 +40,7 @@ impl Processor for PipProcessor {
 
 
     fn auto_detect(&self, file_index: &FileIndex) -> bool {
-        scan_root_valid(&self.config.standard) && !file_index.scan(&self.config.standard, false).is_empty()
+        !file_index.scan(&self.config.standard, false).is_empty()
     }
 
     fn config_json(&self) -> Option<String> {
@@ -52,10 +52,6 @@ impl Processor for PipProcessor {
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
-        if !scan_root_valid(&self.config.standard) {
-            return Ok(());
-        }
-
         let files = file_index.scan(&self.config.standard, false);
         if files.is_empty() {
             return Ok(());

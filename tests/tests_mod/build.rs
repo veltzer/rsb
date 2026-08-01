@@ -1143,3 +1143,46 @@ fn svg_change_rebuilds_marp_and_ipdfunite() {
         "ipdfunite must rebuild when its upstream marp PDF changes: {:?}",
         result3.products);
 }
+
+/// Under `--json`, stdout carries a machine-readable event stream: every
+/// line must parse as JSON. Human progress lines leaking onto stdout make
+/// the output unparseable for any consumer that doesn't defensively skip
+/// junk (the test harness itself used to silently discard such lines,
+/// which is why this went unnoticed).
+///
+/// Covers the three shapes that leaked: plain `--json` (build phase
+/// summaries), `--json -v` (per-product progress), and the incremental
+/// re-run (skip lines). `--color=always` is included because JSON mode
+/// must never emit ANSI escapes onto stdout either.
+#[test]
+fn json_mode_stdout_is_pure_json() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+    for i in 1..=3 {
+        fs::write(
+            project_path.join(format!("tera.templates/f{i}.txt.tera")),
+            format!("Hello {i}\n"),
+        ).unwrap();
+    }
+
+    let cases: [&[&str]; 4] = [
+        &["--json", "build"],
+        &["--json", "-v", "build", "--force"],
+        &["--json", "-v", "build"],
+        &["--json", "--color=always", "-v", "build", "--force"],
+    ];
+
+    for args in cases {
+        let output = run_rsconstruct_with_env(project_path, args, &[]);
+        assert!(output.status.success(),
+            "build failed for {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+            assert!(!line.contains('\u{1b}'),
+                "ANSI escape on stdout in JSON mode ({args:?}): {line:?}");
+            assert!(serde_json::from_str::<serde_json::Value>(line).is_ok(),
+                "non-JSON line on stdout in JSON mode ({args:?}): {line:?}");
+        }
+    }
+}

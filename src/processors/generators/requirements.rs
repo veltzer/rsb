@@ -16,7 +16,7 @@ use crate::analyzers::python::scan_python_imports;
 use crate::config::{RequirementsConfig, output_config_hash, resolve_extra_inputs, KnownFields};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{Processor, scan_root_valid, ensure_output_dir};
+use crate::processors::{Processor, ensure_output_dir};
 
 use super::python_distribution_map;
 use super::python_stdlib;
@@ -56,8 +56,7 @@ impl Processor for RequirementsProcessor {
     }
 
     fn auto_detect(&self, file_index: &FileIndex) -> bool {
-        scan_root_valid(&self.config.standard)
-            && !file_index.scan(&self.config.standard, false).is_empty()
+        !file_index.scan(&self.config.standard, false).is_empty()
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {

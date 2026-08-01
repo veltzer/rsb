@@ -19,14 +19,6 @@ pub fn ctx_opt<T>(r: Option<T>, msg: &str) -> anyhow::Result<T> {
     r.ok_or_else(|| anyhow::anyhow!("{} at {}:{}", msg, loc.file(), loc.line()))
 }
 
-/// Legacy macro — forwards to ctx() function. Will be removed once all call sites are migrated.
-#[macro_export]
-macro_rules! ctx {
-    ($expr:expr, $msg:expr) => {
-        $crate::errors::ctx($expr, &format!("{}", $msg))
-    };
-}
-
 /// Centralized catalog of `.expect()` messages for internal errors.
 ///
 /// Every `expect()` in production code should reference a constant from this

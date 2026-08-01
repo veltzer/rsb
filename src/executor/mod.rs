@@ -133,7 +133,7 @@ pub fn classify_products(
             continue;
         };
 
-        let action = policy.classify(product, object_store, &input_checksum, dep_changed, force);
+        let action = policy.classify(ctx, product, object_store, &input_checksum, dep_changed, force);
         match action {
             ProductAction::Skip => {
                 skip_count += 1;
@@ -207,7 +207,11 @@ impl<'a> Executor<'a> {
             build_ctx,
             policy,
             parallel: opts.parallel,
-            verbose: opts.verbose,
+            // Verbose progress lines are human output: under --json (or
+            // --quiet) they would corrupt the machine-readable stream, so
+            // verbosity is forced off there rather than gated at each of
+            // the half-dozen println! sites.
+            verbose: opts.verbose && crate::json_output::human_output_enabled(),
             display_opts: opts.display_opts,
             interrupted,
             batch_size: opts.batch_size,
@@ -239,6 +243,9 @@ impl<'a> Executor<'a> {
 
     /// Print an explain line for a product showing what action will be taken and why.
     fn print_explain(&self, product: &crate::graph::Product, action: &ExplainAction) {
+        if !crate::json_output::human_output_enabled() {
+            return;
+        }
         let styled = match action {
             ExplainAction::Skip => color::dim("SKIP"),
             ExplainAction::Restore(_) => color::cyan("RESTORE"),

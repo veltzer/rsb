@@ -1005,6 +1005,30 @@ impl ProcessorConfig {
         self.instances.iter().find(|i| i.type_name == type_name)
     }
 
+    /// Deserialize the config for `type_name`, whether or not the user
+    /// declared the instance.
+    ///
+    /// A declared instance already has registry defaults baked into its
+    /// `config_toml` by `Config::load`. An undeclared one has nothing, and
+    /// `C::default()` leaves scan fields unresolved — reaching a scan
+    /// accessor then panics with "scan fields not resolved". So the
+    /// undeclared case is routed through the same `apply_all_defaults` the
+    /// declared case used, instead of each caller hand-resolving.
+    pub(crate) fn instance_config_or_default<C: serde::de::DeserializeOwned>(
+        &self,
+        type_name: &str,
+    ) -> Result<C> {
+        if let Some(inst) = self.first_instance_of_type(type_name) {
+            return inst.config_toml.clone().try_into()
+                .with_context(|| format!("Failed to parse [processor.{type_name}] config"));
+        }
+        let mut value = toml::Value::Table(toml::map::Map::new());
+        let mut provenance = ProvenanceMap::new();
+        crate::registries::processor::apply_all_defaults(type_name, &mut value, &mut provenance);
+        value.try_into()
+            .with_context(|| format!("Failed to build default config for processor '{type_name}'"))
+    }
+
     /// Get a typed config value from an instance's TOML config.
     /// Returns the default if the instance is not declared or the field is missing.
     pub(crate) fn instance_field_str(&self, type_name: &str, field: &str) -> Option<String> {
@@ -1183,6 +1207,11 @@ enum FieldType {
     StringArray,
     /// Array of tables (e.g., [[processor.cc_single_file.compilers]])
     TableArray,
+    /// Inline table (e.g., tags.field_types = { author = "string" })
+    Table,
+    /// Array with element types the validator doesn't constrain
+    /// (e.g. tags.required_field_groups is an array of string arrays).
+    Array,
 }
 
 impl FieldType {
@@ -1193,6 +1222,8 @@ impl FieldType {
             FieldType::Integer => "an integer",
             FieldType::StringArray => "an array of strings",
             FieldType::TableArray => "an array of tables",
+            FieldType::Table => "a table",
+            FieldType::Array => "an array",
         }
     }
 
@@ -1206,6 +1237,8 @@ impl FieldType {
                 .is_some_and(|arr| arr.iter().all(toml::Value::is_str)),
             FieldType::TableArray => value.as_array()
                 .is_some_and(|arr| arr.iter().all(toml::Value::is_table)),
+            FieldType::Table => value.is_table(),
+            FieldType::Array => value.is_array(),
         }
     }
 
@@ -1241,6 +1274,12 @@ fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
         "max_jobs" => return Some(FieldType::Integer),
         "enabled" => return Some(FieldType::Bool),
         "batch" => return Some(FieldType::Bool),
+        // Near-universal fields from StandardConfig — declared by almost
+        // every processor, so they are validated generically rather than
+        // repeated in every processor-specific arm below.
+        "command" => return Some(FieldType::String),
+        "output_dir" => return Some(FieldType::String),
+        "formats" => return Some(FieldType::StringArray),
         _ => {}
     }
 
@@ -1289,42 +1328,54 @@ fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
         // mdl
         ("mdl", "gem_home" | "command" | "gem_stamp") => Some(FieldType::String),
         ("mdl", "local_repo") => Some(FieldType::Bool),
-        // markdownlint
-        ("markdownlint", "command" | "npm_stamp") => Some(FieldType::String),
-        ("markdownlint", "local_repo") => Some(FieldType::Bool),
         // aspell
         ("aspell", "command" | "conf" | "words_file") => Some(FieldType::String),
         ("aspell", "auto_add_words") => Some(FieldType::Bool),
         // marp
-        ("marp", "marp_bin" | "output_dir") => Some(FieldType::String),
-        ("marp", "formats") => Some(FieldType::StringArray),
+        ("marp", "timeout_secs" | "max_attempts") => Some(FieldType::Integer),
         // pandoc
-        ("pandoc", "command" | "output_dir" | "pdf_engine") => Some(FieldType::String),
-        ("pandoc", "formats") => Some(FieldType::StringArray),
-        // markdown
-        ("markdown2html", "markdown_bin" | "output_dir") => Some(FieldType::String),
+        ("pandoc", "pdf_engine") => Some(FieldType::String),
         // pdflatex
-        ("pdflatex", "command" | "output_dir") => Some(FieldType::String),
         ("pdflatex", "runs") => Some(FieldType::Integer),
-        ("pdflatex", "qpdf") => Some(FieldType::Bool),
+        ("pdflatex", "qpdf" | "shell_escape") => Some(FieldType::Bool),
         // a2x
-        ("a2x", "a2x" | "output_dir") => Some(FieldType::String),
-        ("chromium", "chromium_bin" | "output_dir") => Some(FieldType::String),
-        // mermaid
-        ("mermaid", "mmdc_bin" | "output_dir") => Some(FieldType::String),
-        ("mermaid", "formats") => Some(FieldType::StringArray),
-        // drawio
-        ("drawio", "drawio_bin" | "output_dir") => Some(FieldType::String),
-        ("drawio", "formats") => Some(FieldType::StringArray),
-        // libreoffice
-        ("libreoffice", "libreoffice_bin" | "output_dir") => Some(FieldType::String),
-        ("libreoffice", "formats") => Some(FieldType::StringArray),
-        // pdfunite
-        ("pdfunite", "command" | "source_dir" | "source_ext" | "source_output_dir" | "output_dir") => Some(FieldType::String),
-        // objdump
-        ("objdump", "output_dir") => Some(FieldType::String),
+        ("a2x", "a2x") => Some(FieldType::String),
+        // pdfunite / ipdfunite
+        ("pdfunite" | "ipdfunite", "source_dir" | "source_ext" | "source_output_dir") => Some(FieldType::String),
         // cache_output_dir — shared by creators
         ("cargo" | "sphinx" | "mdbook" | "npm" | "gem", "cache_output_dir") => Some(FieldType::Bool),
+        // creator / explicit — declared output sets
+        ("creator" | "explicit", "output_dirs" | "output_files") => Some(FieldType::StringArray),
+        ("explicit", "inputs" | "input_globs") => Some(FieldType::StringArray),
+        // generator
+        ("generator", "output_extension") => Some(FieldType::String),
+        // rust_single_file
+        ("rust_single_file", "flags") => Some(FieldType::StringArray),
+        ("rust_single_file", "output_suffix") => Some(FieldType::String),
+        // script — config-declared fix capability
+        ("script", "fix_command") => Some(FieldType::String),
+        ("script", "fix_args") => Some(FieldType::StringArray),
+        ("script", "fix_batch") => Some(FieldType::Bool),
+        // iyamlschema
+        ("iyamlschema", "check_ordering") => Some(FieldType::Bool),
+        // license_header
+        ("license_header", "header_lines") => Some(FieldType::StringArray),
+        // zspell
+        ("zspell", "dict_dir") => Some(FieldType::String),
+        // requirements
+        ("requirements", "output") => Some(FieldType::String),
+        ("requirements", "exclude" | "extra" | "python_paths") => Some(FieldType::StringArray),
+        ("requirements", "header" | "sorted") => Some(FieldType::Bool),
+        ("requirements", "mapping") => Some(FieldType::Table),
+        // terms
+        ("terms", "dir_terms_ambiguous" | "dir_terms_unambiguous") => Some(FieldType::String),
+        ("terms", "forbid_backticked_ambiguous") => Some(FieldType::Bool),
+        // tags
+        ("tags", "required_fields" | "required_values" | "unique_fields") => Some(FieldType::StringArray),
+        ("tags", "field_types") => Some(FieldType::Table),
+        ("tags", "required_field_groups") => Some(FieldType::Array),
+        ("tags", "sorted_tags" | "check_unused") => Some(FieldType::Bool),
+        ("tags", "common_tags_limit" | "similar_files_limit" | "suggested_tags_limit") => Some(FieldType::Integer),
         _ => None,
     }
 }

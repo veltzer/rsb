@@ -26,6 +26,7 @@ pub trait BuildPolicy: Sync + Send {
     /// descriptor matches).
     fn classify(
         &self,
+        ctx: &crate::build_context::BuildContext,
         product: &Product,
         object_store: &ObjectStore,
         input_checksum: &str,
@@ -37,6 +38,7 @@ pub trait BuildPolicy: Sync + Send {
     /// Used by `--explain`.
     fn explain(
         &self,
+        ctx: &crate::build_context::BuildContext,
         product: &Product,
         object_store: &ObjectStore,
         input_checksum: &str,
@@ -51,6 +53,7 @@ pub struct IncrementalPolicy;
 impl BuildPolicy for IncrementalPolicy {
     fn classify(
         &self,
+        ctx: &crate::build_context::BuildContext,
         product: &Product,
         object_store: &ObjectStore,
         input_checksum: &str,
@@ -58,7 +61,7 @@ impl BuildPolicy for IncrementalPolicy {
         force: bool,
     ) -> ProductAction {
         let desc_key = product.descriptor_key(input_checksum);
-        let needs_rebuild = object_store.needs_rebuild_descriptor(&desc_key, &product.outputs);
+        let needs_rebuild = object_store.needs_rebuild_descriptor(ctx, &desc_key, &product.outputs);
         let can_restore = object_store.can_restore_descriptor(&desc_key);
 
         if !force && !dep_changed && !needs_rebuild {
@@ -72,13 +75,14 @@ impl BuildPolicy for IncrementalPolicy {
 
     fn explain(
         &self,
+        ctx: &crate::build_context::BuildContext,
         product: &Product,
         object_store: &ObjectStore,
         input_checksum: &str,
         force: bool,
     ) -> ExplainAction {
         let desc_key = product.descriptor_key(input_checksum);
-        object_store.explain_descriptor(&desc_key, &product.outputs, force)
+        object_store.explain_descriptor(ctx, &desc_key, &product.outputs, force)
     }
 }
 
@@ -97,6 +101,10 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = ObjectStore::new_in(tmp.path());
         let policy = IncrementalPolicy;
+        let ctx = BuildContext::new();
+        // The mtime cache is CWD-relative (.rsconstruct/mtime.redb); disable it
+        // so parallel unit tests do not share persistent state.
+        ctx.set_mtime_check(false);
         let chk = "cafe0123";
 
         let mut g = BuildGraph::new();
@@ -106,35 +114,34 @@ mod tests {
 
         // No descriptor at all: must build, whatever the flags say.
         let generator = g.get_product(gen_id).unwrap();
-        assert_eq!(policy.classify(generator, &store, chk, false, false), ProductAction::Build);
+        assert_eq!(policy.classify(&ctx, generator, &store, chk, false, false), ProductAction::Build);
 
         // Checker with a stored PASS marker: skip — unless a dependency
         // changed or the build is forced.
         let checker = g.get_product(chk_id).unwrap();
         store.store_marker(&checker.descriptor_key(chk)).unwrap();
-        assert_eq!(policy.classify(checker, &store, chk, false, false), ProductAction::Skip);
-        assert_eq!(policy.classify(checker, &store, chk, true, false), ProductAction::Build,
+        assert_eq!(policy.classify(&ctx, checker, &store, chk, false, false), ProductAction::Skip);
+        assert_eq!(policy.classify(&ctx, checker, &store, chk, true, false), ProductAction::Build,
             "dep_changed must invalidate a matching marker");
-        assert_eq!(policy.classify(checker, &store, chk, false, true), ProductAction::Build,
+        assert_eq!(policy.classify(&ctx, checker, &store, chk, false, true), ProductAction::Build,
             "force must beat a matching marker");
 
         // Generator with cached blob and intact output: skip.
-        let ctx = BuildContext::new();
         fs::write(&out, b"built output").unwrap();
         store.store_blob_descriptor(&ctx, &generator.descriptor_key(chk), &out).unwrap();
-        assert_eq!(policy.classify(generator, &store, chk, false, false), ProductAction::Skip);
+        assert_eq!(policy.classify(&ctx, generator, &store, chk, false, false), ProductAction::Skip);
 
         // Output gone but the object is in the cache: restore, not build —
         // unless a dependency changed or the build is forced.
         fs::remove_file(&out).unwrap();
-        assert_eq!(policy.classify(generator, &store, chk, false, false), ProductAction::Restore);
-        assert_eq!(policy.classify(generator, &store, chk, true, false), ProductAction::Build,
+        assert_eq!(policy.classify(&ctx, generator, &store, chk, false, false), ProductAction::Restore);
+        assert_eq!(policy.classify(&ctx, generator, &store, chk, true, false), ProductAction::Build,
             "dep_changed must beat a restorable cache");
-        assert_eq!(policy.classify(generator, &store, chk, false, true), ProductAction::Build,
+        assert_eq!(policy.classify(&ctx, generator, &store, chk, false, true), ProductAction::Build,
             "force must beat a restorable cache");
 
         // A different input checksum is a different descriptor key: build.
-        assert_eq!(policy.classify(generator, &store, "other993", false, false), ProductAction::Build);
+        assert_eq!(policy.classify(&ctx, generator, &store, "other993", false, false), ProductAction::Build);
     }
 
     /// A corrupted output (exists, wrong content) with the blob still cached
@@ -146,6 +153,9 @@ mod tests {
         let store = ObjectStore::new_in(tmp.path());
         let policy = IncrementalPolicy;
         let ctx = BuildContext::new();
+        // The mtime cache is CWD-relative (.rsconstruct/mtime.redb); disable it
+        // so parallel unit tests do not share persistent state.
+        ctx.set_mtime_check(false);
         let chk = "beef4567";
 
         let mut g = BuildGraph::new();
@@ -157,6 +167,6 @@ mod tests {
         store.store_blob_descriptor(&ctx, &p.descriptor_key(chk), &out).unwrap();
         fs::write(&out, b"corrupted").unwrap();
 
-        assert_eq!(policy.classify(p, &store, chk, false, false), ProductAction::Restore);
+        assert_eq!(policy.classify(&ctx, p, &store, chk, false, false), ProductAction::Restore);
     }
 }

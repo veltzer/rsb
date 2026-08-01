@@ -432,3 +432,147 @@ fn substitute_variables_rejects_partial_undefined_references() {
     assert!(err.to_string().contains("Unresolved variable reference"),
         "expected the residual-reference error, got: {err}");
 }
+
+// Schema-consistency tests.
+//
+// A processor's field schema is spread across hand-synced places: the
+// config struct, `known_fields()`, `checksum_fields()`,
+// `field_descriptions()`, and the `expected_field_type` table. Nothing in
+// the type system keeps them in agreement, and they have drifted before
+// (dead `*_bin` type arms for fields that no longer exist; checksum
+// fields missing from type validation). These tests iterate every
+// registered plugin and fail on any disagreement.
+
+use crate::config::{expected_field_type, SCAN_CONFIG_FIELDS, STANDARD_EXTRA_FIELDS};
+use crate::registries::processor::all_plugins;
+
+/// Every field a processor declares must have a type-validation entry.
+/// Without one, `--iset`/config type checking silently accepts anything
+/// for that field.
+#[test]
+fn every_known_field_has_an_expected_type() {
+    let mut missing: Vec<String> = Vec::new();
+    for plugin in all_plugins() {
+        for field in (plugin.known_fields)() {
+            if expected_field_type(plugin.name, field).is_none() {
+                missing.push(format!("{}.{field}", plugin.name));
+            }
+        }
+    }
+    missing.sort();
+    assert!(missing.is_empty(),
+        "known fields with no expected_field_type entry (type validation silently accepts anything): {missing:#?}");
+}
+
+/// Every processor-specific arm in `expected_field_type` must correspond to
+/// a field some processor actually declares. A dead arm is drift: the field
+/// was renamed or removed and the table was not updated.
+#[test]
+fn every_expected_type_arm_is_a_live_field() {
+    // The table is a match, not data, so it can't be enumerated directly.
+    // Instead check the inverse for the fields we can enumerate: for every
+    // plugin, every field name that any OTHER plugin declares should either
+    // be unknown to this processor's type table or be a field it declares.
+    // This catches an arm keyed to a processor whose config lost the field.
+    let mut dead: Vec<String> = Vec::new();
+    for plugin in all_plugins() {
+        let declared: std::collections::HashSet<&str> = (plugin.known_fields)().iter().copied()
+            .chain(SCAN_CONFIG_FIELDS.iter().copied())
+            .chain(STANDARD_EXTRA_FIELDS.iter().copied())
+            .collect();
+        // Field names that appear in any plugin's schema — the candidate set
+        // the type table could plausibly be keyed on.
+        for other in all_plugins() {
+            for field in (other.known_fields)() {
+                if !declared.contains(field)
+                    && expected_field_type(plugin.name, field).is_some()
+                    && !is_generic_field(field)
+                {
+                    dead.push(format!("{}.{field}", plugin.name));
+                }
+            }
+        }
+    }
+    dead.sort();
+    dead.dedup();
+    assert!(dead.is_empty(),
+        "expected_field_type has arms for fields the processor does not declare (renamed or removed?): {dead:#?}");
+}
+
+/// Fields handled by the generic (non-processor-specific) match arm apply
+/// to every processor regardless of what it declares. Keep in sync with the
+/// first `match field` block in `expected_field_type`.
+fn is_generic_field(field: &str) -> bool {
+    matches!(field,
+        "src_dirs" | "src_extensions" | "src_exclude_dirs" | "src_exclude_files"
+        | "src_exclude_paths" | "src_files" | "args" | "dep_inputs" | "dep_auto"
+        | "max_jobs" | "enabled" | "batch" | "command" | "output_dir" | "formats")
+}
+
+/// Every checksum field must be a known field — a checksum entry naming a
+/// field that doesn't exist silently drops out of the config hash, and a
+/// missing entry for an output-affecting field means stale build outputs.
+#[test]
+fn every_checksum_field_is_known() {
+    let mut bad: Vec<String> = Vec::new();
+    for plugin in all_plugins() {
+        let known: std::collections::HashSet<&str> = (plugin.known_fields)().iter().copied()
+            .chain(SCAN_CONFIG_FIELDS.iter().copied())
+            .chain(STANDARD_EXTRA_FIELDS.iter().copied())
+            .collect();
+        for field in (plugin.checksum_fields)() {
+            if !known.contains(field) {
+                bad.push(format!("{}.{field}", plugin.name));
+            }
+        }
+    }
+    bad.sort();
+    assert!(bad.is_empty(),
+        "checksum_fields naming fields not in known_fields (silently excluded from the config hash): {bad:#?}");
+}
+
+/// Every documented field must be a known field. A description for a
+/// removed field is stale documentation surfaced by `processors defconfig`.
+#[test]
+fn every_described_field_is_known() {
+    let mut bad: Vec<String> = Vec::new();
+    for plugin in all_plugins() {
+        let known: std::collections::HashSet<&str> = (plugin.known_fields)().iter().copied()
+            .chain(SCAN_CONFIG_FIELDS.iter().copied())
+            .chain(STANDARD_EXTRA_FIELDS.iter().copied())
+            .collect();
+        for (field, _) in (plugin.field_descriptions)() {
+            if !known.contains(field) {
+                bad.push(format!("{}.{field}", plugin.name));
+            }
+        }
+    }
+    bad.sort();
+    assert!(bad.is_empty(),
+        "field_descriptions naming fields not in known_fields (stale docs): {bad:#?}");
+}
+
+/// Every declared field needs a description — `processors defconfig` shows a
+/// blank cell for anything missing one, and a user has no way to learn what
+/// the field does.
+#[test]
+fn every_known_field_has_a_description() {
+    use crate::config::SHARED_FIELD_DESCRIPTIONS;
+    let mut missing: Vec<String> = Vec::new();
+    for plugin in all_plugins() {
+        let described: std::collections::HashSet<&str> = (plugin.field_descriptions)().iter()
+            .map(|(f, _)| *f)
+            .chain(SHARED_FIELD_DESCRIPTIONS.iter().map(|(f, _)| *f))
+            .chain(SCAN_CONFIG_FIELDS.iter().copied())
+            .collect();
+        for field in (plugin.known_fields)() {
+            if !described.contains(field) {
+                missing.push(format!("{}.{field}", plugin.name));
+            }
+        }
+    }
+    missing.sort();
+    missing.dedup();
+    assert!(missing.is_empty(),
+        "known fields with no description (blank cell in `processors defconfig`): {missing:#?}");
+}

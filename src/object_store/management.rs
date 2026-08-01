@@ -198,18 +198,12 @@ impl ObjectStore {
                 CacheDescriptor::Marker => {}
                 CacheDescriptor::Blob { ref checksum, .. } => {
                     proc_stats.output_count += 1;
-                    let obj_path = self.object_path(checksum);
-                    if let Ok(metadata) = fs::metadata(&obj_path) {
-                        proc_stats.output_bytes += metadata.len();
-                    }
+                    proc_stats.output_bytes += self.object_size(checksum);
                 }
                 CacheDescriptor::Tree { ref entries } => {
                     proc_stats.output_count += entries.len();
                     for entry in entries {
-                        let obj_path = self.object_path(&entry.checksum);
-                        if let Ok(metadata) = fs::metadata(&obj_path) {
-                            proc_stats.output_bytes += metadata.len();
-                        }
+                        proc_stats.output_bytes += self.object_size(&entry.checksum);
                     }
                 }
             }

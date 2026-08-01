@@ -62,7 +62,7 @@ impl Builder {
 
         // Cache state: what the executor would do with this descriptor right now.
         let cache_state = self.object_store()
-            .explain_descriptor(&descriptor_key, &product.outputs, false);
+            .explain_descriptor(ctx, &descriptor_key, &product.outputs, false);
 
         if crate::json_output::is_json_mode() {
             print_json(product, &input_checksum, &descriptor_key, &analyzer_inputs, &hash_pieces, &cache_state)?;

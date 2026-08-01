@@ -38,7 +38,7 @@ impl crate::processors::Processor for ClangTidyProcessor {
 
 
     fn auto_detect(&self, file_index: &crate::file_index::FileIndex) -> bool {
-        crate::processors::checker_auto_detect_with_scan_root(&self.config.standard, file_index)
+        crate::processors::checker_auto_detect(&self.config.standard, file_index)
     }
 
     fn required_tools(&self) -> Vec<String> {
@@ -51,9 +51,6 @@ impl crate::processors::Processor for ClangTidyProcessor {
         file_index: &crate::file_index::FileIndex,
         instance_name: &str,
     ) -> anyhow::Result<()> {
-        if !crate::processors::scan_root_valid(&self.config.standard) {
-            return Ok(());
-        }
         crate::processors::discover_checker_products(
             graph, &self.config.standard, file_index,
             &self.config.standard.dep_inputs, &self.config.standard.dep_auto,

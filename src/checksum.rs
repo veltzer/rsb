@@ -209,6 +209,24 @@ pub fn checksum_fast(ctx: &BuildContext, path: &Path) -> Result<(String, Checksu
     Ok((checksum, path_taken))
 }
 
+/// Checksum an **output** file, using the persistent mtime cache but never
+/// the in-session cache.
+///
+/// The in-session cache (`file_checksum`) assumes content is stable for the
+/// whole run — true for inputs, false for outputs, which are rewritten by
+/// the very build doing the checking. Output verification therefore takes
+/// the mtime shortcut when available and otherwise re-hashes from disk.
+pub fn checksum_output(ctx: &BuildContext, path: &Path) -> Result<(String, ChecksumPath)> {
+    if !ctx.mtime_enabled.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok((stream_file_checksum(path)?, ChecksumPath::FullRead));
+    }
+    let (checksum, path_taken, dirty) = fast_checksum(ctx, path)?;
+    if let Some(entry) = dirty {
+        flush_mtime_entries(ctx, vec![entry])?;
+    }
+    Ok((checksum, path_taken))
+}
+
 /// Get the combined input checksum for a list of input files, using mtime
 /// pre-check to avoid re-reading unchanged files across builds.
 pub fn combined_input_checksum(ctx: &BuildContext, inputs: &[PathBuf]) -> Result<String> {

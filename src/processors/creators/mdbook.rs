@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::config::MdbookConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{Processor, SiblingFilter, DirectoryProductOpts, discover_directory_products, scan_root_valid, run_in_anchor_dir, anchor_display_dir, check_command_output};
+use crate::processors::{Processor, SiblingFilter, DirectoryProductOpts, discover_directory_products, run_in_anchor_dir, anchor_display_dir, check_command_output};
 
 pub struct MdbookProcessor {
     config: MdbookConfig,
@@ -50,10 +50,6 @@ impl Processor for MdbookProcessor {
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
-        if !scan_root_valid(&self.config.standard) {
-            return Ok(());
-        }
-
         discover_directory_products(graph, DirectoryProductOpts {
             scan: &self.config.standard,
             file_index,

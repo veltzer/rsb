@@ -11,31 +11,42 @@ impl ObjectStore {
     }
 
     /// Store a cache descriptor for a cache key.
+    ///
+    /// Written temp-then-rename, the same discipline as blobs: a reader never
+    /// observes a partially-written descriptor, and rename replaces the
+    /// previous read-only file without the chmod dance (which raced with
+    /// concurrent writers and could leave a torn descriptor — permanently
+    /// breaking `cache trim`, which fails closed on a parse error).
     pub(super) fn store_descriptor(&self, cache_key: &str, descriptor: &CacheDescriptor) -> Result<()> {
         let path = self.descriptor_path(cache_key);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .context("Failed to create descriptor directory")?;
-        }
+        let parent = path.parent()
+            .with_context(|| format!("Descriptor path has no parent: {}", path.display()))?;
+        fs::create_dir_all(parent)
+            .context("Failed to create descriptor directory")?;
         let data = serde_json::to_vec(descriptor)
             .context("Failed to serialize cache descriptor")?;
-        // Make writable if the file already exists (it was set read-only by a
-        // previous store). This races with concurrent writers that also toggle
-        // permissions, so if the first write attempt fails with PermissionDenied
-        // we retry once after forcing writable.
-        if let Err(first_err) = fs::write(&path, &data) {
-            if first_err.kind() == std::io::ErrorKind::PermissionDenied {
-                let _ = crate::platform::set_permissions_mode(&path, 0o644);
-                fs::write(&path, &data)
-                    .with_context(|| format!("Failed to write cache descriptor (retry): {}", path.display()))?;
-            } else {
-                return Err(first_err).with_context(|| format!("Failed to write cache descriptor: {}", path.display()));
+
+        let tmp_path = parent.join(format!(
+            ".tmp-{}-{}",
+            std::process::id(),
+            super::blobs::NEXT_TMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        fs::write(&tmp_path, &data)
+            .with_context(|| format!("Failed to write descriptor temp file: {}", tmp_path.display()))?;
+        let mut perms = fs::metadata(&tmp_path)
+            .with_context(|| format!("Failed to read descriptor temp file metadata: {}", tmp_path.display()))?
+            .permissions();
+        perms.set_readonly(true);
+        let _ = fs::set_permissions(&tmp_path, perms);
+
+        if let Err(e) = fs::rename(&tmp_path, &path) {
+            let mut writable = fs::metadata(&tmp_path).map(|m| m.permissions());
+            if let Ok(ref mut perms) = writable {
+                perms.set_readonly(false);
+                let _ = fs::set_permissions(&tmp_path, perms.clone());
             }
-        }
-        if let Ok(meta) = fs::metadata(&path) {
-            let mut perms = meta.permissions();
-            perms.set_readonly(true);
-            let _ = fs::set_permissions(&path, perms);
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e).with_context(|| format!("Failed to move descriptor into place: {}", path.display()));
         }
         Ok(())
     }

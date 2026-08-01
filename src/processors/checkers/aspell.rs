@@ -7,7 +7,7 @@ use std::io::Write;
 use crate::config::AspellConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{Processor, scan_root_valid, log_command, format_command};
+use crate::processors::{Processor, log_command, format_command};
 use crate::word_manager::WordManager;
 
 pub struct AspellProcessor {
@@ -115,10 +115,6 @@ impl Processor for AspellProcessor {
         file_index: &FileIndex,
         instance_name: &str,
     ) -> Result<()> {
-        if !scan_root_valid(&self.config.standard) {
-            return Ok(());
-        }
-
         // The personal dictionary is a real input: removing a word must
         // invalidate cached passing checks. dep_auto only includes the file
         // when it exists.

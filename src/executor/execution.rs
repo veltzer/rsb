@@ -311,7 +311,7 @@ impl Executor<'_> {
 
             // If interrupted, stop processing further levels
             if self.is_interrupted() {
-                if !crate::runtime_flags::quiet() {
+                if crate::json_output::human_output_enabled() {
                     println!("{}", color::yellow("Interrupted, saving progress..."));
                 }
                 break;
@@ -341,7 +341,7 @@ impl Executor<'_> {
         let product = lctx.graph.get_product(item.product_id).expect(errors::INVALID_PRODUCT_ID);
 
         if self.explain {
-            let action = self.policy.explain(product, lctx.object_store, &item.input_checksum, lctx.force);
+            let action = self.policy.explain(self.build_ctx, product, lctx.object_store, &item.input_checksum, lctx.force);
             self.print_explain(product, &action);
         }
 
@@ -564,7 +564,7 @@ impl Executor<'_> {
                                     .entry(product.processor.clone())
                                     .or_default();
                                 proc_stats.flaky += 1;
-                                if !crate::runtime_flags::quiet() {
+                                if crate::json_output::human_output_enabled() {
                                     println!("[{}] {} {} (passed on attempt {})",
                                         product.processor,
                                         color::yellow("FLAKY:"),
@@ -593,7 +593,7 @@ impl Executor<'_> {
                         }
                         Err(e) => {
                             if attempt < max_attempts {
-                                if !crate::runtime_flags::quiet() {
+                                if crate::json_output::human_output_enabled() {
                                     println!("[{}] {} {} (attempt {}/{}, retrying...)",
                                         product.processor,
                                         color::yellow("Retry:"),
@@ -741,7 +741,9 @@ impl Executor<'_> {
                     Err(e) => {
                         if keep_going {
                             let msg = format!("[{}] {}: {}", product.processor, self.product_display(product), e);
-                            println!("{}", color::red(&format!("Error: {msg}")));
+                            // stderr: errors must survive --json, and must not
+                            // corrupt the JSON event stream on stdout.
+                            eprintln!("{}", color::red(&format!("Error: {msg}")));
                             shared.failed_products.lock().insert(id);
                             shared.failed_messages.lock().push(msg);
                         } else {
@@ -753,7 +755,7 @@ impl Executor<'_> {
                 };
 
                 let desc_key = product.descriptor_key(&input_checksum);
-                let needs_rebuild = force || object_store.needs_rebuild_descriptor(&desc_key, &product.outputs);
+                let needs_rebuild = force || object_store.needs_rebuild_descriptor(self.build_ctx, &desc_key, &product.outputs);
                 work_items.push(WorkItem { product_id: id, input_checksum, needs_rebuild });
             }
         }

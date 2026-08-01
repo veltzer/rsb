@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{default_true, default_cc_compiler, default_cxx_compiler, default_output_suffix, KnownFields, ScanDefaultsData};
+use super::{default_true, default_cc_compiler, default_cxx_compiler, default_output_suffix, KnownFields};
 
 /// Universal processor config with all standard fields.
 /// Checkers, generators, and simple processors all use this.
@@ -66,28 +66,6 @@ impl Default for StandardConfig {
 }
 
 impl StandardConfig {
-    /// Fill in None scan fields from scan defaults data.
-    pub(crate) fn resolve_scan(&mut self, defaults: &ScanDefaultsData) {
-        if self.src_dirs.is_none() {
-            self.src_dirs = Some(defaults.src_dirs.iter().map(std::string::ToString::to_string).collect());
-        }
-        if self.src_extensions.is_none() {
-            self.src_extensions = Some(defaults.src_extensions.iter().map(std::string::ToString::to_string).collect());
-        }
-        if self.src_exclude_dirs.is_none() {
-            self.src_exclude_dirs = Some(defaults.src_exclude_dirs.iter().map(std::string::ToString::to_string).collect());
-        }
-        if self.src_exclude_files.is_none() {
-            self.src_exclude_files = Some(Vec::new());
-        }
-        if self.src_exclude_paths.is_none() {
-            self.src_exclude_paths = Some(Vec::new());
-        }
-        if self.src_files.is_none() {
-            self.src_files = Some(Vec::new());
-        }
-    }
-
     pub(crate) fn src_dirs(&self) -> &[String] {
         self.src_dirs.as_deref().expect(crate::errors::SCAN_CONFIG_NOT_RESOLVED)
     }
@@ -511,6 +489,9 @@ impl KnownFields for CcSingleFileConfig {
         &[
             ("cc",              "C compiler executable"),
             ("cxx",             "C++ compiler executable"),
+            ("cflags",          "Flags passed when compiling C sources"),
+            ("cxxflags",        "Flags passed when compiling C++ sources"),
+            ("ldflags",         "Flags passed to the linker"),
             ("output_suffix",   "Suffix appended to output binary names"),
             ("compilers",       "Named compiler profiles (overrides cc/cxx when set)"),
             ("include_paths",   "Additional header search directories"),
@@ -1052,6 +1033,8 @@ impl KnownFields for ScriptConfig {
         &[
             ("command",     "Path to the checker tool executable"),
             ("args",        "Extra arguments passed to the checker tool"),
+            ("formats",     "Output formats to generate"),
+            ("output_dir",  "Directory where outputs are written"),
             ("fix_command", "Path to the fixer tool executable (empty = no fix capability)"),
             ("fix_args",    "Arguments for the fixer (prepended before file paths)"),
             ("fix_batch",   "Whether fix mode supports batch execution (default: same as batch)"),

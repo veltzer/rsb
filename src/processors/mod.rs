@@ -278,14 +278,6 @@ pub fn check_command_output(output: &Output, context: impl std::fmt::Display) ->
     Ok(())
 }
 
-/// Check if all scan roots are valid (empty means current dir, otherwise must exist).
-/// Check if scan directories are valid. Always returns true because scan directories
-/// may not exist on disk yet but contain virtual files from the fixed-point discovery
-/// loop (upstream generator outputs). The actual filtering is done by `file_index.scan()`.
-pub const fn scan_root_valid(_scan: &crate::config::StandardConfig) -> bool {
-    true
-}
-
 /// Compute a stub path for a source file.
 /// Maps `a/b/file.ext` -> `stub_dir/a_b_file.ext.suffix`.
 /// Source path is already relative to project root.
@@ -360,7 +352,9 @@ pub fn flush_words(
         writeln!(file, "{word}")
             .with_context(|| format!("Failed to append word to words file: {}", words_path.display()))?;
     }
-    println!("Added {} word(s) to {}", sorted.len(), words_path.display());
+    if crate::json_output::human_output_enabled() {
+        println!("Added {} word(s) to {}", sorted.len(), words_path.display());
+    }
     Ok(())
 }
 
@@ -414,13 +408,9 @@ pub fn build_anchor_inputs(anchor: &Path, sibling_files: &[PathBuf], extra: &[Pa
     inputs
 }
 
-/// Combine the scan_root_valid check, scan, and empty check that creators
-/// repeat in their discover() methods. Returns None if the scan root is invalid
-/// or no files were found, otherwise returns the list of files.
+/// Scan and skip-if-empty, the pattern creators repeat in their discover()
+/// methods. Returns None if no files were found, otherwise the file list.
 pub fn scan_or_skip(scan: &crate::config::StandardConfig, file_index: &FileIndex) -> Option<Vec<PathBuf>> {
-    if !scan_root_valid(scan) {
-        return None;
-    }
     let files = file_index.scan(scan, true);
     if files.is_empty() {
         return None;
@@ -567,10 +557,6 @@ pub fn discover_checker_products(
 /// meaningful scan_root guard).
 pub fn checker_auto_detect(scan: &crate::config::StandardConfig, file_index: &FileIndex) -> bool {
     !file_index.scan(scan, true).is_empty()
-}
-
-pub fn checker_auto_detect_with_scan_root(scan: &crate::config::StandardConfig, file_index: &FileIndex) -> bool {
-    scan_root_valid(scan) && checker_auto_detect(scan, file_index)
 }
 
 /// Run a command in the parent directory of an anchor file (e.g., Makefile, Cargo.toml).

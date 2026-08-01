@@ -1,4 +1,4 @@
-mod blobs;
+pub(super) mod blobs;
 mod checksums;
 mod config_diff;
 mod descriptors;
@@ -30,6 +30,14 @@ pub fn walk_files(dir: &Path) -> Vec<PathBuf> {
                 if path.is_dir() {
                     stack.push(path);
                 } else if path.is_file() {
+                    // Skip in-flight temp files from a concurrent store
+                    // (temp-then-rename); they are not cache content.
+                    if path.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with(".tmp-"))
+                    {
+                        continue;
+                    }
                     result.push(path);
                 }
             }

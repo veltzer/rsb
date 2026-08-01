@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::config::JekyllConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{Processor, SiblingFilter, DirectoryProductOpts, discover_directory_products, scan_root_valid, run_in_anchor_dir, anchor_display_dir, check_command_output};
+use crate::processors::{Processor, SiblingFilter, DirectoryProductOpts, discover_directory_products, run_in_anchor_dir, anchor_display_dir, check_command_output};
 
 pub struct JekyllProcessor {
     config: JekyllConfig,
@@ -19,7 +19,7 @@ impl JekyllProcessor {
     }
 
     const fn should_process(&self) -> bool {
-        scan_root_valid(&self.config.standard)
+        true
     }
 
     fn execute_jekyll(&self, ctx: &crate::build_context::BuildContext, config_yml: &Path) -> Result<()> {
