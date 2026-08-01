@@ -1238,6 +1238,29 @@ fn join_argv(argv: &[String]) -> String {
 /// preview/logging only.
 fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
     match binary_recipe(pkg) {
+        // A .deb goes through apt, not the download/chmod/mv shape below: the
+        // asset URL is resolved from the latest release at install time, so
+        // it can only be described generically here.
+        Some(BinaryRecipe { archive: ArchiveKind::Deb { source }, dest, .. }) => {
+            let sudo = sudo_argv();
+            let deb = format!("/tmp/{dest}.deb");
+            let (note, url) = match source {
+                DebSource::GithubRelease { repo, asset_pattern } => (
+                    Some(format!("# resolve latest '{asset_pattern}' .deb asset from {repo}")),
+                    "<resolved-asset-url>".to_string(),
+                ),
+                DebSource::Url(url) => (None, url.to_string()),
+            };
+            let mut steps: Vec<Vec<String>> = Vec::new();
+            if let Some(note) = note {
+                steps.push(vec![note]);
+            }
+            steps.push(vec!["curl".to_string(), "-fsSL".to_string(), "-o".to_string(),
+                            deb.clone(), url]);
+            steps.push(sudo.iter().chain(["apt-get", "install", "-y", &deb].iter())
+                .map(|s| (*s).to_string()).collect());
+            steps
+        }
         Some(BinaryRecipe { url, archive, dest, .. }) => {
             let tmp = format!("/tmp/{dest}");
             let dl = format!("/tmp/{dest}.dl");
@@ -1258,6 +1281,7 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
                 ArchiveKind::Raw => vec![
                     "mv".to_string(), dl, tmp.clone(),
                 ],
+                ArchiveKind::Deb { .. } => unreachable!("matched by the Deb arm above"),
             };
             let chmod = vec!["chmod".to_string(), "+x".to_string(), tmp.clone()];
             let sudo = sudo_argv();
@@ -1267,6 +1291,38 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
         }
         None => vec![vec![format!("# unknown binary recipe '{pkg}'")]],
     }
+}
+
+/// Resolve the browser-download URL of the newest release asset in `repo`
+/// whose name contains `asset_pattern` and ends in `.deb`. Resolving at
+/// install time (instead of pinning a URL in the recipe) is what keeps the
+/// recipe from breaking every time upstream cuts a release.
+fn resolve_latest_deb_asset(repo: &str, asset_pattern: &str) -> anyhow::Result<String> {
+    use anyhow::Context as _;
+    let api = format!("https://api.github.com/repos/{repo}/releases/latest");
+    let body = ureq::get(&api)
+        // GitHub rejects API requests without a User-Agent.
+        .header("User-Agent", "rsconstruct")
+        .call()
+        .with_context(|| format!("Failed to query GitHub releases API for {repo}"))?
+        .body_mut()
+        .read_to_string()
+        .with_context(|| format!("Failed to read GitHub releases response for {repo}"))?;
+    let release: serde_json::Value = serde_json::from_str(&body)
+        .with_context(|| format!("Failed to parse GitHub releases JSON for {repo}"))?;
+    release["assets"].as_array()
+        .with_context(|| format!("GitHub release for {repo} has no 'assets' array"))?
+        .iter()
+        .filter_map(|a| {
+            let name = a["name"].as_str()?;
+            (name.contains(asset_pattern) && name.ends_with(".deb"))
+                .then(|| a["browser_download_url"].as_str())?
+                .map(std::string::ToString::to_string)
+        })
+        .next()
+        .with_context(|| format!(
+            "No .deb asset matching '{asset_pattern}' in the latest {repo} release"
+        ))
 }
 
 fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
@@ -1294,8 +1350,28 @@ fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
         }
         Ok(())
     };
+    // A .deb is installed by apt, so it skips the download/chmod/mv shape
+    // entirely: apt pulls the dependency tree the bare binary would be
+    // missing, and the payload is not a single executable.
+    if let ArchiveKind::Deb { source } = recipe.archive {
+        let deb = format!("/tmp/{}.deb", recipe.dest);
+        let asset_url = match source {
+            DebSource::GithubRelease { repo, asset_pattern } => {
+                resolve_latest_deb_asset(repo, asset_pattern)?
+            }
+            DebSource::Url(url) => url.to_string(),
+        };
+        exec(&["curl", "-fsSL", "-o", &deb, &asset_url])?;
+        let sudo = sudo_argv();
+        let mut install: Vec<&str> = sudo.to_vec();
+        install.extend(["apt-get", "install", "-y", &deb]);
+        let result = exec(&install);
+        std::fs::remove_file(&deb).ok();
+        return result;
+    }
     exec(&["curl", "-fsSL", "-o", &download, recipe.url])?;
     match recipe.archive {
+        ArchiveKind::Deb { .. } => unreachable!("returned early by the Deb branch above"),
         ArchiveKind::TarGz { inner } => {
             exec(&["tar", "-xzf", &download, "-C", "/tmp", inner])?;
             // After tar, the inner file is at /tmp/<inner>; rename to final_tmp.
@@ -1340,6 +1416,24 @@ enum ArchiveKind {
     Gunzip,
     /// The download is the binary itself, no extraction needed.
     Raw,
+    /// The download is a `.deb` installed with apt, not a bare binary dropped
+    /// into /usr/local/bin: apt pulls the dependency tree a raw binary would
+    /// be missing.
+    ///
+    /// `source` says where the `.deb` comes from — a GitHub release whose
+    /// asset is resolved at install time (so the recipe doesn't pin a version
+    /// that goes stale the moment upstream cuts a release), or a vendor URL
+    /// that is already stable.
+    Deb { source: DebSource },
+}
+
+/// Where a [`ArchiveKind::Deb`] payload is fetched from.
+enum DebSource {
+    /// Newest asset in `repo`'s latest release whose name contains
+    /// `asset_pattern` and ends in `.deb`.
+    GithubRelease { repo: &'static str, asset_pattern: &'static str },
+    /// A vendor URL that always points at the current build.
+    Url(&'static str),
 }
 
 fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
@@ -1368,6 +1462,31 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
             url: "https://raw.githubusercontent.com/torvalds/linux/master/scripts/checkpatch.pl",
             archive: ArchiveKind::Raw,
             dest: "checkpatch.pl",
+        }),
+        // drawio ships an official .deb but has no apt repo, and its snap
+        // needs a running snapd — unavailable in containers and flaky on CI
+        // runners, which made this the one tool `--all` could not provision.
+        "drawio" => Some(BinaryRecipe {
+            url: "https://github.com/jgraph/drawio-desktop/releases/latest",
+            archive: ArchiveKind::Deb {
+                source: DebSource::GithubRelease {
+                    repo: "jgraph/drawio-desktop",
+                    asset_pattern: "amd64",
+                },
+            },
+            dest: "drawio",
+        }),
+        // Chrome is not in the Ubuntu archive — `apt install
+        // google-chrome-stable` only works after adding Google's repo. The
+        // vendor .deb is the official route and is not version-pinned.
+        "google-chrome-stable" => Some(BinaryRecipe {
+            url: "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+            archive: ArchiveKind::Deb {
+                source: DebSource::Url(
+                    "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+                ),
+            },
+            dest: "google-chrome",
         }),
         _ => None,
     }
@@ -1458,22 +1577,22 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "pdflatex", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "texlive-latex-base" }] },
     ToolInfo { name: "qpdf", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "qpdf" }] },
     ToolInfo { name: "dot", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "graphviz" }] },
-    ToolInfo { name: "drawio", runtime: "system", install_methods: &[InstallMethod { method: "snap", package: "drawio" }] },
+    ToolInfo { name: "drawio", runtime: "system", install_methods: &[InstallMethod { method: "binary", package: "drawio" }] },
     ToolInfo { name: "libreoffice", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "libreoffice" }] },
     ToolInfo { name: "flock", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "util-linux" }] },
     ToolInfo { name: "uname", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "coreutils" }] },
     ToolInfo { name: "sh", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "dash" }] },
     ToolInfo { name: "git", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "git" }] },
     ToolInfo { name: "pdfunite", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "poppler-utils" }] },
-    ToolInfo { name: "google-chrome", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "google-chrome-stable" }] },
+    ToolInfo { name: "google-chrome", runtime: "system", install_methods: &[InstallMethod { method: "binary", package: "google-chrome-stable" }] },
     ToolInfo { name: "objdump", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "binutils" }] },
     ToolInfo { name: "tidy", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "tidy" }] },
     ToolInfo { name: "xmllint", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "libxml2-utils" }] },
     ToolInfo { name: "clojure", runtime: "jvm", install_methods: &[
-        // There is no apt/dnf package for the Clojure CLI. The official Linux
-        // route is the install script (needs bash, curl, rlwrap); brew is the
-        // macOS route. See https://clojure.org/guides/install_clojure
-        InstallMethod { method: "manual", package: "run the official Linux installer (needs curl, bash, rlwrap): https://clojure.org/guides/install_clojure" },
+        // Debian/Ubuntu package the Clojure CLI, which is what makes this
+        // installable without the official shell installer; brew is the macOS
+        // route. See https://clojure.org/guides/install_clojure
+        InstallMethod { method: "apt", package: "clojure" },
         InstallMethod { method: "brew", package: "clojure/tools/clojure" },
     ]},
     ToolInfo { name: "svglint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "svglint" }] },
