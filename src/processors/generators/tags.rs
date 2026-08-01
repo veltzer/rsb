@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use redb::{ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -198,7 +199,7 @@ impl Processor for TagsProcessor {
                 missing.sort_by(|a, b| a.0.cmp(&b.0));
                 let mut msg = String::from("Missing required frontmatter fields:\n");
                 for (file, fields) in &missing {
-                    msg.push_str(&format!("  {}: {}\n", file, fields.join(", ")));
+                    let _ = writeln!(msg, "  {}: {}", file, fields.join(", "));
                 }
                 bail!("{}", msg.trim_end());
             }
@@ -238,7 +239,7 @@ impl Processor for TagsProcessor {
                 failing.sort_by(|a, b| a.0.cmp(&b.0));
                 let mut msg = String::from("Files missing required field groups (must satisfy at least one):\n");
                 for (file, groups) in &failing {
-                    msg.push_str(&format!("  {}: none of {}\n", file, groups.join(" or ")));
+                    let _ = writeln!(msg, "  {}: none of {}", file, groups.join(" or "));
                 }
                 bail!("{}", msg.trim_end());
             }
@@ -249,7 +250,7 @@ impl Processor for TagsProcessor {
             duplicate_tags.sort();
             let mut msg = String::from("Duplicate tags found within files:\n");
             for (file, tag) in &duplicate_tags {
-                msg.push_str(&format!("  {tag} in {file}\n"));
+                let _ = writeln!(msg, "  {tag} in {file}");
             }
             bail!("{}", msg.trim_end());
         }
@@ -268,13 +269,13 @@ impl Processor for TagsProcessor {
                 unknown.sort_by(|a, b| a.0.cmp(&b.0));
                 let mut msg = format!("Unknown tags found (not in {}):\n", self.config.tags_dir);
                 for (tag, files) in &unknown {
-                    msg.push_str(&format!("  {tag}"));
+                    let _ = write!(msg, "  {tag}");
                     if let Some(suggestion) = find_similar_tag(tag, &allowed) {
-                        msg.push_str(&format!(" (did you mean '{suggestion}'?)"));
+                        let _ = write!(msg, " (did you mean '{suggestion}'?)");
                     }
                     msg.push('\n');
                     for file in files {
-                        msg.push_str(&format!("    - {file}\n"));
+                        let _ = writeln!(msg, "    - {file}");
                     }
                 }
                 bail!("{}", msg.trim_end());
@@ -290,7 +291,7 @@ impl Processor for TagsProcessor {
                     unused.sort();
                     let mut msg = format!("Unused tags in {} (not used by any file):\n", self.config.tags_dir);
                     for tag in &unused {
-                        msg.push_str(&format!("  {tag}\n"));
+                        let _ = writeln!(msg, "  {tag}");
                     }
                     bail!("{}", msg.trim_end());
                 }
@@ -302,7 +303,7 @@ impl Processor for TagsProcessor {
             unsorted_tags.sort();
             let mut msg = String::from("List tags are not in sorted order:\n");
             for (file, field, a, b) in &unsorted_tags {
-                msg.push_str(&format!("  {file} field '{field}': '{b}' should come after '{a}'\n"));
+                let _ = writeln!(msg, "  {file} field '{field}': '{b}' should come after '{a}'");
             }
             bail!("{}", msg.trim_end());
         }
@@ -328,7 +329,7 @@ impl Processor for TagsProcessor {
                 invalid.sort();
                 let mut msg = String::from("Invalid values for validated fields:\n");
                 for (file, field, val) in &invalid {
-                    msg.push_str(&format!("  {}: {}={} (not in {}/{}.txt)\n", file, field, val, self.config.tags_dir, field));
+                    let _ = writeln!(msg, "  {}: {}={} (not in {}/{}.txt)", file, field, val, self.config.tags_dir, field);
                 }
                 bail!("{}", msg.trim_end());
             }
@@ -370,9 +371,9 @@ impl Processor for TagsProcessor {
                 dupes.sort();
                 let mut msg = String::from("Duplicate values for unique fields:\n");
                 for (field, val, files) in &dupes {
-                    msg.push_str(&format!("  {field}='{val}' in:\n"));
+                    let _ = writeln!(msg, "  {field}='{val}' in:");
                     for file in files {
-                        msg.push_str(&format!("    - {file}\n"));
+                        let _ = writeln!(msg, "    - {file}");
                     }
                 }
                 bail!("{}", msg.trim_end());
@@ -419,7 +420,7 @@ impl Processor for TagsProcessor {
                 type_errors.sort();
                 let mut msg = String::from("Field type mismatches:\n");
                 for (file, field, expected, actual) in &type_errors {
-                    msg.push_str(&format!("  {file}: '{field}' expected {expected}, got {actual}\n"));
+                    let _ = writeln!(msg, "  {file}: '{field}' expected {expected}, got {actual}");
                 }
                 bail!("{}", msg.trim_end());
             }
@@ -896,7 +897,7 @@ pub fn unused_tags(db_path: &str, tags_dir: &str, strict: bool) -> Result<()> {
     if strict && !unused.is_empty() {
         let mut msg = format!("{} unused tag(s) in {}:\n", unused.len(), tags_dir);
         for tag in &unused {
-            msg.push_str(&format!("  {tag}\n"));
+            let _ = writeln!(msg, "  {tag}");
         }
         bail!("{}", msg.trim_end());
     }
@@ -1013,10 +1014,10 @@ pub fn validate_tags(db_path: &str, tags_dir: &str) -> Result<()> {
         let mut msg = format!("{} unknown tag(s) found:\n", unknown.len());
         for tag in &unknown {
             let count = tag_counts.get(tag).copied().unwrap_or(0);
-            msg.push_str(&format!("  {tag} ({count} file(s))"));
+            let _ = write!(msg, "  {tag} ({count} file(s))");
             // Suggest similar tags
             if let Some(suggestion) = find_similar_tag(tag, &allowed) {
-                msg.push_str(&format!(" - did you mean '{suggestion}'?"));
+                let _ = write!(msg, " - did you mean '{suggestion}'?");
             }
             msg.push('\n');
         }
@@ -1368,7 +1369,7 @@ pub fn check_tags(config: &crate::config::TagsConfig) -> Result<()> {
         errors.sort();
         let mut msg = format!("{} issue(s) found:\n", errors.len());
         for err in &errors {
-            msg.push_str(&format!("  {err}\n"));
+            let _ = writeln!(msg, "  {err}");
         }
         bail!("{}", msg.trim_end());
     }
@@ -1578,7 +1579,7 @@ pub fn load_tags_dir(dir: &Path) -> Result<HashSet<String>> {
         duplicates.sort();
         let mut msg = String::from("Duplicate tags found across tags files:\n");
         for (tag, file1, file2) in &duplicates {
-            msg.push_str(&format!("  {tag} in {file1} and {file2}\n"));
+            let _ = writeln!(msg, "  {tag} in {file1} and {file2}");
         }
         bail!("{}", msg.trim_end());
     }

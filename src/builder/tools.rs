@@ -1,4 +1,7 @@
 use std::collections::BTreeMap;
+// Aliased: `std::io::Write` is also in scope here (for stdout flushing), and
+// both traits define `write!`/`writeln!` methods.
+use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::process::Command;
 use anyhow::{bail, Context, Result};
@@ -724,18 +727,20 @@ fn tools_graph_dot(tool_map: &BTreeMap<String, Vec<String>>) -> String {
     out.push_str("    // Tools\n");
     for tool in tool_map.keys() {
         let id = sanitize_node_id("tool", tool);
-        out.push_str(&format!(
-            "    {id} [label=\"{tool}\" shape=box style=filled fillcolor=lightblue];\n"
-        ));
+        let _ = writeln!(
+            out,
+            "    {id} [label=\"{tool}\" shape=box style=filled fillcolor=lightblue];"
+        );
     }
 
     // Processor nodes
     out.push_str("    // Processors\n");
     for proc in &processors {
         let id = sanitize_node_id("proc", proc);
-        out.push_str(&format!(
-            "    {id} [label=\"{proc}\" shape=box style=filled fillcolor=lightyellow];\n"
-        ));
+        let _ = writeln!(
+            out,
+            "    {id} [label=\"{proc}\" shape=box style=filled fillcolor=lightyellow];"
+        );
     }
 
     // Edges
@@ -744,7 +749,7 @@ fn tools_graph_dot(tool_map: &BTreeMap<String, Vec<String>>) -> String {
         let tool_id = sanitize_node_id("tool", tool);
         for proc in procs {
             let proc_id = sanitize_node_id("proc", proc);
-            out.push_str(&format!("    {tool_id} -> {proc_id};\n"));
+            let _ = writeln!(out, "    {tool_id} -> {proc_id};");
         }
     }
 
@@ -759,9 +764,10 @@ fn tools_graph_mermaid(tool_map: &BTreeMap<String, Vec<String>>) -> String {
         let tool_id = sanitize_node_id("tool", tool);
         for proc in procs {
             let proc_id = sanitize_node_id("proc", proc);
-            out.push_str(&format!(
-                "    {tool_id}[\"{tool}\"]:::tool --> {proc_id}[\"{proc}\"]:::processor\n"
-            ));
+            let _ = writeln!(
+                out,
+                "    {tool_id}[\"{tool}\"]:::tool --> {proc_id}[\"{proc}\"]:::processor"
+            );
         }
     }
 

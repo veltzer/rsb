@@ -16,7 +16,6 @@
 // Stylistic / debatable. These either prefer a specific code shape that
 // is not always clearer, or warn about patterns the codebase uses
 // deliberately.
-#![allow(clippy::format_push_string)]
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::needless_pass_by_value)]

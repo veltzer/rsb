@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use crate::cli::{BuildOptions, BuildPhase, DisplayOptions};
@@ -111,7 +112,7 @@ fn check_required_tools(
             let install_hint = crate::processors::tool_install_command(tool)
                 .map(|cmd| format!("  install: {cmd}"))
                 .unwrap_or_default();
-            msg.push_str(&format!("  {} (needed by: {}){}\n", tool, procs.join(", "), install_hint));
+            let _ = writeln!(msg, "  {} (needed by: {}){}", tool, procs.join(", "), install_hint);
         }
         msg.push_str("\nRun `rsconstruct tools install` to install missing tools.");
         return Err(crate::exit_code::RsconstructError::new(

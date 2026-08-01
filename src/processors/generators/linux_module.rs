@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -68,10 +69,10 @@ impl LinuxModuleProcessor {
                 format!("{stem}.o")
             })
             .collect();
-        content.push_str(&format!("{}-objs := {}\n", module.name, objs.join(" ")));
+        let _ = writeln!(content, "{}-objs := {}", module.name, objs.join(" "));
 
         if !module.extra_cflags.is_empty() {
-            content.push_str(&format!("ccflags-y := {}\n", module.extra_cflags.join(" ")));
+            let _ = writeln!(content, "ccflags-y := {}", module.extra_cflags.join(" "));
         }
 
         fs::write(module_dir.join("Kbuild"), &content)

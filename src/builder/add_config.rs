@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::fs;
 
 use crate::registries::{all_analyzer_plugins, all_plugins};
@@ -88,9 +89,9 @@ fn render_section(
 ) -> String {
     let mut out = String::new();
     if let Some(d) = description {
-        out.push_str(&format!("# {d}\n"));
+        let _ = writeln!(out, "# {d}");
     }
-    out.push_str(&format!("[{section}.{name}]\n"));
+    let _ = writeln!(out, "[{section}.{name}]");
 
     let def_obj = defaults.as_object();
     let must_set: std::collections::HashSet<&str> = must.iter().copied().collect();
@@ -100,10 +101,10 @@ fn render_section(
     for field in must {
         let desc = descs.get(field).copied().unwrap_or("");
         if !desc.is_empty() {
-            out.push_str(&format!("# {desc}\n"));
+            let _ = writeln!(out, "# {desc}");
         }
         let value_str = default_value_for_must(field, def_obj.and_then(|m| m.get(*field)));
-        out.push_str(&format!("{field} = {value_str}\n"));
+        let _ = writeln!(out, "{field} = {value_str}");
     }
     if !must.is_empty() { out.push('\n'); }
 
@@ -114,9 +115,9 @@ fn render_section(
         let value_str = default_value_for_optional(def_obj.and_then(|m| m.get(*field)));
         let tag = if checksum_set.contains(field) { " (affects checksum)" } else { "" };
         if !desc.is_empty() {
-            out.push_str(&format!("# {desc}{tag}\n"));
+            let _ = writeln!(out, "# {desc}{tag}");
         }
-        out.push_str(&format!("# {field} = {value_str}\n"));
+        let _ = writeln!(out, "# {field} = {value_str}");
     }
 
     out

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 use anyhow::{Result, bail};
 use crate::cli::ProcessorAction;
 use crate::color;
@@ -503,7 +504,7 @@ impl Builder {
                         let mut dot = String::from("digraph processors {\n    rankdir=LR;\n    node [fontname=\"sans-serif\" shape=box style=filled fillcolor=lightyellow];\n");
                         for (proc, deps) in &proc_deps {
                             for dep in deps {
-                                dot.push_str(&format!("    \"{proc}\" -> \"{dep}\";\n"));
+                                let _ = writeln!(dot, "    \"{proc}\" -> \"{dep}\";");
                             }
                         }
                         dot.push_str("}\n");

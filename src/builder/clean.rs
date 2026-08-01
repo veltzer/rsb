@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
@@ -271,7 +272,7 @@ impl Builder {
 
             let mut summary = format!("Removed {removed} unknown file(s)");
             if dirs_removed > 0 {
-                summary.push_str(&format!(", {dirs_removed} empty dir(s)"));
+                let _ = write!(summary, ", {dirs_removed} empty dir(s)");
             }
             println!("{}", color::green(&summary));
         } else {
