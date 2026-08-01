@@ -83,7 +83,7 @@ impl ObjectStore {
         match self.try_fetch_descriptor_from_remote(ctx, cache_key) {
             Ok(descriptor) => descriptor,
             Err(e) => {
-                eprintln!("Warning: failed to fetch descriptor from remote cache: {e}");
+                crate::output::warn(&format!("failed to fetch descriptor from remote cache: {e}"));
                 None
             }
         }

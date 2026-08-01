@@ -26,10 +26,10 @@ impl ObjectStore {
         match self.read_object(checksum) {
             Ok(content) => {
                 if let Err(e) = remote.upload_bytes(ctx, &remote_key, &content) {
-                    eprintln!("Warning: failed to push to remote cache: {e}");
+                    crate::output::warn(&format!("failed to push to remote cache: {e}"));
                 }
             }
-            Err(e) => eprintln!("Warning: failed to read object for remote push: {e}"),
+            Err(e) => crate::output::warn(&format!("failed to read object for remote push: {e}")),
         }
 
         Ok(())
@@ -58,7 +58,7 @@ impl ObjectStore {
         match self.try_fetch_object_from_remote(ctx, checksum) {
             Ok(fetched) => fetched,
             Err(e) => {
-                eprintln!("Warning: failed to fetch from remote cache: {e}");
+                crate::output::warn(&format!("failed to fetch from remote cache: {e}"));
                 false
             }
         }
@@ -118,7 +118,7 @@ impl ObjectStore {
 
         let remote_key = format!("descriptors/{descriptor_key}");
         if let Err(e) = remote.upload_bytes(ctx, &remote_key, data) {
-            eprintln!("Warning: failed to push descriptor to remote cache: {e}");
+            crate::output::warn(&format!("failed to push descriptor to remote cache: {e}"));
         }
 
         Ok(())

@@ -44,7 +44,7 @@ impl Executor<'_> {
             let msg = format!("{}: {}", self.product_display(ctx.product), prefixed_error);
             // stderr: errors must survive --json, and must not corrupt the
             // JSON event stream on stdout.
-            eprintln!("{}", color::red(&format!("Error: {msg}")));
+            crate::output::error(&msg);
             ctx.shared.failed_messages.lock().push(msg);
         } else {
             if mark_processor_failed {
@@ -62,11 +62,9 @@ impl Executor<'_> {
         product: &crate::graph::Product,
         shared: &SharedState,
     ) {
-        if self.verbose {
-            println!("[{}] {} {}", product.processor,
-                color::dim("Skipping (unchanged):"),
-                self.product_display(product));
-        }
+        crate::output::detail(self.verbose, &format!("[{}] {} {}", product.processor,
+            color::dim("Skipping (unchanged):"),
+            self.product_display(product)));
         emit_product_complete(
             &self.product_display(product),
             &product.processor,
@@ -95,11 +93,9 @@ impl Executor<'_> {
         let restore_result = object_store.restore_from_descriptor(self.build_ctx, &desc_key, &ctx.product.outputs);
         match restore_result {
             Ok(true) => {
-                if self.verbose {
-                    println!("[{}] {} {}", ctx.product.processor,
-                        color::cyan("Restored from cache:"),
-                        self.product_display(ctx.product));
-                }
+                crate::output::detail(self.verbose, &format!("[{}] {} {}", ctx.product.processor,
+                    color::cyan("Restored from cache:"),
+                    self.product_display(ctx.product)));
                 emit_product_complete(
                     &self.product_display(ctx.product),
                     &ctx.product.processor,

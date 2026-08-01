@@ -271,7 +271,7 @@ where
             let source_checksum = DepsCache::source_checksum(ctx, source)?;
             let scanned = scan_deps(source)?;
             if let Err(e) = deps_cache.set(analyzer_name, source, source_checksum, &scanned) {
-                eprintln!("Warning: failed to cache dependencies for {}: {}", source.display(), e);
+                crate::output::warn(&format!("failed to cache dependencies for {}: {}", source.display(), e));
             }
             scanned
         };

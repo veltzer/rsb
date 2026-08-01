@@ -76,6 +76,7 @@ mod file_index;
 mod graph;
 mod json_output;
 mod object_store;
+mod output;
 mod phases;
 mod platform;
 mod processors;

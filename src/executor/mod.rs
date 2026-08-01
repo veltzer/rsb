@@ -240,18 +240,15 @@ impl<'a> Executor<'a> {
 
     /// Print an explain line for a product showing what action will be taken and why.
     fn print_explain(&self, product: &crate::graph::Product, action: &ExplainAction) {
-        if !crate::json_output::human_output_enabled() {
-            return;
-        }
         let styled = match action {
             ExplainAction::Skip => color::dim("SKIP"),
             ExplainAction::Restore(_) => color::cyan("RESTORE"),
             ExplainAction::Rebuild(_) => color::yellow("BUILD"),
         };
-        println!("[{}] {} {} ({})", product.processor,
+        crate::output::info(&format!("[{}] {} {} ({})", product.processor,
             styled,
             self.product_display(product),
-            action);
+            action));
     }
 
     /// Clean all products.

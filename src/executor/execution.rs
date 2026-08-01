@@ -311,9 +311,7 @@ impl Executor<'_> {
 
             // If interrupted, stop processing further levels
             if self.is_interrupted() {
-                if crate::json_output::human_output_enabled() {
-                    println!("{}", color::yellow("Interrupted, saving progress..."));
-                }
+                crate::output::info(&color::yellow("Interrupted, saving progress..."));
                 break;
             }
 
@@ -414,13 +412,13 @@ impl Executor<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let gc = lctx.shared.global_current.load(Ordering::SeqCst);
-                println!("[{}] ({}/{}) ({}/{}) {} {} files: {}",
+                crate::output::info(&format!("[{}] ({}/{}) ({}/{}) {} {} files: {}",
                     proc_name,
                     gc + 1, lctx.shared.global_total,
                     proc_current, proc_total,
                     color::green("Processing batch:"),
                     product_refs.len(),
-                    display);
+                    display));
             } else {
                 lctx.pb.set_message(format!("[{}] batch {} files", proc_name, product_refs.len()));
             }
@@ -529,11 +527,11 @@ impl Executor<'_> {
                         .map(|v| format!(":{v}"))
                         .unwrap_or_default();
                     let gc = lctx.shared.global_current.load(Ordering::SeqCst) + 1;
-                    println!("[{}{}] ({}/{}) ({}/{}) {} {}", product.processor, variant_tag,
+                    crate::output::info(&format!("[{}{}] ({}/{}) ({}/{}) {} {}", product.processor, variant_tag,
                         gc, lctx.shared.global_total,
                         current, total,
                         color::green("Processing:"),
-                        self.product_display(product));
+                        self.product_display(product)));
                 } else {
                     let variant_tag = product.variant.as_ref()
                         .map(|v| format!(":{v}"))
@@ -564,13 +562,11 @@ impl Executor<'_> {
                                     .entry(product.processor.clone())
                                     .or_default();
                                 proc_stats.flaky += 1;
-                                if crate::json_output::human_output_enabled() {
-                                    println!("[{}] {} {} (passed on attempt {})",
-                                        product.processor,
-                                        color::yellow("FLAKY:"),
-                                        self.product_display(product),
-                                        attempt);
-                                }
+                                crate::output::info(&format!("[{}] {} {} (passed on attempt {})",
+                                    product.processor,
+                                    color::yellow("FLAKY:"),
+                                    self.product_display(product),
+                                    attempt));
                             }
 
                             // Record per-product duration (non-batch only)
@@ -593,13 +589,11 @@ impl Executor<'_> {
                         }
                         Err(e) => {
                             if attempt < max_attempts {
-                                if crate::json_output::human_output_enabled() {
-                                    println!("[{}] {} {} (attempt {}/{}, retrying...)",
-                                        product.processor,
-                                        color::yellow("Retry:"),
-                                        self.product_display(product),
-                                        attempt, max_attempts);
-                                }
+                                crate::output::info(&format!("[{}] {} {} (attempt {}/{}, retrying...)",
+                                    product.processor,
+                                    color::yellow("Retry:"),
+                                    self.product_display(product),
+                                    attempt, max_attempts));
                                 last_error = Some(e);
                             } else {
                                 let duration = product_start.elapsed();
@@ -685,11 +679,9 @@ impl Executor<'_> {
             for &id in level {
                 if super::has_failed_dependency(graph, id, &failed_guard) {
                     let product = graph.get_product(id).expect(errors::INVALID_PRODUCT_ID);
-                    if self.verbose {
-                        println!("[{}] {} {}", product.processor,
-                            color::yellow("Skipping (dependency failed):"),
-                            self.product_display(product));
-                    }
+                    crate::output::detail(self.verbose, &format!("[{}] {} {}", product.processor,
+                        color::yellow("Skipping (dependency failed):"),
+                        self.product_display(product)));
                     skipped_ids.insert(id);
                 }
             }
@@ -743,7 +735,7 @@ impl Executor<'_> {
                             let msg = format!("[{}] {}: {}", product.processor, self.product_display(product), e);
                             // stderr: errors must survive --json, and must not
                             // corrupt the JSON event stream on stdout.
-                            eprintln!("{}", color::red(&format!("Error: {msg}")));
+                            crate::output::error(&msg);
                             shared.failed_products.lock().insert(id);
                             shared.failed_messages.lock().push(msg);
                         } else {

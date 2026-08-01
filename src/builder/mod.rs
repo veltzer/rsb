@@ -665,7 +665,7 @@ impl Builder {
 
         // Phase 1: Discover products
         if phases_debug() {
-            eprintln!("{}", color::dim("  Phase: discover"));
+            crate::output::diagnostic(&color::dim("  Phase: discover"));
         }
         let t = Instant::now();
         self.discover_products(&mut graph, processors, &active_processors, mode == GraphBuildMode::ForClean)?;
@@ -679,7 +679,7 @@ impl Builder {
         // Phase 2: Run dependency analyzers (only for regular builds, not clean)
         if mode == GraphBuildMode::Normal {
             if phases_debug() {
-                eprintln!("{}", color::dim("  Phase: add_dependencies"));
+                crate::output::diagnostic(&color::dim("  Phase: add_dependencies"));
             }
             let t = Instant::now();
             self.run_analyzers(ctx, &mut graph, verbose)?;
@@ -693,7 +693,7 @@ impl Builder {
 
         // Phase 3: Apply tool version hashes
         if phases_debug() {
-            eprintln!("{}", color::dim("  Phase: apply_tool_version_hashes"));
+            crate::output::diagnostic(&color::dim("  Phase: apply_tool_version_hashes"));
         }
         let t = Instant::now();
         if self.config.build.hash_tool_versions {
@@ -711,7 +711,7 @@ impl Builder {
 
         // Phase 4: Resolve dependencies
         if phases_debug() {
-            eprintln!("{}", color::dim("  Phase: resolve_dependencies"));
+            crate::output::diagnostic(&color::dim("  Phase: resolve_dependencies"));
         }
         let t = Instant::now();
         graph.resolve_dependencies();
