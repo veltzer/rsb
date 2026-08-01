@@ -52,7 +52,7 @@ fn batch_chunk_size(batch_size: usize, n_items: usize) -> usize {
 /// Whether a processor's items take the batch path. Batching requires an
 /// explicit batch size (`batch_size: None` disables it entirely), a
 /// processor that supports it, and more than one item actually rebuilding.
-fn should_batch(batching_enabled: bool, supports_batch: bool, rebuild_count: usize) -> bool {
+const fn should_batch(batching_enabled: bool, supports_batch: bool, rebuild_count: usize) -> bool {
     batching_enabled && supports_batch && rebuild_count > 1
 }
 

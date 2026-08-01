@@ -1,4 +1,4 @@
-pub(super) mod blobs;
+pub mod blobs;
 mod checksums;
 mod config_diff;
 mod descriptors;

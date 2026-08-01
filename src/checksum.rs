@@ -359,8 +359,8 @@ mod tests {
         let missing = tmp.path().join("missing.txt");
 
         assert_ne!(
-            combined_input_checksum(&ctx, &[empty.clone()]).unwrap(),
-            combined_input_checksum(&ctx, &[missing.clone()]).unwrap(),
+            combined_input_checksum(&ctx, std::slice::from_ref(&empty)).unwrap(),
+            combined_input_checksum(&ctx, std::slice::from_ref(&missing)).unwrap(),
             "a missing input must not hash like an empty one"
         );
 

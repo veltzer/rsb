@@ -268,7 +268,7 @@ impl<'a> Executor<'a> {
 }
 
 /// Check if any dependency of a product has failed
-pub(super) fn has_failed_dependency(graph: &BuildGraph, id: usize, failed: &HashSet<usize>) -> bool {
+pub fn has_failed_dependency(graph: &BuildGraph, id: usize, failed: &HashSet<usize>) -> bool {
     for &dep_id in graph.get_dependencies(id) {
         if failed.contains(&dep_id) {
             return true;
@@ -279,7 +279,7 @@ pub(super) fn has_failed_dependency(graph: &BuildGraph, id: usize, failed: &Hash
 
 /// Compute levels of products that can be executed in parallel
 /// Products in the same level have no dependencies on each other
-pub(super) fn compute_parallel_levels(graph: &BuildGraph, order: &[usize]) -> Vec<Vec<usize>> {
+pub fn compute_parallel_levels(graph: &BuildGraph, order: &[usize]) -> Vec<Vec<usize>> {
     let mut levels: Vec<Vec<usize>> = Vec::new();
     let mut product_level: HashMap<usize, usize> = HashMap::new();
 
@@ -315,37 +315,32 @@ pub(super) fn compute_parallel_levels(graph: &BuildGraph, order: &[usize]) -> Ve
 mod tests {
     use super::*;
 
-    /// A diamond A → {B, C} → D must schedule as three levels with B and C
-    /// side by side; an independent node always lands in level 0.
+    /// A diamond top → {left, right} → bottom must schedule as three levels
+    /// with left and right side by side; an independent node always lands in
+    /// level 0.
     #[test]
     fn parallel_levels_diamond() {
-        let mut g = BuildGraph::new();
-        let a = g.add_product(vec!["a.src".into()], vec!["a.o".into()], "cc", None).unwrap();
-        let b = g.add_product(vec!["a.o".into()], vec!["b.o".into()], "cc", None).unwrap();
-        let c = g.add_product(vec!["a.o".into()], vec!["c.o".into()], "cc", None).unwrap();
-        let d = g.add_product(vec!["b.o".into(), "c.o".into()], vec!["d.o".into()], "cc", None).unwrap();
-        let lone = g.add_product(vec!["x.src".into()], vec!["x.o".into()], "cc", None).unwrap();
-        g.resolve_dependencies();
-        let order = g.topological_sort().unwrap();
+        let mut graph = BuildGraph::new();
+        let top = graph.add_product(vec!["a.src".into()], vec!["a.o".into()], "cc", None).unwrap();
+        let left = graph.add_product(vec!["a.o".into()], vec!["b.o".into()], "cc", None).unwrap();
+        let right = graph.add_product(vec!["a.o".into()], vec!["c.o".into()], "cc", None).unwrap();
+        let bottom = graph.add_product(vec!["b.o".into(), "c.o".into()], vec!["d.o".into()], "cc", None).unwrap();
+        let lone = graph.add_product(vec!["x.src".into()], vec!["x.o".into()], "cc", None).unwrap();
+        graph.resolve_dependencies();
+        let order = graph.topological_sort().unwrap();
 
-        let levels = compute_parallel_levels(&g, &order);
+        let levels = compute_parallel_levels(&graph, &order);
+
+        // Level membership is order-independent; compare as sorted sets.
+        let sorted = |mut ids: Vec<usize>| {
+            ids.sort_unstable();
+            ids
+        };
 
         assert_eq!(levels.len(), 3, "diamond plus a free node is three levels: {levels:?}");
-        let mut level0 = levels[0].clone();
-        level0.sort_unstable();
-        assert_eq!(level0, {
-            let mut v = vec![a, lone];
-            v.sort_unstable();
-            v
-        });
-        let mut level1 = levels[1].clone();
-        level1.sort_unstable();
-        assert_eq!(level1, {
-            let mut v = vec![b, c];
-            v.sort_unstable();
-            v
-        });
-        assert_eq!(levels[2], vec![d]);
+        assert_eq!(sorted(levels[0].clone()), sorted(vec![top, lone]));
+        assert_eq!(sorted(levels[1].clone()), sorted(vec![left, right]));
+        assert_eq!(levels[2], vec![bottom]);
     }
 
     /// Every product must appear in exactly one level — a dropped product
