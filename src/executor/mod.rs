@@ -6,7 +6,7 @@ pub use policy::{BuildPolicy, IncrementalPolicy, ProductAction};
 
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use indicatif::ProgressBar;
 use parking_lot::Mutex;
@@ -188,7 +188,6 @@ pub struct Executor<'a> {
     parallel: usize,
     verbose: bool,
     display_opts: DisplayOptions,
-    interrupted: Arc<AtomicBool>,
     batch_size: Option<usize>,
     explain: bool,
     retry: usize,
@@ -200,7 +199,6 @@ impl<'a> Executor<'a> {
         build_ctx: &'a crate::build_context::BuildContext,
         policy: &'a dyn BuildPolicy,
         opts: ExecutorOptions,
-        interrupted: Arc<AtomicBool>,
     ) -> Self {
         Self {
             processors,
@@ -213,7 +211,6 @@ impl<'a> Executor<'a> {
             // the half-dozen println! sites.
             verbose: opts.verbose && crate::json_output::human_output_enabled(),
             display_opts: opts.display_opts,
-            interrupted,
             batch_size: opts.batch_size,
             explain: opts.explain,
             retry: opts.retry,
@@ -222,7 +219,7 @@ impl<'a> Executor<'a> {
 
     /// Check if the build was interrupted (Ctrl+C).
     fn is_interrupted(&self) -> bool {
-        self.interrupted.load(Ordering::SeqCst) || self.build_ctx.is_interrupted()
+        self.build_ctx.is_interrupted()
     }
 
     /// Display a product with the current display options.

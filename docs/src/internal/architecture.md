@@ -94,11 +94,35 @@ don't have valid cache entries:
 
 ## Interrupt handling
 
-All external subprocess execution goes through `run_command()` in
-`src/processors/mod.rs`, which spawns children via `tokio::process::Command`
+External subprocess execution goes through the runner family in
+`src/processors/mod.rs` — `run_command()`, `run_command_capture()`,
+`run_command_with_timeout()`, `run_command_with_stdin()` — which share one
+inner implementation. It spawns children via `tokio::process::Command`
 with `kill_on_drop(true)` and then awaits a biased `tokio::select!` racing
 the child's exit against a `tokio::sync::watch` interrupt receiver obtained
 from `BuildContext::interrupt_receiver()` (plus an optional timeout arm).
+
+Routing through it is also what gives a call site `log_command()`
+(`--show-child-processes`) and, in debug builds, the declared-tools
+assertion that a processor only runs tools its `required_tools()` names.
+Hand-rolled spawns silently opt out of all four, which is why they are held
+to exactly two exceptions:
+
+- **Tool installation** (`processors::run`, the binary installer) inherits
+  the terminal so `sudo` can prompt for a password and apt/dnf can render
+  progress. Capturing would hang on the prompt.
+- **Opening a viewer** (`Builder::open_file`) launches a detached process
+  that must outlive rsconstruct — `kill_on_drop` and waiting are both
+  exactly wrong.
+
+Both are commented as such at the call site. Anything else that spawns a
+child is a bug.
+
+A command that needs to feed stdin uses `run_command_with_stdin()`, which
+pumps the write concurrently with draining stdout/stderr. Writing all of
+stdin first deadlocks as soon as the child fills its output pipe — this is
+why the aspell checker used to carry a hand-rolled spawn with a writer
+thread.
 
 The Ctrl+C handler — a dedicated thread in `main.rs` awaiting
 `tokio::signal::ctrl_c()` — calls `BuildContext::interrupt()`, which sets an

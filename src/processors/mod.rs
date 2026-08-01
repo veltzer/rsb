@@ -136,7 +136,17 @@ pub fn log_command(cmd: &Command) {
 /// - `inherit_stdio`: if true, inherit stdout/stderr (for --show-output mode);
 ///   if false, always capture via pipes.
 /// - `timeout`: if Some, kill the child and return an error if it runs longer than this.
-fn run_command_inner(ctx: &crate::build_context::BuildContext, cmd: &Command, inherit_stdio: bool, timeout: Option<Duration>) -> Result<Output> {
+/// - `stdin_data`: if Some, piped to the child's stdin concurrently with
+///   draining its output. Feeding stdin fully before reading deadlocks as
+///   soon as the child fills the pipe buffer, so the write is driven by the
+///   same async runtime that drains stdout/stderr.
+fn run_command_inner(
+    ctx: &crate::build_context::BuildContext,
+    cmd: &Command,
+    inherit_stdio: bool,
+    timeout: Option<Duration>,
+    stdin_data: Option<&[u8]>,
+) -> Result<Output> {
     log_command(cmd);
 
     #[cfg(debug_assertions)]
@@ -182,9 +192,12 @@ fn run_command_inner(ctx: &crate::build_context::BuildContext, cmd: &Command, in
             tokio_cmd.stdout(std::process::Stdio::piped());
             tokio_cmd.stderr(std::process::Stdio::piped());
         }
+        if stdin_data.is_some() {
+            tokio_cmd.stdin(std::process::Stdio::piped());
+        }
         tokio_cmd.kill_on_drop(true);
 
-        let child = tokio_cmd.spawn()
+        let mut child = tokio_cmd.spawn()
             .with_context(|| {
                 let prog = program.to_string_lossy();
                 let total_len: usize = prog.len() + args.iter().map(|a| a.len() + 1).sum::<usize>();
@@ -207,7 +220,37 @@ fn run_command_inner(ctx: &crate::build_context::BuildContext, cmd: &Command, in
             anyhow::bail!("Interrupted");
         }
 
-        let wait = child.wait_with_output();
+        // Drive the stdin write concurrently with draining the child's
+        // output. A failed write is not fatal on its own — a tool that
+        // exits early (or ignores stdin) closes the pipe and gives EPIPE,
+        // which is normal — so it is reported only when the child also
+        // failed, where truncated input is the likely cause.
+        let stdin_pipe = child.stdin.take();
+        let stdin_write = async move {
+            match (stdin_data, stdin_pipe) {
+                (Some(data), Some(mut pipe)) => {
+                    use tokio::io::AsyncWriteExt;
+                    let result = pipe.write_all(data).await;
+                    // Drop closes the pipe, which is what signals EOF to the
+                    // child; without it a reader like `aspell list` blocks
+                    // forever waiting for more input.
+                    drop(pipe);
+                    result
+                }
+                _ => Ok(()),
+            }
+        };
+
+        let wait = async {
+            let (write_result, output) = tokio::join!(stdin_write, child.wait_with_output());
+            let output = crate::errors::ctx(output, "Failed to wait for child process")?;
+            if !output.status.success() {
+                write_result.with_context(|| format!(
+                    "Failed to write to stdin of: {}", program.to_string_lossy()
+                ))?;
+            }
+            Ok(output)
+        };
 
         match timeout {
             Some(dur) => tokio::select! {
@@ -224,10 +267,7 @@ fn run_command_inner(ctx: &crate::build_context::BuildContext, cmd: &Command, in
                         dur.as_secs(), prog, args_str
                     )
                 }
-                result = wait => {
-                    let output = crate::errors::ctx(result, "Failed to wait for child process")?;
-                    Ok(output)
-                }
+                result = wait => result,
             },
             None => tokio::select! {
                 biased;
@@ -235,10 +275,7 @@ fn run_command_inner(ctx: &crate::build_context::BuildContext, cmd: &Command, in
                 _ = interrupt_rx.changed() => {
                     anyhow::bail!("Interrupted")
                 }
-                result = wait => {
-                    let output = crate::errors::ctx(result, "Failed to wait for child process")?;
-                    Ok(output)
-                }
+                result = wait => result,
             },
         }
     })
@@ -246,16 +283,30 @@ fn run_command_inner(ctx: &crate::build_context::BuildContext, cmd: &Command, in
 
 pub fn run_command(ctx: &crate::build_context::BuildContext, cmd: &Command) -> Result<Output> {
     let show = crate::runtime_flags::show_output();
-    run_command_inner(ctx, cmd, show, None)
+    run_command_inner(ctx, cmd, show, None, None)
 }
 
 pub fn run_command_with_timeout(ctx: &crate::build_context::BuildContext, cmd: &Command, timeout: Duration) -> Result<Output> {
     let show = crate::runtime_flags::show_output();
-    run_command_inner(ctx, cmd, show, Some(timeout))
+    run_command_inner(ctx, cmd, show, Some(timeout), None)
 }
 
 pub fn run_command_capture(ctx: &crate::build_context::BuildContext, cmd: &Command) -> Result<Output> {
-    run_command_inner(ctx, cmd, false, None)
+    run_command_inner(ctx, cmd, false, None, None)
+}
+
+/// Run a command, feeding `stdin_data` to its standard input and capturing
+/// its output.
+///
+/// Exists so processors that pipe content to a tool (aspell) don't have to
+/// hand-roll a spawn, which is how they used to lose interrupt handling,
+/// `kill_on_drop`, `log_command` and the declared-tools debug check.
+pub fn run_command_with_stdin(
+    ctx: &crate::build_context::BuildContext,
+    cmd: &Command,
+    stdin_data: &[u8],
+) -> Result<Output> {
+    run_command_inner(ctx, cmd, false, None, Some(stdin_data))
 }
 
 
@@ -291,26 +342,16 @@ pub fn stub_path(stub_dir: &Path, source: &Path, suffix: &str) -> PathBuf {
 }
 
 /// Convert a DOT graph string to SVG using the `dot` command.
-pub fn dot_to_svg(dot_content: &str) -> Result<String> {
-    use std::process::{Command, Stdio};
+///
+/// The single implementation: `BuildGraph::to_svg` used to carry a
+/// byte-for-byte duplicate of this, each with its own hand-rolled spawn.
+pub fn dot_to_svg(ctx: &crate::build_context::BuildContext, dot_content: &str) -> Result<String> {
+    use std::process::Command;
     let mut cmd = Command::new("dot");
-    cmd.arg("-Tsvg")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    log_command(&cmd);
-    let mut child = cmd
-        .spawn()
+    cmd.arg("-Tsvg");
+    let output = run_command_with_stdin(ctx, &cmd, dot_content.as_bytes())
         .context("Failed to run Graphviz 'dot'. Install Graphviz to use SVG format")?;
-    // Always wait on the child even if the write fails — propagating first
-    // would leave a zombie.
-    let write_result = child.stdin.take()
-        .context("stdin was not piped to dot command")?
-        .write_all(dot_content.as_bytes());
-    let output = child.wait_with_output()
-        .context("Failed to wait for Graphviz 'dot'")?;
     check_command_output(&output, "dot")?;
-    write_result.context("Failed to write graph to dot stdin")?;
     String::from_utf8(output.stdout).context("Graphviz 'dot' produced non-UTF-8 SVG output")
 }
 
@@ -1063,6 +1104,12 @@ pub fn run(method: &str, packages: &[&str], ctx: &InstallCtx) -> anyhow::Result<
         if ctx.verbose {
             println!("Running: {}", join_argv(argv));
         }
+        // Deliberately NOT routed through run_command: installers must
+        // inherit the terminal, both so `sudo` can prompt for a password and
+        // so apt/dnf can render progress. Capturing would hang on the
+        // password prompt. This is one of the two documented exceptions to
+        // the "everything goes through the central runner" rule (see
+        // docs/src/internal/architecture.md).
         let status = Command::new(&argv[0]).args(&argv[1..]).status()
             .with_context(|| format!("failed to spawn: {}", join_argv(argv)))?;
         if !status.success() {
@@ -1209,6 +1256,8 @@ fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
         if ctx.verbose {
             println!("Running: {}", argv.join(" "));
         }
+        // Same exception as `run()` above: the binary installer shells out to
+        // `sudo install`, which needs the terminal for its password prompt.
         let status = Command::new(argv[0]).args(&argv[1..]).status()
             .with_context(|| format!("failed to spawn: {}", argv.join(" ")))?;
         if !status.success() {
@@ -1366,6 +1415,7 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "drawio", runtime: "system", install_methods: &[InstallMethod { method: "snap", package: "drawio" }] },
     ToolInfo { name: "libreoffice", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "libreoffice" }] },
     ToolInfo { name: "flock", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "util-linux" }] },
+    ToolInfo { name: "uname", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "coreutils" }] },
     ToolInfo { name: "sh", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "dash" }] },
     ToolInfo { name: "git", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "git" }] },
     ToolInfo { name: "pdfunite", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "poppler-utils" }] },
@@ -1980,5 +2030,51 @@ mod tests {
         assert!(results[0].is_ok());
         assert!(results[1].is_err());
         assert!(results[2].is_ok());
+    }
+
+    /// `run_command_with_stdin` must survive a child that writes far more
+    /// than a pipe buffer's worth of output while we are still feeding it.
+    ///
+    /// This is the deadlock the hand-rolled aspell spawn worked around with
+    /// a writer thread: feeding all of stdin before draining stdout wedges
+    /// as soon as the child fills its output pipe. 1 MB is well past the
+    /// typical 64 KB pipe buffer in both directions.
+    #[cfg(unix)]
+    #[test]
+    fn stdin_and_output_are_pumped_concurrently() {
+        crate::runtime_flags::init_for_test();
+        let ctx = crate::build_context::BuildContext::new();
+        let payload = "x".repeat(1024 * 1024);
+
+        let mut cmd = Command::new("cat");
+        let output = run_command_with_stdin(&ctx, &cmd, payload.as_bytes()).unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), payload.len(),
+            "cat must echo every byte we wrote");
+
+        // A child that ignores stdin entirely must not hang or error: it
+        // closes the pipe early (EPIPE on our side), which is normal.
+        cmd = Command::new("true");
+        let output = run_command_with_stdin(&ctx, &cmd, payload.as_bytes()).unwrap();
+        assert!(output.status.success());
+    }
+
+    /// A stdin write failure is reported only when the child also failed —
+    /// where truncated input is a plausible cause. A successful child that
+    /// simply stopped reading is not an error.
+    #[cfg(unix)]
+    #[test]
+    fn failing_child_that_ignored_stdin_reports_its_own_failure() {
+        crate::runtime_flags::init_for_test();
+        let ctx = crate::build_context::BuildContext::new();
+        let payload = "y".repeat(1024 * 1024);
+
+        let cmd = Command::new("false");
+        let result = run_command_with_stdin(&ctx, &cmd, payload.as_bytes());
+        // Either an Err (stdin write surfaced) or a non-zero exit is
+        // acceptable; a hang or a spurious Ok(success) is not.
+        if let Ok(output) = result {
+            assert!(!output.status.success());
+        }
     }
 }

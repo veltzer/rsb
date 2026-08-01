@@ -1,0 +1,1 @@
+why src_dir must not be empty? Do we have a reason for this?

@@ -507,7 +507,7 @@ impl Builder {
                             }
                         }
                         dot.push_str("}\n");
-                        let svg = crate::processors::dot_to_svg(&dot)?;
+                        let svg = crate::processors::dot_to_svg(ctx, &dot)?;
                         println!("{svg}");
                     }
                 }

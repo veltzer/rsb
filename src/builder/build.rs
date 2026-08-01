@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use crate::cli::{BuildOptions, BuildPhase, DisplayOptions};
@@ -125,7 +124,7 @@ fn check_required_tools(
 
 impl Builder {
     /// Execute an incremental build using the dependency graph
-    pub fn build(&mut self, ctx: &crate::build_context::BuildContext, opts: &BuildOptions, interrupted: Arc<std::sync::atomic::AtomicBool>, init_timings: Vec<(String, Duration)>) -> Result<(), anyhow::Error> {
+    pub fn build(&mut self, ctx: &crate::build_context::BuildContext, opts: &BuildOptions, init_timings: Vec<(String, Duration)>) -> Result<(), anyhow::Error> {
         // CLI override for zspell and aspell auto_add_words
         if opts.auto_add_words {
             for inst in &mut self.config.processor.instances {
@@ -303,7 +302,7 @@ impl Builder {
             batch_size,
             explain: opts.explain,
             retry: opts.retry,
-        }, Arc::clone(&interrupted));
+        });
 
         // Execute the build (enable timings collection if trace output is requested)
         let t = Instant::now();
@@ -313,7 +312,7 @@ impl Builder {
         print_graph_stats(GraphSnapshot::AfterExecute, &graph);
 
         // Exit if interrupted
-        if interrupted.load(std::sync::atomic::Ordering::SeqCst) {
+        if ctx.is_interrupted() {
             return Err(crate::exit_code::RsconstructError::new(
                 crate::exit_code::RsconstructExitCode::Interrupted,
                 "Build interrupted",

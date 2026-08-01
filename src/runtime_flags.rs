@@ -32,6 +32,22 @@ pub fn init(flags: RuntimeFlags) {
     FLAGS.set(flags).expect("runtime flags already initialized");
 }
 
+/// Initialize with defaults if not already initialized. Test-only: unit
+/// tests share one process, so whichever test runs first would win a plain
+/// `init()` and the rest would panic on the double-set.
+#[cfg(test)]
+pub fn init_for_test() {
+    let _ = FLAGS.set(RuntimeFlags {
+        show_child_processes: false,
+        show_output: false,
+        phases_debug: false,
+        graph_stats: false,
+        json_mode: false,
+        quiet: true,
+        color_enabled: false,
+    });
+}
+
 /// Get the runtime flags. Panics if called before `init()`.
 fn get() -> &'static RuntimeFlags {
     FLAGS.get().expect("runtime flags not initialized")

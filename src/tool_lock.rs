@@ -35,7 +35,11 @@ pub fn extract_semver(version_output: &str) -> Option<&str> {
 }
 
 /// Query a single tool for its version information.
-pub fn query_tool_version(tool_name: &str, version_args: &[String]) -> Result<LockedTool> {
+pub fn query_tool_version(
+    ctx: &BuildContext,
+    tool_name: &str,
+    version_args: &[String],
+) -> Result<LockedTool> {
     let path = which::which(tool_name)
         .with_context(|| format!("Tool not found on PATH: {tool_name}"))?;
 
@@ -44,7 +48,7 @@ pub fn query_tool_version(tool_name: &str, version_args: &[String]) -> Result<Lo
         cmd.arg(arg);
     }
 
-    let output = cmd.output()
+    let output = crate::processors::run_command_capture(ctx, &cmd)
         .with_context(|| format!("Failed to run: {} {}", path.display(), version_args.join(" ")))?;
 
     // Some tools write version to stdout, others to stderr; capture both
@@ -104,12 +108,13 @@ pub fn collect_tool_commands(
 
 /// Query all tools and build a lock file structure.
 pub fn create_lock(
+    ctx: &BuildContext,
     tool_commands: &[(String, Vec<String>)],
 ) -> Result<ToolLockFile> {
     let mut tools = BTreeMap::new();
 
     for (tool_name, version_args) in tool_commands {
-        let locked = query_tool_version(tool_name, version_args)?;
+        let locked = query_tool_version(ctx, tool_name, version_args)?;
         tools.insert(tool_name.clone(), locked);
     }
 
@@ -234,6 +239,7 @@ pub fn processor_tool_hashes(
 /// Errors if the lock file does not exist — callers must run `rsconstruct
 /// tools lock` to create one.
 pub fn verify_lock_file(
+    ctx: &BuildContext,
     tool_commands: &[(String, Vec<String>)],
 ) -> Result<()> {
     let Some(lock) = read_lock_file()? else {
@@ -249,7 +255,7 @@ pub fn verify_lock_file(
         };
 
         // Query current version
-        let current = match query_tool_version(tool_name, version_args) {
+        let current = match query_tool_version(ctx, tool_name, version_args) {
             Ok(c) => c,
             Err(e) => {
                 mismatches.push(format!("{tool_name} — {e}"));

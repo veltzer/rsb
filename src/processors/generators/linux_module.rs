@@ -42,8 +42,10 @@ impl LinuxModuleProcessor {
     /// kernel release cannot be determined — commands run without a shell, so
     /// a literal `$(uname -r)` fallback would never expand and `make -C`
     /// would fail with a baffling path.
-    fn default_kdir() -> Result<String> {
-        let output = Command::new("uname").arg("-r").output()
+    fn default_kdir(ctx: &crate::build_context::BuildContext) -> Result<String> {
+        let mut cmd = Command::new("uname");
+        cmd.arg("-r");
+        let output = crate::processors::run_command_capture(ctx, &cmd)
             .context("Failed to run 'uname -r' to locate kernel build directory (set 'kdir' in linux-module.yaml to override)")?;
         if !output.status.success() {
             anyhow::bail!(
@@ -89,7 +91,7 @@ impl LinuxModuleProcessor {
 
         let kdir = match manifest.kdir.clone() {
             Some(kdir) => kdir,
-            None => Self::default_kdir()?,
+            None => Self::default_kdir(ctx)?,
         };
 
         Self::write_kbuild(&module_dir, module)?;
@@ -178,7 +180,11 @@ impl Processor for LinuxModuleProcessor {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        vec!["make".to_string()]
+        // uname is used to locate the running kernel's build directory when
+        // the manifest doesn't set `kdir`. It went undeclared for as long as
+        // it bypassed the central runner — exactly the drift the declared-
+        // tools check exists to catch.
+        vec!["make".to_string(), "uname".to_string()]
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {

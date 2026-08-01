@@ -17,7 +17,7 @@ struct DoctorCheck {
 
 impl Builder {
     /// Run diagnostic checks on the build environment.
-    pub fn doctor(&self) -> Result<()> {
+    pub fn doctor(&self, ctx: &crate::build_context::BuildContext) -> Result<()> {
         let json_mode = crate::json_output::is_json_mode();
         let mut ok_count = 0usize;
         let mut fail_count = 0usize;
@@ -69,7 +69,7 @@ impl Builder {
                 if !checked_tools.insert(tool.clone()) {
                     continue;
                 }
-                match tool_version(&tool) {
+                match tool_version(ctx, &tool) {
                     Some(version) => {
                         record(format!("{tool} available"), "ok", "tool", Some(version), None, &mut ok_count, &mut fail_count, &mut warn_count);
                     }
@@ -99,12 +99,7 @@ impl Builder {
 
             for pkg in &deps.pip {
                 let name = pkg.split(&['>', '<', '=', '!', '~'][..]).next().unwrap_or(pkg);
-                let found = Command::new("pip")
-                    .args(["show", "--quiet", name])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .is_ok_and(|s| s.success());
+                let found = package_installed(ctx, "pip", &["show", "--quiet", name]);
                 if found {
                     record(format!("{pkg} (pip)"), "ok", "dependency", None, None, &mut ok_count, &mut fail_count, &mut warn_count);
                 } else {
@@ -113,12 +108,7 @@ impl Builder {
             }
 
             for pkg in &deps.npm {
-                let found = Command::new("npm")
-                    .args(["list", "--depth=0", pkg])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .is_ok_and(|s| s.success());
+                let found = package_installed(ctx, "npm", &["list", "--depth=0", pkg]);
                 if found {
                     record(format!("{pkg} (npm)"), "ok", "dependency", None, None, &mut ok_count, &mut fail_count, &mut warn_count);
                 } else {
@@ -127,12 +117,7 @@ impl Builder {
             }
 
             for pkg in &deps.gem {
-                let found = Command::new("gem")
-                    .args(["list", "--installed", "--exact", pkg])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .is_ok_and(|s| s.success());
+                let found = package_installed(ctx, "gem", &["list", "--installed", "--exact", pkg]);
                 if found {
                     record(format!("{pkg} (gem)"), "ok", "dependency", None, None, &mut ok_count, &mut fail_count, &mut warn_count);
                 } else {
@@ -168,14 +153,24 @@ impl Builder {
     }
 }
 
+/// Whether a package manager reports `pkg` as installed. One helper for the
+/// pip/npm/gem probes, which were three copies of the same block.
+fn package_installed(
+    ctx: &crate::build_context::BuildContext,
+    program: &str,
+    args: &[&str],
+) -> bool {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    crate::processors::run_command_capture(ctx, &cmd)
+        .is_ok_and(|o| o.status.success())
+}
+
 /// Try to get the version string of a tool by running `tool --version`.
-fn tool_version(tool: &str) -> Option<String> {
-    let output = Command::new(tool)
-        .arg("--version")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .output()
-        .ok()?;
+fn tool_version(ctx: &crate::build_context::BuildContext, tool: &str) -> Option<String> {
+    let mut cmd = Command::new(tool);
+    cmd.arg("--version");
+    let output = crate::processors::run_command_capture(ctx, &cmd).ok()?;
     if !output.status.success() {
         return None;
     }

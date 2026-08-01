@@ -31,7 +31,7 @@ impl Builder {
             GraphFormat::Mermaid => graph.to_mermaid(),
             GraphFormat::Json => graph.to_json(),
             GraphFormat::Text => graph.to_text(),
-            GraphFormat::Svg => graph.to_svg()?,
+            GraphFormat::Svg => graph.to_svg(ctx)?,
         };
 
         println!("{output}");
@@ -62,8 +62,7 @@ impl Builder {
                 // Check if dot is available
                 let mut dot_check_cmd = Command::new("dot");
                 dot_check_cmd.arg("-V");
-                log_command(&dot_check_cmd);
-                let dot_check = dot_check_cmd.output();
+                let dot_check = crate::processors::run_command_capture(ctx, &dot_check_cmd);
                 if dot_check.map_or(true, |o| !o.status.success()) {
                     anyhow::bail!("Graphviz 'dot' command not found. Install Graphviz or use --view=mermaid");
                 }
@@ -79,9 +78,7 @@ impl Builder {
                 // Convert to SVG
                 let mut dot_cmd = Command::new("dot");
                 dot_cmd.arg("-Tsvg").arg(&dot_path).arg("-o").arg(&svg_path);
-                log_command(&dot_cmd);
-                let output = dot_cmd
-                    .output()
+                let output = crate::processors::run_command_capture(ctx, &dot_cmd)
                     .context("Failed to run dot command")?;
 
                 if !output.status.success() {
@@ -191,6 +188,10 @@ impl Builder {
         let mut open_cmd = Command::new(cmd);
         open_cmd.arg(path);
         log_command(&open_cmd);
+        // Deliberately NOT routed through run_command: this launches a
+        // detached viewer (browser, image viewer) that must outlive
+        // rsconstruct. The central runner sets kill_on_drop and waits for
+        // the child, both of which are exactly wrong here.
         open_cmd
             .spawn()
             .with_context(|| format!("Failed to open file with {cmd}"))?;

@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::io::Write;
+use std::process::Command;
 
 use crate::config::AspellConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
-use crate::processors::{Processor, log_command, format_command};
+use crate::processors::Processor;
 use crate::word_manager::WordManager;
 
 pub struct AspellProcessor {
@@ -46,7 +45,7 @@ impl AspellProcessor {
             .collect())
     }
 
-    fn check_file(&self, file: &Path) -> Result<()> {
+    fn check_file(&self, ctx: &crate::build_context::BuildContext, file: &Path) -> Result<()> {
         let content = std::fs::read_to_string(file)
             .with_context(|| format!("Failed to read file: {}", file.display()))?;
 
@@ -56,34 +55,18 @@ impl AspellProcessor {
             cmd.arg(arg);
         }
         cmd.arg("list");
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
 
-        log_command(&cmd);
-
-        let mut child = cmd.spawn()
-            .with_context(|| format!("Failed to spawn: {}", format_command(&cmd)))?;
-
-        // Feed stdin from a separate thread while wait_with_output drains
-        // stdout/stderr: writing everything first deadlocks once aspell fills
-        // the pipe buffer with misspelled words.
-        let mut stdin = child.stdin.take()
-            .context("aspell stdin was not piped")?;
-        let writer = std::thread::spawn(move || stdin.write_all(content.as_bytes()));
-
-        let output = child.wait_with_output()
-            .context("Failed to wait for aspell")?;
-        let write_result = writer.join()
-            .map_err(|_| anyhow::anyhow!("aspell stdin writer thread panicked"))?;
+        // Goes through the central runner rather than a hand-rolled spawn, so
+        // this inherits interrupt handling, kill_on_drop, log_command and the
+        // declared-tools check. The stdin write is driven concurrently with
+        // draining the output — feeding it all first deadlocks as soon as
+        // aspell fills the pipe buffer with misspelled words.
+        let output = crate::processors::run_command_with_stdin(ctx, &cmd, content.as_bytes())?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!("aspell failed for {}: {}", file.display(), stderr.trim_end());
         }
-        // A write failure with a successful exit means aspell saw truncated
-        // input; the results would be incomplete.
-        write_result.context("Failed to write to aspell stdin")?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let misspelled: Vec<&str> = stdout.lines()
@@ -133,20 +116,20 @@ impl Processor for AspellProcessor {
         )
     }
 
-    fn execute(&self, _ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
+    fn execute(&self, ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
         self.words.execute_with_flush(
             product,
             self.config.auto_add_words,
-            |file| self.check_file(file),
+            |file| self.check_file(ctx, file),
             "aspell",
         )
     }
 
-    fn execute_batch(&self, _ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
+    fn execute_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
         self.words.execute_batch_with_flush(
             products,
             self.config.auto_add_words,
-            |file| self.check_file(file),
+            |file| self.check_file(ctx, file),
             "aspell",
         )
     }

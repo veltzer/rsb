@@ -1,8 +1,6 @@
 use anyhow::Result;
 use notify::{Event, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -62,7 +60,7 @@ fn register_watches(
     }
 }
 
-pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, interrupted: Arc<AtomicBool>) -> Result<()> {
+pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions) -> Result<()> {
     let mut builder = Builder::new_with_overrides(&opts.iset, &opts.pset)?;
     let mut watch_paths = builder.watch_paths();
     let mut output_dir = builder.output_dir().to_string();
@@ -75,7 +73,7 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, inte
 
     // Initial build
     println!("{}", color::bold("Running initial build..."));
-    if let Err(e) = builder.build(ctx, opts, Arc::clone(&interrupted), Vec::new()) {
+    if let Err(e) = builder.build(ctx, opts, Vec::new()) {
         println!("{}", color::red(&format!("Initial build error: {e}")));
     }
     drop(builder);
@@ -89,7 +87,7 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, inte
         // Wait for a relevant file-change event, periodically checking the interrupted flag.
         // Breaks with `true` on a real event, `false` if the watcher channel disconnects.
         let got_event = loop {
-            if interrupted.load(Ordering::SeqCst) {
+            if ctx.is_interrupted() {
                 return Ok(());
             }
             match rx.recv_timeout(poll_interval) {
@@ -138,7 +136,7 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions, inte
             Ok(mut builder) => {
                 let new_paths = builder.watch_paths();
                 output_dir = builder.output_dir().to_string();
-                if let Err(e) = builder.build(ctx, opts, Arc::clone(&interrupted), Vec::new()) {
+                if let Err(e) = builder.build(ctx, opts, Vec::new()) {
                     println!("{}", color::red(&format!("Build error: {e}")));
                 }
 

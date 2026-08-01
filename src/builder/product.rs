@@ -45,7 +45,7 @@ impl Builder {
         let analyzers = self.create_analyzers(false)?;
         let mut hash_pieces: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (name, analyzer) in &analyzers {
-            if let Ok(Some(pieces)) = analyzer.scan_hash_pieces(product.primary_input())
+            if let Ok(Some(pieces)) = analyzer.scan_hash_pieces(ctx, product.primary_input())
                 && !pieces.is_empty() {
                 hash_pieces.insert(name.clone(), pieces);
             }

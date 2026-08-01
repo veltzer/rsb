@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use crate::cli::DisplayOptions;
 use crate::color;
@@ -60,7 +59,7 @@ impl Builder {
             batch_size: None,
             explain: false,
             retry: 0,
-        }, Arc::new(std::sync::atomic::AtomicBool::new(false)));
+        });
         let stats = executor.clean(&graph, verbose)?;
 
         // Walk every candidate directory bottom-up: try fs::remove_dir (only
@@ -116,7 +115,7 @@ impl Builder {
     }
 
     /// Hard clean using `git clean -qffxd`. Requires a git repository.
-    pub fn hardclean(&self) -> Result<()> {
+    pub fn hardclean(&self, ctx: &crate::build_context::BuildContext) -> Result<()> {
         use std::process::Command;
 
         if !std::path::Path::new(".git").exists() {
@@ -125,9 +124,9 @@ impl Builder {
 
         println!("{}", color::bold("Running git clean -qffxd..."));
 
-        let output = Command::new("git")
-            .args(["clean", "-qffxd"])
-            .output()
+        let mut cmd = Command::new("git");
+        cmd.args(["clean", "-qffxd"]);
+        let output = crate::processors::run_command_capture(ctx, &cmd)
             .context("Failed to run git clean")?;
 
         if !output.status.success() {
@@ -166,9 +165,9 @@ impl Builder {
         }
 
         // Get git-tracked files
-        let output = Command::new("git")
-            .args(["ls-files", "--cached"])
-            .output()
+        let mut cmd = Command::new("git");
+        cmd.args(["ls-files", "--cached"]);
+        let output = crate::processors::run_command_capture(ctx, &cmd)
             .context("Failed to run git ls-files")?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

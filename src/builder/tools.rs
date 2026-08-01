@@ -11,41 +11,48 @@ use super::{Builder, sorted_keys};
 
 /// Check if a system package is installed using the platform's package manager.
 /// Tries dpkg-query (Debian/Ubuntu), rpm (Fedora/RHEL), pacman (Arch), and brew (macOS).
-fn is_system_package_installed(pkg: &str) -> bool {
+///
+/// Probes run through the central runner so a `tools check` over a long
+/// package list stays interruptible — `dpkg-query` on a large system is not
+/// instant, and one probe runs per declared package.
+fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &str) -> bool {
+    let probe = |program: &str, args: &[&str]| -> bool {
+        let mut cmd = Command::new(program);
+        cmd.args(args);
+        crate::processors::run_command_capture(ctx, &cmd)
+            .is_ok_and(|o| o.status.success())
+    };
+
     if which::which("dpkg-query").is_ok() {
-        return Command::new("dpkg-query")
-            .args(["-W", "-f", "${Status}", pkg])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
+        return probe("dpkg-query", &["-W", "-f", "${Status}", pkg]);
     }
     if which::which("rpm").is_ok() {
-        return Command::new("rpm")
-            .args(["-q", pkg])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
+        return probe("rpm", &["-q", pkg]);
     }
     if which::which("pacman").is_ok() {
-        return Command::new("pacman")
-            .args(["-Q", pkg])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
+        return probe("pacman", &["-Q", pkg]);
     }
     if which::which("brew").is_ok() {
-        return Command::new("brew")
-            .args(["list", pkg])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success());
+        return probe("brew", &["list", pkg]);
     }
     // Fallback: check if the package name is available as a command
     which::which(pkg).is_ok()
+}
+
+/// Whether a package manager reports `pkg` as already installed.
+///
+/// One helper for the pip/npm/gem probes, which were four copies of the same
+/// spawn-and-discard-output block. Routed through the central runner so a
+/// long `install-deps` preflight stays interruptible.
+fn package_probe_succeeds(
+    ctx: &crate::build_context::BuildContext,
+    program: &str,
+    args: &[&str],
+) -> bool {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    crate::processors::run_command_capture(ctx, &cmd)
+        .is_ok_and(|o| o.status.success())
 }
 
 /// Return the language runtime category for a tool.
@@ -60,15 +67,15 @@ fn tool_runtime(tool: &str) -> &'static str {
 /// Handle `rsconstruct tools` subcommands without a project config.
 /// Uses default processor configs so List, Stats, Install, and Graph work
 /// even outside a project directory.
-pub fn tools_no_config(action: ToolsAction, verbose: bool) -> Result<()> {
+pub fn tools_no_config(ctx: &crate::build_context::BuildContext, action: ToolsAction, verbose: bool) -> Result<()> {
     let processors = super::create_all_default_processors()?;
-    run_tools_command(&processors, &|_name| true, action, verbose, None)
+    run_tools_command(ctx, &processors, &|_name| true, action, verbose, None)
 }
 
 impl Builder {
     /// Verify tool versions against .tools.versions lock file.
     /// Called at the start of build unless --ignore-tool-versions is passed.
-    pub fn verify_tool_versions(&self) -> Result<()> {
+    pub fn verify_tool_versions(&self, ctx: &crate::build_context::BuildContext) -> Result<()> {
         let processors = self.create_processors()?;
         let tool_commands = tool_lock::collect_tool_commands(
             &processors,
@@ -77,13 +84,14 @@ impl Builder {
         if tool_commands.is_empty() {
             return Ok(());
         }
-        tool_lock::verify_lock_file(&tool_commands)
+        tool_lock::verify_lock_file(ctx, &tool_commands)
     }
 
     /// Handle `rsconstruct tools` subcommands
-    pub fn tools(&self, action: ToolsAction, verbose: bool) -> Result<()> {
+    pub fn tools(&self, ctx: &crate::build_context::BuildContext, action: ToolsAction, verbose: bool) -> Result<()> {
         let processors = self.create_processors()?;
         run_tools_command(
+            ctx,
             &processors,
             &|_name| true,
             action,
@@ -96,6 +104,7 @@ impl Builder {
 /// Core implementation for `tools` subcommands, shared by `Builder::tools()` and `tools_no_config()`.
 /// `builder` is `Some` when running with a project config (needed for `open_file`, `Check`, `Lock`).
 fn run_tools_command(
+    ctx: &crate::build_context::BuildContext,
     processors: &crate::processors::ProcessorMap,
     is_enabled: &dyn Fn(&str) -> bool,
     action: ToolsAction,
@@ -241,7 +250,7 @@ fn run_tools_command(
         }
         ToolsAction::Check => {
             let tool_commands = tool_lock::collect_tool_commands(processors, is_enabled);
-            tool_lock::verify_lock_file(&tool_commands)?;
+            tool_lock::verify_lock_file(ctx, &tool_commands)?;
             let lock = tool_lock::read_lock_file()?;
             if crate::json_output::is_json_mode() {
                 let entries: Vec<serde_json::Value> = lock
@@ -273,7 +282,7 @@ fn run_tools_command(
         }
         ToolsAction::Lock => {
             let tool_commands = tool_lock::collect_tool_commands(processors, is_enabled);
-            let lock = tool_lock::create_lock(&tool_commands)?;
+            let lock = tool_lock::create_lock(ctx, &tool_commands)?;
             tool_lock::write_lock_file(&lock)?;
             if crate::json_output::is_json_mode() {
                 let entries: Vec<serde_json::Value> = lock.tools.iter().map(|(name, info)| {
@@ -320,7 +329,7 @@ fn run_tools_command(
                     GraphFormat::Mermaid => tools_graph_mermaid(&tool_map),
                     GraphFormat::Text => tools_graph_text(&tool_map),
                     GraphFormat::Json => tools_graph_json(&tool_map)?,
-                    GraphFormat::Svg => tools_graph_svg(&tool_map)?,
+                    GraphFormat::Svg => tools_graph_svg(ctx, &tool_map)?,
                 };
                 println!("{output}");
             }
@@ -593,7 +602,7 @@ fn run_tools_command(
 
             let system_missing: Vec<String> = config.system.iter()
                 .filter(|pkg| {
-                    let installed = is_system_package_installed(pkg);
+                    let installed = is_system_package_installed(ctx, pkg);
                     if installed { skipped.push(format!("[system] {pkg}")); }
                     !installed
                 })
@@ -606,12 +615,7 @@ fn run_tools_command(
             let pip_missing: Vec<String> = config.pip.iter()
                 .filter(|pkg| {
                     let name = pkg.split(&['>', '<', '=', '!', '~'][..]).next().unwrap_or(pkg);
-                    let installed = Command::new("pip")
-                        .args(["show", name])
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .is_ok_and(|s| s.success());
+                    let installed = package_probe_succeeds(ctx, "pip", &["show", name]);
                     if installed { skipped.push(format!("[pip] {pkg}")); }
                     !installed
                 })
@@ -623,12 +627,7 @@ fn run_tools_command(
 
             let npm_missing: Vec<String> = config.npm.iter()
                 .filter(|pkg| {
-                    let installed = Command::new("npm")
-                        .args(["ls", "-g", pkg])
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .is_ok_and(|s| s.success());
+                    let installed = package_probe_succeeds(ctx, "npm", &["ls", "-g", pkg]);
                     if installed { skipped.push(format!("[npm] {pkg}")); }
                     !installed
                 })
@@ -640,12 +639,7 @@ fn run_tools_command(
 
             let gem_missing: Vec<String> = config.gem.iter()
                 .filter(|pkg| {
-                    let installed = Command::new("gem")
-                        .args(["list", "-i", pkg])
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .status()
-                        .is_ok_and(|s| s.success());
+                    let installed = package_probe_succeeds(ctx, "gem", &["list", "-i", pkg]);
                     if installed { skipped.push(format!("[gem] {pkg}")); }
                     !installed
                 })
@@ -856,30 +850,9 @@ fn tools_graph_html(tool_map: &BTreeMap<String, Vec<String>>) -> String {
 "#)
 }
 
-fn tools_graph_svg(tool_map: &BTreeMap<String, Vec<String>>) -> Result<String> {
-    use std::process::Stdio;
-    use crate::processors::{check_command_output, log_command};
-
-    let dot_content = tools_graph_dot(tool_map);
-
-    let mut cmd = Command::new("dot");
-    cmd.arg("-Tsvg")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    log_command(&cmd);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("Graphviz 'dot' command not found. Install Graphviz to use SVG format: {e}"))?;
-
-    child.stdin.take()
-        .context("stdin was not piped to dot command")?
-        .write_all(dot_content.as_bytes())
-        .context("Failed to write DOT graph to dot stdin")?;
-
-    let output = child.wait_with_output()
-        .context("Failed to wait for dot command")?;
-    check_command_output(&output, "dot")?;
-
-    Ok(String::from_utf8(output.stdout)?)
+fn tools_graph_svg(
+    ctx: &crate::build_context::BuildContext,
+    tool_map: &BTreeMap<String, Vec<String>>,
+) -> Result<String> {
+    crate::processors::dot_to_svg(ctx, &tools_graph_dot(tool_map))
 }

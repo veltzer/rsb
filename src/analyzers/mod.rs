@@ -87,7 +87,11 @@ pub trait DepAnalyzer: Sync + Send {
     /// The default impl returns `None`, meaning "this analyzer does not
     /// contribute hash pieces" (most don't — only Tera does today). Override
     /// when the analyzer's `analyze` populates `ScanResult.hash_pieces`.
-    fn scan_hash_pieces(&self, _source: &Path) -> Result<Option<Vec<String>>> {
+    fn scan_hash_pieces(
+        &self,
+        _ctx: &crate::build_context::BuildContext,
+        _source: &Path,
+    ) -> Result<Option<Vec<String>>> {
         Ok(None)
     }
 }

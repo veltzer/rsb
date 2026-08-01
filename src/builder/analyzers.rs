@@ -345,7 +345,7 @@ impl Builder {
                                 for (deps, analyzer) in entries {
                                     let pieces = if let Some(ref a) = analyzers {
                                         a.get(&analyzer)
-                                            .and_then(|inst| inst.scan_hash_pieces(&file_path).ok().flatten())
+                                            .and_then(|inst| inst.scan_hash_pieces(ctx, &file_path).ok().flatten())
                                     } else {
                                         None
                                     };

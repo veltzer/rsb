@@ -96,7 +96,6 @@ use exit_code::{RsconstructExitCode, RsconstructError, classify_error};
 use std::env;
 use std::fs;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 fn main() -> std::process::ExitCode {
@@ -181,10 +180,13 @@ fn run() -> (Result<()>, bool) {
         ctx.set_mtime_check(false);
     }
 
-    // Set up Ctrl+C handler: sets a flag so the executor can stop gracefully
-    let interrupted = Arc::new(AtomicBool::new(false));
+    // Set up Ctrl+C handler. `BuildContext::interrupt()` is the single
+    // source of truth: it sets the flag the executor polls between products
+    // AND broadcasts on the watch channel that wakes every waiting
+    // subprocess. A second standalone `Arc<AtomicBool>` used to be threaded
+    // through the executor and watcher in parallel with this, set on the
+    // same line and only ever read OR'd with it — pure redundancy.
     {
-        let interrupted = Arc::clone(&interrupted);
         let ctx_for_signal = Arc::clone(&ctx);
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -193,7 +195,6 @@ fn run() -> (Result<()>, bool) {
                 .expect(errors::SIGNAL_HANDLER_RUNTIME);
             rt.block_on(async {
                 tokio::signal::ctrl_c().await.expect(errors::SIGNAL_LISTEN);
-                interrupted.store(true, std::sync::atomic::Ordering::SeqCst);
                 ctx_for_signal.interrupt();
                 eprintln!("\nInterrupted. Press Ctrl+C again to force exit.");
                 tokio::signal::ctrl_c().await.expect(errors::SIGNAL_LISTEN);
@@ -224,7 +225,7 @@ fn run() -> (Result<()>, bool) {
                 let builder_new_dur = t.elapsed();
                 let t = Instant::now();
                 if verify_tool_versions {
-                    builder.verify_tool_versions()?;
+                    builder.verify_tool_versions(&ctx)?;
                 }
                 let verify_tools_dur = t.elapsed();
                 let init_timings = vec![
@@ -234,7 +235,7 @@ fn run() -> (Result<()>, bool) {
                     ("verify_tools".to_string(), verify_tools_dur),
                 ];
                 let opts = shared.to_build_options(&cli, force, stop_after);
-                builder.build(&ctx, &opts, Arc::clone(&interrupted), init_timings)?;
+                builder.build(&ctx, &opts, init_timings)?;
             }
         }
         Commands::Cache { action } => {
@@ -376,7 +377,7 @@ fn run() -> (Result<()>, bool) {
                 }
                 CleanAction::Git => {
                     let builder = Builder::new()?;
-                    builder.hardclean()?;
+                    builder.hardclean(&ctx)?;
                 }
                 CleanAction::Unknown { dry_run, no_gitignore } => {
                     let builder = Builder::new()?;
@@ -433,7 +434,7 @@ fn run() -> (Result<()>, bool) {
         }
         Commands::Doctor => {
             let builder = Builder::new()?;
-            builder.doctor()?;
+            builder.doctor(&ctx)?;
         }
         Commands::Errors => {
             list_exit_codes(cli.verbose)?;
@@ -675,9 +676,9 @@ fn run() -> (Result<()>, bool) {
             // If config exists but is broken, fail — don't silently use defaults.
             if std::path::Path::new("rsconstruct.toml").exists() {
                 let builder = Builder::new()?;
-                builder.tools(action, cli.verbose)?;
+                builder.tools(&ctx, action, cli.verbose)?;
             } else {
-                builder::tools::tools_no_config(action, cli.verbose)?;
+                builder::tools::tools_no_config(&ctx, action, cli.verbose)?;
             }
         }
         Commands::Version => {
@@ -742,7 +743,7 @@ fn run() -> (Result<()>, bool) {
         }
         Commands::Watch { ref shared } => {
             let opts = shared.to_build_options(&cli, false, BuildPhase::Build);
-            watcher::watch(&ctx, &opts, Arc::clone(&interrupted))?;
+            watcher::watch(&ctx, &opts)?;
         }
     }
 

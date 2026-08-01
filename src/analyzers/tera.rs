@@ -39,7 +39,11 @@ impl TeraDepAnalyzer {
     /// Returns the resolved file paths (added to product.inputs) and the
     /// hash pieces that capture non-content state — the sorted set of paths
     /// matching each glob, plus the literal text of each shell command.
-    pub(crate) fn scan_template(&self, source: &Path) -> Result<ScanResult> {
+    pub(crate) fn scan_template(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        source: &Path,
+    ) -> Result<ScanResult> {
         let mut paths: Vec<PathBuf> = Vec::new();
         let mut seen: HashSet<PathBuf> = HashSet::new();
         // Pieces accumulated into the config_hash: sorted paths from each glob,
@@ -50,7 +54,7 @@ impl TeraDepAnalyzer {
         // recursion on cyclic includes.
         let mut scanned: HashSet<PathBuf> = HashSet::new();
 
-        scan_template_recursive(source, &mut paths, &mut seen, &mut hash_pieces, &mut scanned)?;
+        scan_template_recursive(ctx, source, &mut paths, &mut seen, &mut hash_pieces, &mut scanned)?;
 
         Ok(ScanResult {
             deps: paths,
@@ -68,6 +72,7 @@ impl TeraDepAnalyzer {
 /// the config-hash contribution; `scanned` prevents revisiting the same
 /// template (cycle guard).
 fn scan_template_recursive(
+    ctx: &crate::build_context::BuildContext,
     source: &Path,
     paths: &mut Vec<PathBuf>,
     seen: &mut HashSet<PathBuf>,
@@ -183,7 +188,7 @@ fn scan_template_recursive(
                     seen.insert(candidate.clone());
                     paths.push(candidate.clone());
                 }
-                scan_template_recursive(candidate, paths, seen, hash_pieces, scanned)?;
+                scan_template_recursive(ctx, candidate, paths, seen, hash_pieces, scanned)?;
                 break;
             }
         }
@@ -233,7 +238,7 @@ fn scan_template_recursive(
     // glob. Only the count/identity of tracked files matters, not content.
     for caps in git_count_re.captures_iter(&content) {
         let pattern = &caps[1];
-        let matched = git_ls_files(pattern);
+        let matched = git_ls_files(ctx, pattern);
         hash_pieces.push(format!("git_count:{pattern}"));
         hash_pieces.push(format!("git_count_resolved:{}", matched.join("\n")));
     }
@@ -333,11 +338,10 @@ fn scan_template_recursive(
 /// matches what the renderer actually counts. A failed git invocation
 /// (e.g. not a git repository) yields an empty list — the function is
 /// best-effort by design.
-fn git_ls_files(pattern: &str) -> Vec<String> {
-    let output = std::process::Command::new("git")
-        .args(["ls-files", "--", pattern])
-        .output();
-    let output = match output {
+fn git_ls_files(ctx: &crate::build_context::BuildContext, pattern: &str) -> Vec<String> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(["ls-files", "--", pattern]);
+    let output = match crate::processors::run_command_capture(ctx, &cmd) {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };
@@ -408,13 +412,17 @@ impl DepAnalyzer for TeraDepAnalyzer {
             deps_cache,
             &self.iname,
             |p| self.match_product(p),
-            |source| self.scan_template(source),
+            |source| self.scan_template(ctx, source),
             progress,
         )
     }
 
-    fn scan_hash_pieces(&self, source: &Path) -> Result<Option<Vec<String>>> {
-        Ok(Some(self.scan_template(source)?.hash_pieces))
+    fn scan_hash_pieces(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        source: &Path,
+    ) -> Result<Option<Vec<String>>> {
+        Ok(Some(self.scan_template(ctx, source)?.hash_pieces))
     }
 }
 

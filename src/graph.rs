@@ -918,35 +918,9 @@ impl BuildGraph {
         buf
     }
 
-    /// Generate SVG by piping DOT through the `dot` command
-    pub fn to_svg(&self) -> Result<String> {
-        use std::process::{Command, Stdio};
-        use std::io::Write;
-        use crate::processors::{check_command_output, log_command};
-
-        let dot_content = self.to_dot();
-
-        let mut cmd = Command::new("dot");
-        cmd.arg("-Tsvg")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        log_command(&cmd);
-        let mut child = cmd
-            .spawn()
-            .context("Failed to run Graphviz 'dot'. Install Graphviz to use SVG format")?;
-
-        // Always wait on the child even if the write fails (e.g. EPIPE from
-        // dot exiting early) — propagating first would leave a zombie.
-        let write_result = child.stdin.take()
-            .context("stdin was not piped to dot command")?
-            .write_all(dot_content.as_bytes());
-        let output = child.wait_with_output()
-            .context("Failed to wait for Graphviz 'dot'")?;
-        check_command_output(&output, "dot")?;
-        write_result.context("Failed to write graph to dot stdin")?;
-
-        String::from_utf8(output.stdout).context("Graphviz 'dot' produced non-UTF-8 SVG output")
+    /// Generate SVG by piping DOT through the `dot` command.
+    pub fn to_svg(&self, ctx: &crate::build_context::BuildContext) -> Result<String> {
+        crate::processors::dot_to_svg(ctx, &self.to_dot())
     }
 
     /// Generate a self-contained HTML file with Mermaid diagram
