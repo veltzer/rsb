@@ -35,7 +35,7 @@ pub const SCAN_CONFIG_FIELDS: &[&str] = &[
 /// Universal StandardConfig fields that apply to every processor.
 /// Automatically appended to every processor's known_fields list during validation
 /// and to the defconfig display table — individual processors don't need to repeat them.
-pub const STANDARD_EXTRA_FIELDS: &[&str] = &["enabled", "cache"];
+pub const STANDARD_EXTRA_FIELDS: &[&str] = &["enabled"];
 
 pub trait KnownFields {
     /// Return the known fields for this config struct, excluding scan fields.
@@ -153,7 +153,6 @@ pub const SHARED_FIELD_DESCRIPTIONS: &[(&str, &str)] = &[
     ("batch",       "Pass all matched files to the tool in a single invocation"),
     ("max_jobs",    "Maximum parallel jobs for this processor (overrides global --jobs)"),
     ("enabled",     "Set to false to disable this processor without removing the stanza"),
-    ("cache",       "Whether to cache this processor's outputs (set false to always rebuild)"),
 ];
 
 /// Compute a config hash including only the fields named in `checksum_fields`.
@@ -315,6 +314,12 @@ pub struct BuildConfig {
     /// Default: false — a missing directory is treated as a typo and fails.
     #[serde(default)]
     pub skip_missing_src_dirs: bool,
+    /// Maximum fixed-point discovery passes. Discovery repeats while
+    /// processors keep adding products from each other's declared outputs;
+    /// a config still adding products at the cap fails the build instead of
+    /// silently truncating the graph.
+    #[serde(default = "default_max_discovery_passes")]
+    pub max_discovery_passes: usize,
 }
 
 const fn default_parallel() -> usize {
@@ -329,6 +334,10 @@ const fn default_max_arg_len() -> usize {
     1_000_000
 }
 
+const fn default_max_discovery_passes() -> usize {
+    10
+}
+
 impl Default for BuildConfig {
     fn default() -> Self {
         Self {
@@ -337,6 +346,7 @@ impl Default for BuildConfig {
             output_dir: "out".into(),
             max_arg_len: default_max_arg_len(),
             skip_missing_src_dirs: false,
+            max_discovery_passes: default_max_discovery_passes(),
         }
     }
 }
@@ -1230,7 +1240,6 @@ fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
         "dep_auto" => return Some(FieldType::StringArray),
         "max_jobs" => return Some(FieldType::Integer),
         "enabled" => return Some(FieldType::Bool),
-        "cache" => return Some(FieldType::Bool),
         "batch" => return Some(FieldType::Bool),
         _ => {}
     }
@@ -1687,6 +1696,23 @@ impl Config {
             apply_override_to_instances(&mut self.processor.instances, field, &value, |inst| {
                 inst.type_name == pname
             }, "pname", pname)?;
+        }
+
+        // Overrides bypass load-time validation (it runs on the raw TOML,
+        // before overrides exist), so the semantic rules — the max_jobs > 0
+        // deadlock guard, must_fields, the src_dirs rule — must be re-checked
+        // against the effective config. Otherwise `--iset x.max_jobs=0`
+        // hangs the build forever.
+        let mut errors = Vec::new();
+        for inst in &self.processor.instances {
+            if let Some(table) = inst.config_toml.as_table() {
+                let section_label = format!("processor.{}", inst.instance_name);
+                validate_single_processor(&inst.type_name, &section_label, table, &mut errors);
+            }
+        }
+        if !errors.is_empty() {
+            return Err(crate::exit_code::config_error(
+                format!("Invalid config after CLI overrides:\n{}", errors.join("\n"))));
         }
         Ok(())
     }

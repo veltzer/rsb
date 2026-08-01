@@ -4,6 +4,14 @@ use crate::color;
 use crate::tables;
 use super::{Builder, sorted_keys};
 
+/// Fix capability is either static (plugin `can_fix`) or config-dependent
+/// (e.g. script's `fix_command`). `fix` and `fix list` must agree on this
+/// predicate — a processor that `fix` would run must never be invisible in
+/// the list.
+fn is_fixable(processors: &crate::builder::ProcessorMap, name: &str) -> bool {
+    crate::registries::processor::can_fix(name) || processors[name].config_has_fix()
+}
+
 impl Builder {
     /// Run fix mode on all (or filtered) checker processors that have fix capability.
     pub fn fix(&self, ctx: &crate::build_context::BuildContext, processor_filter: Option<&[String]>) -> Result<()> {
@@ -16,11 +24,7 @@ impl Builder {
 
         let fixable: Vec<&str> = processors.keys()
             .filter(|name| {
-                // Fix capability is either static (plugin can_fix) or
-                // config-dependent (e.g. script's fix_command).
-                if !crate::registries::processor::can_fix(name.as_str())
-                    && !processors[name.as_str()].config_has_fix()
-                {
+                if !is_fixable(&processors, name.as_str()) {
                     return false;
                 }
                 if let Some(ref filter) = filter_set {
@@ -114,7 +118,7 @@ impl Builder {
         let proc_names = sorted_keys(&processors);
 
         let fixers: Vec<&String> = proc_names.iter()
-            .filter(|name| crate::registries::processor::can_fix(name.as_str()))
+            .filter(|name| is_fixable(&processors, name.as_str()))
             .copied()
             .collect();
 

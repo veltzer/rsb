@@ -119,3 +119,20 @@ fn pset_valid_max_jobs_accepted() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// Overrides must go through the same semantic validation as the config
+/// file: max_jobs = 0 would deadlock the build on a zero-permit semaphore,
+/// so it must be rejected, not applied.
+#[test]
+fn iset_max_jobs_zero_rejected() {
+    let temp = setup_project_with_config("[processor.tera]\n");
+    create_tera_templates(temp.path());
+    let out = run_rsconstruct(temp.path(), &["build", "--iset", "tera.max_jobs=0"]);
+    assert!(!out.status.success(), "expected failure for max_jobs=0 override");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("max_jobs") && stderr.contains("greater than 0"),
+        "stderr should explain the max_jobs guard; got: {stderr}"
+    );
+    assert_eq!(out.status.code(), Some(2), "config errors exit with 2");
+}

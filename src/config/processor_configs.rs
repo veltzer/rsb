@@ -24,10 +24,6 @@ pub struct StandardConfig {
     pub batch: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_jobs: Option<usize>,
-    /// Whether to cache this processor's outputs. Default true.
-    /// Set to false to always rebuild and never store results.
-    #[serde(default = "default_true")]
-    pub cache: bool,
     /// Whether this processor is active. Set to false to disable without
     /// removing the stanza from rsconstruct.toml.
     #[serde(default = "default_true")]
@@ -58,7 +54,6 @@ impl Default for StandardConfig {
             output_dir: String::new(),
             batch: true,
             max_jobs: None,
-            cache: true,
             enabled: true,
             src_dirs: None,
             src_extensions: None,
@@ -123,7 +118,7 @@ impl StandardConfig {
 
 impl KnownFields for StandardConfig {
     fn known_fields() -> &'static [&'static str] {
-        // Note: "enabled" and "cache" are universal — declared once in
+        // Note: "enabled" is universal — declared once in
         // STANDARD_EXTRA_FIELDS and merged in by the validator, not repeated here.
         &["command", "formats", "args", "dep_inputs", "dep_auto", "output_dir", "batch", "max_jobs"]
     }
@@ -134,7 +129,7 @@ impl KnownFields for StandardConfig {
         &["command", "args"]
     }
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
-        // "enabled" and "cache" descriptions live in SHARED_FIELD_DESCRIPTIONS.
+        // The "enabled" description lives in SHARED_FIELD_DESCRIPTIONS.
         &[
             ("command",    "Path to the tool executable"),
             ("formats",    "Output formats to generate"),
@@ -185,9 +180,10 @@ impl KnownFields for CreatorConfig {
         &["command", "args", "dep_inputs", "dep_auto", "output_dirs", "output_files", "batch", "max_jobs"]
     }
     fn checksum_fields() -> &'static [&'static str] {
-        // output_dirs/output_files are excluded: the output paths themselves are
-        // already part of the product's identity, not its config-change checksum.
-        &["command", "args"]
+        // output_dirs/output_files must be in the hash: the descriptor key
+        // contains no output paths, so without them a changed output
+        // declaration reuses the old descriptor and skips forever.
+        &["command", "args", "output_dirs", "output_files"]
     }
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
         &[

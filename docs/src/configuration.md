@@ -132,7 +132,7 @@ src_exclude_dirs = "${kernel_excludes}"
 src_exclude_dirs = "${kernel_excludes}"
 ```
 
-Variables are substituted before TOML parsing. The `"${var_name}"` (including quotes) is replaced with the TOML-serialized value, preserving types (arrays stay arrays, strings stay strings). Undefined variable references produce an error.
+Variables are substituted before TOML parsing. The `"${var_name}"` (including quotes) is replaced with the TOML-serialized value, preserving types (arrays stay arrays, strings stay strings). A reference must constitute the **entire quoted value** — an embedded reference like `"${base}/src"` cannot be substituted and is a config error, as is any undefined variable reference.
 
 ## Local overlay (`rsconstruct.local.toml`)
 
@@ -180,6 +180,7 @@ repo-specific.
 | `batch_size` | integer | `0` | Maximum files per batch for batch-capable processors. `0` = no limit (all files in one batch). To disable batching, pass `--batch-size -1` on the CLI or set `batch = false` on individual processors. |
 | `output_dir` | string | `"out"` | Global output directory prefix. Processor `output_dir` defaults that start with `out/` are remapped to use this prefix (e.g., setting `"build"` changes `out/marp` to `build/marp`). Individual processors can still override their `output_dir` explicitly. |
 | `skip_missing_src_dirs` | boolean | `false` | When `true`, a `src_dirs` entry that doesn't exist on disk deactivates the processor's scan of that directory instead of failing the build. Lets one shared config file serve repos with different layouts: a processor whose directories are all absent simply matches no files. Skipped entries are listed when running with `--phases`. Leave `false` so a missing directory is caught as a typo. |
+| `max_discovery_passes` | integer | `10` | Maximum fixed-point discovery passes. Discovery repeats while processors keep adding products from each other's declared outputs; a config still adding products at the cap fails the build (naming the processors involved) instead of silently truncating the graph. |
 
 The `output_dir` prefix is purely a layout choice — `rsconstruct clean outputs` does not special-case it. Cleanup is driven by per-product `outputs` and `output_dirs` declarations, then a generic empty-directory sweep walks parents bottom-up. See [Clean behavior](processors.md#clean-behavior) and [`rsconstruct clean`](commands.md#rsconstruct-clean) for details.
 
@@ -192,7 +193,6 @@ Common fields available to all processors:
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Set to `false` to disable this processor without removing the stanza. Accepted on every processor. |
-| `cache` | boolean | `true` | Whether to cache this processor's outputs. Set to `false` to always rebuild and never store results. Accepted on every processor. |
 | `args` | array of strings | `[]` | Extra command-line arguments passed to the tool. |
 | `dep_inputs` | array of strings | `[]` | Additional input files that trigger rebuild when changed. |
 | `dep_auto` | array of strings | varies | Config files auto-detected as inputs (e.g., `.pylintrc`). |

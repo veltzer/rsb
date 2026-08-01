@@ -203,7 +203,8 @@ lock file before accepting products of that type. A worker with a mismatched
 
 Some products cannot or should not be distributed:
 
-- Products with `cache = false` (always-rebuild, e.g., timestamp generators).
+- Always-rebuild products (e.g., timestamp generators) — would need a
+  per-processor opt-out from caching, which does not exist today.
 - Products that depend on the local filesystem state beyond declared inputs
   (e.g., `git log` style operations).
 - Creators that manage local directories (`npm install`, `cargo build`) —

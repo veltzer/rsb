@@ -544,8 +544,9 @@ impl Builder {
     ) -> Result<()> {
         let mut file_index = self.file_index.clone();
         let debug = phases_debug();
+        let max_passes = self.config.build.max_discovery_passes;
 
-        for pass in 0..10 {
+        for pass in 0..max_passes {
             let before = graph.products().len();
             for name in active {
                 let name = name.as_ref();
@@ -562,8 +563,22 @@ impl Builder {
             if after == before {
                 break;
             }
-            if pass + 1 >= 10 {
-                break;
+            if pass + 1 >= max_passes {
+                // Still adding products on the final pass: the graph would be
+                // silently truncated. Fail loudly and name the culprits.
+                let mut culprits: Vec<&str> = graph.products()[before..after]
+                    .iter()
+                    .map(|p| p.processor.as_str())
+                    .collect();
+                culprits.sort_unstable();
+                culprits.dedup();
+                return Err(crate::exit_code::RsconstructError::new(
+                    crate::exit_code::RsconstructExitCode::GraphError,
+                    format!(
+                        "discovery did not converge after {max_passes} passes; still adding products on the final pass: {} (raise [build] max_discovery_passes if this chain is intentional)",
+                        culprits.join(", ")
+                    ),
+                ).into());
             }
             let outputs: Vec<PathBuf> = graph.products()[before..after]
                 .iter()

@@ -411,3 +411,24 @@ enabeld = false
     assert!(!proc_errors.is_empty(), "processor validator should have caught something");
     assert!(!analyzer_errors.is_empty(), "analyzer validator should have caught something");
 }
+
+/// A reference embedded in a larger string ("${base}/src") can't be
+/// substituted (only whole quoted values are) — it must be a config error,
+/// not a silent literal pass-through.
+#[test]
+fn substitute_variables_rejects_partial_references() {
+    let content = "[vars]\nbase = \"proj\"\n\n[processor.tera]\nsrc_dirs = [\"${base}/src\"]\n";
+    let err = substitute_variables(content).unwrap_err();
+    assert!(err.to_string().contains("entire quoted value"),
+        "expected the partial-reference error, got: {err}");
+}
+
+/// A partial reference to an *undefined* variable must also error — before
+/// the residual scan it flowed through silently.
+#[test]
+fn substitute_variables_rejects_partial_undefined_references() {
+    let content = "[processor.tera]\nsrc_dirs = [\"${nope}/src\"]\n";
+    let err = substitute_variables(content).unwrap_err();
+    assert!(err.to_string().contains("Unresolved variable reference"),
+        "expected the residual-reference error, got: {err}");
+}

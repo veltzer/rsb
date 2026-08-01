@@ -4,7 +4,10 @@ use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;
 
 fn create_black(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleChecker::new(cfg, SimpleCheckerParams { description: "Check Python code formatting using black", subcommand: None, prepend_args: &["--check"], extra_tools: &["python3"], fix_subcommand: None, fix_prepend_args: &[], fix_batch: None })))
+    // Black's fix is its bare invocation (reformat in place); --quiet is the
+    // explicit fix marker — without any fix param, has_fix() would be false
+    // and batch fixing silently disabled despite the plugin's can_fix: true.
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleChecker::new(cfg, SimpleCheckerParams { description: "Check Python code formatting using black", subcommand: None, prepend_args: &["--check"], extra_tools: &["python3"], fix_subcommand: None, fix_prepend_args: &["--quiet"], fix_batch: None })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

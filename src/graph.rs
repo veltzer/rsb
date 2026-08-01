@@ -564,7 +564,7 @@ impl BuildGraph {
         }
 
         // Collect IDs to keep
-        let keep: HashSet<usize> = self.products.iter()
+        let mut keep: HashSet<usize> = self.products.iter()
             .filter(|product| {
                 product.inputs.iter().any(|input| {
                     let input_str = input.display().to_string();
@@ -573,6 +573,20 @@ impl BuildGraph {
             })
             .map(|p| p.id)
             .collect();
+
+        // Close over upstream producers: a kept consumer's inputs may be
+        // produced by products that match no pattern themselves. Dropping
+        // the producer would leave the consumer building against a missing
+        // or stale input. Dependencies are already resolved at this point
+        // (the builder filters after graph construction).
+        let mut worklist: Vec<usize> = keep.iter().copied().collect();
+        while let Some(id) = worklist.pop() {
+            for &dep_id in self.get_dependencies(id) {
+                if keep.insert(dep_id) {
+                    worklist.push(dep_id);
+                }
+            }
+        }
 
         // Remove products that don't match (clear their inputs/outputs so they become no-ops)
         // We can't actually remove elements because IDs are indices, so we rebuild the graph
@@ -1239,6 +1253,50 @@ mod tests {
         let cons_pos = order.iter().position(|&id| id == new_consumer).unwrap();
         assert!(prod_pos < cons_pos,
             "producer (pos {prod_pos}) must run before consumer (pos {cons_pos})");
+    }
+
+    /// Targeting only a consumer must transitively keep its producer —
+    /// otherwise the consumer builds against a missing or stale input.
+    #[test]
+    fn filter_by_targets_closes_over_producers() {
+        let mut g = BuildGraph::new();
+        g.add_product(vec!["other.txt".into()], vec![], "check", None).unwrap();
+        g.add_product(vec!["a.md".into()], vec!["out.html".into()], "pandoc", None).unwrap();
+        g.add_product(vec!["out.html".into()], vec!["final.pdf".into()], "chromium", None).unwrap();
+        g.resolve_dependencies();
+
+        // Only the consumer's input matches; the producer must be pulled in.
+        g.filter_by_targets(&["out.html".to_string()]).unwrap();
+        assert_eq!(g.products().len(), 2, "producer must be kept transitively");
+
+        let new_producer = g.products().iter().find(|p| p.processor == "pandoc").unwrap().id;
+        let new_consumer = g.products().iter().find(|p| p.processor == "chromium").unwrap().id;
+        assert_eq!(g.get_dependencies(new_consumer), &[new_producer]);
+    }
+
+    /// The closure is transitive through chains, and walks producers only —
+    /// targeting the head of a chain must not pull in its consumers.
+    #[test]
+    fn filter_by_targets_closure_is_transitive_and_upstream_only() {
+        fn chain() -> BuildGraph {
+            let mut g = BuildGraph::new();
+            g.add_product(vec!["a.src".into()], vec!["a.mid".into()], "gen1", None).unwrap();
+            g.add_product(vec!["a.mid".into()], vec!["a.out".into()], "gen2", None).unwrap();
+            g.add_product(vec!["a.out".into()], vec!["a.final".into()], "gen3", None).unwrap();
+            g.resolve_dependencies();
+            g
+        }
+
+        // Targeting the tail keeps the whole upstream chain.
+        let mut tail = chain();
+        tail.filter_by_targets(&["a.out".to_string()]).unwrap();
+        assert_eq!(tail.products().len(), 3, "whole upstream chain must survive");
+
+        // Targeting the head keeps only the head — no downstream pull-in.
+        let mut head = chain();
+        head.filter_by_targets(&["a.src".to_string()]).unwrap();
+        assert_eq!(head.products().len(), 1, "consumers must not be pulled in");
+        assert_eq!(head.products()[0].processor, "gen1");
     }
 
     /// When a no-output product is re-declared with the same inputs,

@@ -75,16 +75,16 @@ Recurring failure pattern across the codebase: **knowledge duplicated across han
 
 ## Concrete bugs surfaced by this review (fixable independently of refactors)
 
-- [ ] B1. Creator `output_dirs`/`output_files` change never invalidates cache → permanent stale SKIP (finding 3)
-- [ ] B2. `cache = false` config field is a no-op (finding 3)
-- [ ] B3. `--iset <x>.max_jobs=0` bypasses the load-time deadlock guard; overrides skip semantic validation generally (finding 11)
-- [ ] B4. `filter_by_targets` takes no transitive closure — `-t` can drop a kept consumer's producer (finding 10)
-- [ ] B5. `fix list` and `fix` disagree on what's fixable (`can_fix` vs `can_fix || config_has_fix`) (finding 8)
-- [ ] B6. `black` declares `can_fix: true` with no fix params — violates the documented invariant; batch fixing silently disabled for it (finding 8)
+- [x] B1. Creator `output_dirs`/`output_files` change never invalidates cache → permanent stale SKIP (finding 3) *(Done 2026-08-01: both fields added to `CreatorConfig::checksum_fields()`, matching `ExplicitConfig`; the "outputs are part of the product's identity" comment was true only of the legacy key.)*
+- [x] B2. `cache = false` config field is a no-op (finding 3) *(Done 2026-08-01: field deleted — wiring it into the executor's hot path risked new bugs for a feature nobody could ever have used; reintroduce deliberately with tests if wanted.)*
+- [x] B3. `--iset <x>.max_jobs=0` bypasses the load-time deadlock guard; overrides skip semantic validation generally (finding 11) *(Done 2026-08-01: `apply_overrides` re-runs `validate_single_processor` over all instances after applying; integration test pins the max_jobs=0 rejection. The "unreachable CliOverride provenance arm" sub-claim didn't hold up: `apply_output_dir_defaults` runs before overrides, so overridden values are never remapped — the arm is defense-in-depth, left in place.)*
+- [x] B4. `filter_by_targets` takes no transitive closure — `-t` can drop a kept consumer's producer (finding 10) *(Done 2026-08-01: worklist closure over `dependencies` before the graph rebuild; unit tests cover single-hop, chains, and that consumers are not pulled in.)*
+- [x] B5. `fix list` and `fix` disagree on what's fixable (`can_fix` vs `can_fix || config_has_fix`) (finding 8) *(Done 2026-08-01: shared `is_fixable` predicate used by both.)*
+- [x] B6. `black` declares `can_fix: true` with no fix params — violates the documented invariant; batch fixing silently disabled for it (finding 8) *(Done 2026-08-01: `fix_prepend_args: ["--quiet"]` — same reformat-in-place behavior, now explicit, and batch fixing engages.)*
 - [x] B7. Status stale/new distinction reads a table nothing writes — always reports "new" (finding 3) *(Done 2026-08-01: status now classifies via `explain_descriptor` on both paths — which also fixed the finding-12 asymmetry by making the Blob arm content-verify — and the legacy `CACHE_TABLE`/`CacheEntry` were deleted.)*
 - [ ] B8. `--json -v` leaks non-JSON lines onto stdout (finding 5)
-- [ ] B9. `"${var}/suffix"` partial variable references pass through silently as literals (finding 11)
-- [ ] B10. Fixed-point discovery non-convergence at the 10-pass cap is silent (finding 17)
+- [x] B9. `"${var}/suffix"` partial variable references pass through silently as literals (finding 11) *(Done 2026-08-01: post-substitution residual scan errors on any remaining `${...}` outside comments; docs now state a reference must be the entire quoted value.)*
+- [x] B10. Fixed-point discovery non-convergence at the 10-pass cap is silent (finding 17) *(Done 2026-08-01: hard GraphError at the cap naming the still-adding processors; the cap is now `[build] max_discovery_passes` (default 10) per the config-knob rule.)*
 
 ## Suggested order of attack
 

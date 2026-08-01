@@ -192,6 +192,7 @@ pub(super) fn substitute_variables(content: &str) -> Result<String> {
 
     // If no vars defined, return content as-is (we already checked for undefined refs above)
     if defined_vars.is_empty() {
+        check_no_residual_references(content)?;
         return Ok(content.to_string());
     }
 
@@ -200,6 +201,7 @@ pub(super) fn substitute_variables(content: &str) -> Result<String> {
         .context("Failed to parse TOML for variable extraction")?;
 
     let Some(vars) = parsed.get("vars").and_then(|v| v.as_table()) else {
+        check_no_residual_references(content)?;
         return Ok(content.to_string());
     };
 
@@ -218,5 +220,28 @@ pub(super) fn substitute_variables(content: &str) -> Result<String> {
     // Remove the [vars] section from the result
     let result = remove_vars_section(&result);
 
+    check_no_residual_references(&result)?;
     Ok(result)
+}
+
+/// Error on any `${...}` left after substitution. The engine only replaces
+/// whole quoted values (`"${var}"`), so a partial reference like
+/// `"${base}/src"` matches neither the substitution nor the quoted
+/// undefined-var scan and would otherwise flow through silently as a
+/// literal. Comments are exempt, like everywhere else in this pipeline.
+fn check_no_residual_references(content: &str) -> Result<()> {
+    static RESIDUAL_PATTERN: OnceLock<Regex> = OnceLock::new();
+    let residual = RESIDUAL_PATTERN.get_or_init(|| Regex::new(r"\$\{([^}]+)\}").expect(errors::INVALID_REGEX));
+    for line in content.lines() {
+        if let Some(captures) = residual.captures(strip_toml_comment(line)) {
+            let var_name = captures.get(1).expect(errors::CAPTURE_GROUP_MISSING).as_str();
+            return Err(crate::exit_code::RsconstructError::new(
+                crate::exit_code::RsconstructExitCode::ConfigError,
+                format!(
+                    "Unresolved variable reference ${{{var_name}}}: a reference must be the entire quoted value (\"${{{var_name}}}\"), not embedded in a larger string"
+                ),
+            ).into());
+        }
+    }
+    Ok(())
 }
