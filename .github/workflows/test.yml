@@ -37,6 +37,13 @@ jobs:
           echo "GEM_HOME=$HOME/.gem" >> "$GITHUB_ENV"
           echo "$HOME/.gem/bin" >> "$GITHUB_PATH"
 
+      # Some npm packages (jslint) symlink man pages into root-owned
+      # /usr/local/share; route npm -g installs to a user-writable prefix.
+      - name: Set up user npm prefix for npm-installed tools
+        run: |
+          npm config set prefix "$HOME/.npm-global"
+          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
+
       # Registry-driven: install every tool rsconstruct knows about, so a
       # new processor's tool is covered without touching this workflow.
       # Skipped: entries with a manual-only install method (checkpatch.pl)
