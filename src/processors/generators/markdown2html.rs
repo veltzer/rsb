@@ -27,7 +27,7 @@ fn execute_markdown2html(ctx: &crate::build_context::BuildContext, config: &Stan
 
 
 fn create_markdown2html(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["perl"], discover_mode: DiscoverMode::SingleFormat("html"), execute_fn: execute_markdown2html, is_native: false })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["perl"], extra_tools_fn: None, discover_mode: DiscoverMode::SingleFormat("html"), execute_fn: execute_markdown2html, is_native: false })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

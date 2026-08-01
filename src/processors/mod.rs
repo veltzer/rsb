@@ -1925,23 +1925,46 @@ pub enum DiscoverMode {
 /// Parameters for a [`SimpleGenerator`]. Each trivial generator file
 /// (mermaid.rs, pandoc.rs, etc.) configures one and registers it via the
 /// processor registry.
-#[derive(Copy, Clone)]
-pub struct SimpleGeneratorParams {
+/// Parameters for a [`SimpleGenerator`] over config type `C`.
+///
+/// `execute_fn` receives the whole `&C`, not just its `StandardConfig`, which
+/// is what lets a generator with extra config fields (pandoc's `pdf_engine`,
+/// say) use `SimpleGenerator` instead of hand-rolling the whole trait.
+/// `extra_tools_fn` covers the other reason generators used to be hand-rolled:
+/// a required tool named by a config field rather than a constant.
+pub struct SimpleGeneratorParams<C> {
     pub extra_tools: &'static [&'static str],
+    /// Additional required tools derived from the config (e.g. pandoc's
+    /// `pdf_engine`). `None` means the static `extra_tools` are the whole set.
+    pub extra_tools_fn: Option<fn(&C) -> Vec<String>>,
     pub discover_mode: DiscoverMode,
-    pub execute_fn: fn(&crate::build_context::BuildContext, &StandardConfig, &Product) -> Result<()>,
+    pub execute_fn: fn(&crate::build_context::BuildContext, &C, &Product) -> Result<()>,
     pub is_native: bool,
 }
 
+// Manual Copy/Clone: `#[derive]` would demand `C: Copy`/`C: Clone`, but every
+// field here is a fn pointer or plain data — the config type is only named in
+// their signatures, never stored.
+impl<C> Clone for SimpleGeneratorParams<C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<C> Copy for SimpleGeneratorParams<C> {}
+
 /// Data-driven generator processor. Replaces identical boilerplate across
-/// generators that use `StandardConfig` with standard discover logic.
-pub struct SimpleGenerator {
-    config: StandardConfig,
-    params: SimpleGeneratorParams,
+/// generators with standard discover logic.
+///
+/// Generic over the config type so a generator needing one extra field does
+/// not have to reimplement `Processor`. `C: AsRef<StandardConfig>` supplies
+/// the scan/discover half; `KnownFields` supplies the checksum allowlist.
+pub struct SimpleGenerator<C> {
+    config: C,
+    params: SimpleGeneratorParams<C>,
 }
 
-impl SimpleGenerator {
-    pub const fn new(config: StandardConfig, params: SimpleGeneratorParams) -> Self {
+impl<C> SimpleGenerator<C> {
+    pub const fn new(config: C, params: SimpleGeneratorParams<C>) -> Self {
         Self {
             config,
             params,
@@ -1949,9 +1972,12 @@ impl SimpleGenerator {
     }
 }
 
-impl Processor for SimpleGenerator {
+impl<C> Processor for SimpleGenerator<C>
+where
+    C: AsRef<StandardConfig> + serde::Serialize + crate::config::KnownFields + Send + Sync,
+{
     fn scan_config(&self) -> &StandardConfig {
-        &self.config
+        self.config.as_ref()
     }
 
     fn config_json(&self) -> Option<String> {
@@ -1963,29 +1989,33 @@ impl Processor for SimpleGenerator {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        if self.params.is_native {
-            self.params.extra_tools.iter().map(std::string::ToString::to_string).collect()
+        let mut tools = if self.params.is_native {
+            Vec::new()
         } else {
-            let mut tools = vec![self.config.command.clone()];
-            for t in self.params.extra_tools {
-                tools.push(t.to_string());
-            }
-            tools
+            vec![self.config.as_ref().command.clone()]
+        };
+        for t in self.params.extra_tools {
+            tools.push(t.to_string());
         }
+        if let Some(f) = self.params.extra_tools_fn {
+            tools.extend(f(&self.config));
+        }
+        tools
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
+        let scan = self.config.as_ref();
         let params = generators::DiscoverParams {
-            scan: &self.config,
-            dep_inputs: &self.config.dep_inputs,
+            scan,
+            dep_inputs: &scan.dep_inputs,
             config: &self.config,
-            output_dir: &self.config.output_dir,
+            output_dir: &scan.output_dir,
             processor_name: instance_name,
-            checksum_fields: <crate::config::StandardConfig as crate::config::KnownFields>::checksum_fields(),
+            checksum_fields: <C as crate::config::KnownFields>::checksum_fields(),
         };
         match &self.params.discover_mode {
             DiscoverMode::MultiFormat => {
-                generators::discover_multi_format(graph, file_index, &params, &self.config.formats)
+                generators::discover_multi_format(graph, file_index, &params, &scan.formats)
             }
             DiscoverMode::SingleFormat(ext) => {
                 generators::discover_single_format(graph, file_index, &params, ext)

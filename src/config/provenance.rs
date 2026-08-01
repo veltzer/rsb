@@ -64,14 +64,22 @@ pub type GlobalSpanMap = HashMap<String, HashMap<String, usize>>;
 /// every key under `[processor.*]` and `[analyzer.*]`. Returns an empty map if
 /// parsing fails (the caller already ran the `toml` crate's parser and
 /// validated the config, so we treat span capture as best-effort enrichment).
-pub fn build_span_map(source: &str) -> SpanMap {
+/// Both span maps from a single parse. They are always wanted together — the
+/// two used to be separate entry points that each re-parsed the same source,
+/// so loading a config with a local overlay parsed it four times for spans
+/// alone.
+///
+/// `Document` preserves byte spans on every `Key` and `Item`. `DocumentMut`
+/// strips them on construction (`despan`), so we can't use it here.
+pub fn build_span_maps(source: &str) -> (SpanMap, GlobalSpanMap) {
+    match Document::parse(source) {
+        Ok(doc) => (span_map_of(&doc, source), global_span_map_of(&doc, source)),
+        Err(_) => (SpanMap::new(), GlobalSpanMap::new()),
+    }
+}
+
+fn span_map_of(doc: &Document<&str>, source: &str) -> SpanMap {
     let mut map = SpanMap::new();
-    // Document preserves byte spans on every Key and Item. DocumentMut
-    // strips them on construction (`despan`), so we can't use it here.
-    let doc: Document<&str> = match Document::parse(source) {
-        Ok(d) => d,
-        Err(_) => return map,
-    };
     let root = doc.as_table();
     if let Some(item) = root.get("processor")
         && let Some(table) = item.as_table()
@@ -143,14 +151,9 @@ fn item_span(item: &Item) -> Option<std::ops::Range<usize>> {
 }
 
 /// Collect line numbers for every field in top-level `[section]` tables
-/// other than `processor` and `analyzer` (handled separately by
-/// [`build_span_map`]).
-pub fn build_global_span_map(source: &str) -> GlobalSpanMap {
+/// other than `processor` and `analyzer` (handled by [`span_map_of`]).
+fn global_span_map_of(doc: &Document<&str>, source: &str) -> GlobalSpanMap {
     let mut map = GlobalSpanMap::new();
-    let doc: Document<&str> = match Document::parse(source) {
-        Ok(d) => d,
-        Err(_) => return map,
-    };
     for (section_name, item) in doc.as_table() {
         if section_name == "processor" || section_name == "analyzer" {
             continue;
@@ -199,7 +202,7 @@ args = ["--fix"]
 [processor.pylint.core]
 src_dirs = ["src/core"]
 "#;
-        let spans = build_span_map(src);
+        let (spans, _) = build_span_maps(src);
         let key = (Section::Processor, "ruff".to_string(), "args".to_string());
         let line = spans.get(&key).copied().unwrap_or(0);
         assert!(line > 0, "expected a real line for ruff.args, got {line} (span map: {spans:?})");
@@ -211,7 +214,7 @@ src_dirs = ["src/core"]
 output_dir = "build"
 parallel = 4
 "#;
-        let spans = build_global_span_map(src);
+        let (_, spans) = build_span_maps(src);
         let build = spans.get("build").expect("expected [build] section in span map");
         assert_eq!(build.get("parallel"), Some(&3), "expected parallel on line 3");
     }

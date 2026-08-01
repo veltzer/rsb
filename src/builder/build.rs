@@ -287,7 +287,7 @@ impl Builder {
             .or_else(|| std::env::var("RSCONSTRUCT_THREADS").ok().and_then(|v| v.parse().ok()))
             .unwrap_or(self.config.build.parallel);
         let effective_parallel = if parallel == 0 {
-            std::thread::available_parallelism().map(std::num::NonZero::get).unwrap_or(1)
+            std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
         } else {
             parallel
         };

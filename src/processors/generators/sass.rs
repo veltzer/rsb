@@ -23,7 +23,7 @@ fn execute_sass(ctx: &crate::build_context::BuildContext, config: &StandardConfi
 
 
 fn create_sass(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &[], discover_mode: DiscoverMode::SingleFormat("css"), execute_fn: execute_sass, is_native: false })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &[], extra_tools_fn: None, discover_mode: DiscoverMode::SingleFormat("css"), execute_fn: execute_sass, is_native: false })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

@@ -151,16 +151,27 @@ fn resolve_var_value(
 /// undefined `${a}` would pass validation because a bogus `a` was "defined".
 ///
 /// Returns an empty list when the content does not parse or has no `[vars]`
-/// section. A parse error is not reported here — the caller parses again
-/// immediately after and produces a far better message.
+/// section. A parse error is not reported here — `Config::load` parses again
+/// and produces a far better message.
+///
+/// `substitute_variables` does not call this: it needs the parsed document
+/// for the variable *values* too, so it parses once and calls
+/// [`var_names_of`] directly. This wrapper is the name-only entry point, kept
+/// because the parse-and-extract pair is what the regression tests pin.
+#[cfg(test)]
 pub(super) fn extract_var_names(content: &str) -> Vec<String> {
     let Ok(parsed) = toml::from_str::<toml::Value>(content) else {
         return Vec::new();
     };
-    let Some(vars) = parsed.get("vars").and_then(toml::Value::as_table) else {
-        return Vec::new();
-    };
-    vars.keys().cloned().collect()
+    var_names_of(&parsed)
+}
+
+/// The `[vars]` keys of an already-parsed document.
+fn var_names_of(parsed: &toml::Value) -> Vec<String> {
+    parsed.get("vars")
+        .and_then(toml::Value::as_table)
+        .map(|vars| vars.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Substitute variables defined in [vars] section throughout the config.
@@ -175,8 +186,13 @@ pub(super) fn substitute_variables(content: &str) -> Result<String> {
     static VAR_PATTERN: OnceLock<Regex> = OnceLock::new();
     let var_pattern = VAR_PATTERN.get_or_init(|| Regex::new(r#""\$\{([^}]+)\}""#).expect(errors::INVALID_REGEX));
 
-    // Extract defined variable names before TOML parsing
-    let defined_vars = extract_var_names(content);
+    // One parse serves both the name check and the value lookup below.
+    // A parse failure is deliberately not fatal here: the undefined-variable
+    // scan is textual, so it still produces its (much more specific) message
+    // for a config that also has a syntax error. `Config::load` reports the
+    // syntax error itself right after.
+    let parsed = toml::from_str::<toml::Value>(content).ok();
+    let defined_vars = parsed.as_ref().map(var_names_of).unwrap_or_default();
 
     // Check for undefined variable references, ignoring `${...}` in comments
     for line in content.lines() {
@@ -197,10 +213,8 @@ pub(super) fn substitute_variables(content: &str) -> Result<String> {
         return Ok(content.to_string());
     }
 
-    // Parse just to extract [vars] section values
-    let parsed: toml::Value = toml::from_str(content)
-        .context("Failed to parse TOML for variable extraction")?;
-
+    // defined_vars is non-empty, so the parse succeeded and `[vars]` is a table.
+    let parsed = parsed.context("Failed to parse TOML for variable extraction")?;
     let Some(vars) = parsed.get("vars").and_then(|v| v.as_table()) else {
         check_no_residual_references(content)?;
         return Ok(content.to_string());

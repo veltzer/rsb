@@ -235,7 +235,7 @@ pub fn run_sloc(file_index: &FileIndex, cocomo: bool, salary: u64) -> Result<()>
 
     // Sort by code lines descending
     let mut sorted: Vec<(&str, &LanguageStats)> = stats.iter().map(|(k, v)| (*k, v)).collect();
-    sorted.sort_by(|a, b| b.1.code.cmp(&a.1.code));
+    sorted.sort_by_key(|(_, stats)| std::cmp::Reverse(stats.code));
 
     // Totals
     let total_files: usize = sorted.iter().map(|(_, s)| s.files).sum();

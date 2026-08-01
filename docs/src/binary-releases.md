@@ -11,7 +11,11 @@ RSConstruct publishes pre-built binaries as GitHub releases when a version tag
 | Linux aarch64 (arm64) | `rsconstruct-linux-aarch64` |
 | macOS x86_64 | `rsconstruct-macos-x86_64` |
 | macOS aarch64 (Apple Silicon) | `rsconstruct-macos-aarch64` |
-| Windows x86_64 | `rsconstruct-windows-x86_64.exe` |
+
+RSConstruct is unix-only. There is no Windows build: the release matrix in
+`.github/workflows/release.yml` has never contained a Windows target, and the
+codebase assumes unix throughout (`flock`, `/dev/null`, `$HOME`, apt-based
+tool installation).
 
 ## How It Works
 

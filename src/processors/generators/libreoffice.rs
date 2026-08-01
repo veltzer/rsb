@@ -42,7 +42,7 @@ fn execute_libreoffice(ctx: &crate::build_context::BuildContext, config: &Standa
 }
 
 fn create_libreoffice(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["flock"], discover_mode: DiscoverMode::MultiFormat, execute_fn: execute_libreoffice, is_native: false })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["flock"], extra_tools_fn: None, discover_mode: DiscoverMode::MultiFormat, execute_fn: execute_libreoffice, is_native: false })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

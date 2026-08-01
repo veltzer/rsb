@@ -130,7 +130,7 @@ impl ObjectStore {
             .with_context(|| format!("Failed to read output: {}", output_path.display()))?;
         let checksum = self.store_object(&content)?;
         let mode = fs::metadata(output_path).ok()
-            .and_then(|m| crate::platform::get_mode(&m));
+            .map(|m| crate::platform::get_mode(&m));
 
         let changed = match self.get_descriptor(cache_key) {
             Some(CacheDescriptor::Blob { checksum: prev, .. }) => prev != checksum,
@@ -173,7 +173,7 @@ impl ObjectStore {
                     .with_context(|| format!("Failed to read: {}", file_path.display()))?;
                 let checksum = self.store_object(&content)?;
                 let mode = fs::metadata(&file_path).ok()
-                    .and_then(|m| crate::platform::get_mode(&m));
+                    .map(|m| crate::platform::get_mode(&m));
                 if self.remote_push {
                     self.try_push_object_to_remote(ctx, &checksum)?;
                 }
@@ -192,7 +192,7 @@ impl ObjectStore {
                 .with_context(|| format!("Failed to read: {}", file_path.display()))?;
             let checksum = self.store_object(&content)?;
             let mode = fs::metadata(file_path).ok()
-                .and_then(|m| crate::platform::get_mode(&m));
+                .map(|m| crate::platform::get_mode(&m));
             if self.remote_push {
                 self.try_push_object_to_remote(ctx, &checksum)?;
             }

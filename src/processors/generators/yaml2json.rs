@@ -31,7 +31,7 @@ fn execute_yaml2json(_ctx: &crate::build_context::BuildContext, _config: &Standa
 
 
 fn create_yaml2json(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &[], discover_mode: DiscoverMode::SingleFormat("json"), execute_fn: execute_yaml2json, is_native: true })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &[], extra_tools_fn: None, discover_mode: DiscoverMode::SingleFormat("json"), execute_fn: execute_yaml2json, is_native: true })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

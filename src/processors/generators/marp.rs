@@ -38,7 +38,7 @@ fn make_invocation_tmpdir() -> Result<PathBuf> {
     let base = std::env::temp_dir();
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
     let pid = std::process::id();
-    let ns = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let ns = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let dir = base.join(format!("rsc-marp-{pid}-{ns}-{seq}"));
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create marp scratch dir: {}", dir.display()))?;

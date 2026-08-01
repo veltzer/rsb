@@ -22,7 +22,7 @@ fn execute_isass(_ctx: &crate::build_context::BuildContext, _config: &StandardCo
 
 
 fn create_isass(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &[], discover_mode: DiscoverMode::SingleFormat("css"), execute_fn: execute_isass, is_native: true })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &[], extra_tools_fn: None, discover_mode: DiscoverMode::SingleFormat("css"), execute_fn: execute_isass, is_native: true })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

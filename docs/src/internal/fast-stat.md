@@ -149,10 +149,11 @@ all 1M into the ring at once — the SQ has finite size.
   `Vec<statx>` of the right size.
 - **Runtime setup**: `tokio-uring` requires explicit `tokio_uring::start`;
   it is not a drop-in replacement for `tokio::main`.
-- **Cross-platform**: io_uring is Linux-only. Any usage must live behind
-  `src/platform.rs` per the no-`#[cfg]`-outside-platform rule (see
-  [Coding Standards](coding-standards.md)). Non-Linux fallback would be
-  parallel `fs::metadata`.
+- **Linux vs macOS**: io_uring is Linux-only, and macOS is a supported
+  target, so this is the one place a real platform split would be needed.
+  Any usage must live behind `src/platform.rs`, which owns every OS call
+  (see [Coding Standards](coding-standards.md)). The macOS fallback would
+  be parallel `fs::metadata`.
 
 ## Relevance to rsconstruct
 
@@ -228,7 +229,7 @@ so future work doesn't have to redo it) showed the following:
    `Vec<ChecksumPath>` and callers need to attribute results back to
    products.
 
-4. **Cross-platform constraint.** Per `CLAUDE.md`, all `#[cfg]` lives in
+4. **Linux/macOS constraint.** Per `CLAUDE.md`, every OS call lives in
    `src/platform.rs`. The io_uring bits would be a **platform shim** —
    a thin wrapper like `pub fn batch_mtimes(paths: &[&Path]) ->
    Vec<io::Result<(i64, u32)>>` whose only job is to expose one OS-agnostic

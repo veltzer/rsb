@@ -94,47 +94,6 @@ pub struct DiscoverParams<'a, C: Serialize> {
     pub checksum_fields: &'static [&'static str],
 }
 
-/// Recursively find directories under `base` that contain files with the given extension.
-/// Results are sorted for deterministic output.
-/// Shared by pdfunite and ipdfunite processors.
-pub(super) fn find_dirs_with_ext(base: &Path, ext: &str) -> anyhow::Result<Vec<PathBuf>> {
-    let mut result = Vec::new();
-    collect_dirs_with_ext(base, ext, &mut result)?;
-    result.sort();
-    Ok(result)
-}
-
-fn collect_dirs_with_ext(dir: &Path, ext: &str, result: &mut Vec<PathBuf>) -> anyhow::Result<()> {
-    use anyhow::Context;
-    // An unreadable directory must error: silently skipping it would drop
-    // entire products from discovery with no diagnostic.
-    let entries = std::fs::read_dir(dir)
-        .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
-    let mut has_matching_file = false;
-    let mut subdirs = Vec::new();
-    for entry in entries {
-        let entry = entry
-            .with_context(|| format!("Failed to read directory entry in: {}", dir.display()))?;
-        let ft = entry.file_type()
-            .with_context(|| format!("Failed to stat: {}", entry.path().display()))?;
-        if ft.is_dir() {
-            subdirs.push(entry.path());
-        } else if !has_matching_file
-            && ft.is_file()
-            && entry.path().extension().is_some_and(|e| e == ext)
-        {
-            has_matching_file = true;
-        }
-    }
-    if has_matching_file {
-        result.push(dir.to_path_buf());
-    }
-    for subdir in subdirs {
-        collect_dirs_with_ext(&subdir, ext, result)?;
-    }
-    Ok(())
-}
-
 /// Compute the output path for a source file.
 ///
 /// Strips the matching `src_dirs` prefix from the source path, replaces the extension,

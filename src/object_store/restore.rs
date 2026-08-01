@@ -127,7 +127,11 @@ impl ObjectStore {
             CacheDescriptor::Tree { entries } => {
                 // Not short-circuiting: every object must be pulled, not just
                 // up to the first miss, or the restore that follows finds a
-                // half-warmed local store.
+                // half-warmed local store. clippy suggests `all`, which is
+                // exactly wrong here — its own lint note warns that `all`
+                // short-circuits and changes semantics when the closure has
+                // side effects, and pulling an object is the side effect.
+                #[allow(clippy::unnecessary_fold, reason = "must not short-circuit: every object has to be pulled")]
                 entries.iter().fold(true, |ok, e| self.ensure_object(ctx, &e.checksum) && ok)
             }
         }

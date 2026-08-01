@@ -204,10 +204,9 @@ mod tests {
         let obj_meta = fs::metadata(store.object_path(&checksum)).unwrap();
         assert!(obj_meta.permissions().readonly(),
             "cache object must stay read-only after a hardlink restore");
-        if let Some(mode) = crate::platform::get_mode(&fs::metadata(&out).unwrap()) {
-            assert_eq!(mode & 0o222, 0,
-                "hardlink-restored output shares the object inode and must stay read-only");
-        }
+        let mode = crate::platform::get_mode(&fs::metadata(&out).unwrap());
+        assert_eq!(mode & 0o222, 0,
+            "hardlink-restored output shares the object inode and must stay read-only");
     }
 
     /// Objects written under one `compression` setting must stay readable and
@@ -248,9 +247,8 @@ mod tests {
 
         assert!(fs::metadata(store.object_path(&checksum)).unwrap().permissions().readonly(),
             "cache object must stay read-only after an exec-mode restore");
-        if let Some(mode) = crate::platform::get_mode(&fs::metadata(&out).unwrap()) {
-            assert_ne!(mode & 0o111, 0, "restored script must be executable");
-            assert_ne!(mode & 0o200, 0, "copy-restored file must be writable");
-        }
+        let mode = crate::platform::get_mode(&fs::metadata(&out).unwrap());
+        assert_ne!(mode & 0o111, 0, "restored script must be executable");
+        assert_ne!(mode & 0o200, 0, "copy-restored file must be writable");
     }
 }

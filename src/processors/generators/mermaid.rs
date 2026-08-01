@@ -24,7 +24,7 @@ fn execute_mermaid(ctx: &crate::build_context::BuildContext, config: &StandardCo
 
 
 fn create_mermaid(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["node"], discover_mode: DiscoverMode::MultiFormat, execute_fn: execute_mermaid, is_native: false })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["node"], extra_tools_fn: None, discover_mode: DiscoverMode::MultiFormat, execute_fn: execute_mermaid, is_native: false })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,

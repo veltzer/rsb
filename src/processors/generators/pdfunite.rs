@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::fs;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -7,8 +7,6 @@ use crate::config::{PdfuniteConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output};
-
-use super::find_dirs_with_ext;
 
 pub struct PdfuniteProcessor {
     config: PdfuniteConfig,
@@ -19,6 +17,34 @@ impl PdfuniteProcessor {
         Self {
             config,
         }
+    }
+
+    /// Source files under `source_dir` with the configured extension, grouped
+    /// by their containing directory (sorted, so both the directory order and
+    /// the merge order within a directory are deterministic).
+    ///
+    /// Goes through `FileIndex` rather than walking the filesystem: that is
+    /// what makes `.rsconstructignore` apply and lets virtual files produced
+    /// by an upstream processor be merged. Walking `fs::read_dir` here saw
+    /// neither, and re-ran the IO on every fixed-point discovery pass.
+    fn source_dirs(&self, file_index: &FileIndex) -> Vec<(PathBuf, Vec<PathBuf>)> {
+        let ext = if self.config.source_ext.starts_with('.') {
+            self.config.source_ext.clone()
+        } else {
+            format!(".{}", self.config.source_ext)
+        };
+        let base = Path::new(&self.config.source_dir);
+        let files = file_index.query(base, &[&ext], &[], &[], &[], &[]);
+
+        let mut by_dir: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+        for file in files {
+            let dir = crate::processors::parent_dir_or_empty(&file).to_path_buf();
+            by_dir.entry(dir).or_default().push(file);
+        }
+        for files in by_dir.values_mut() {
+            files.sort();
+        }
+        by_dir.into_iter().collect()
     }
 }
 
@@ -31,36 +57,19 @@ impl Processor for PdfuniteProcessor {
         crate::processors::ProcessorBase::clean(product, &product.processor, verbose)
     }
 
-    fn auto_detect(&self, _file_index: &FileIndex) -> bool {
-        let base = Path::new(&self.config.source_dir);
-        if !base.exists() {
-            return false;
-        }
-        let ext = self.config.source_ext.strip_prefix('.').unwrap_or(&self.config.source_ext);
-        match find_dirs_with_ext(base, ext) {
-            Ok(dirs) => !dirs.is_empty(),
-            Err(e) => {
-                eprintln!("Warning: pdfunite auto-detect scan failed: {e:#}");
-                false
-            }
-        }
+    fn auto_detect(&self, file_index: &FileIndex) -> bool {
+        !self.source_dirs(file_index).is_empty()
     }
 
     fn required_tools(&self) -> Vec<String> {
         vec![self.config.standard.command.clone()]
     }
 
-    fn discover(&self, graph: &mut BuildGraph, _file_index: &FileIndex, instance_name: &str) -> Result<()> {
+    fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
         let base = Path::new(&self.config.source_dir);
-        if !base.exists() {
-            return Ok(());
-        }
 
         let hash = Some(output_config_hash(&self.config, <crate::config::PdfuniteConfig as crate::config::KnownFields>::checksum_fields()));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
-        let ext = self.config.source_ext.strip_prefix('.').unwrap_or(&self.config.source_ext);
-
-        let dirs = find_dirs_with_ext(base, ext)?;
 
         // Compute upstream scan dir once
         let upstream_scan_dir = Path::new(&self.config.source_dir)
@@ -70,18 +79,7 @@ impl Processor for PdfuniteProcessor {
             .context("source_dir is empty")?;
         let upstream_scan_dirs = [upstream_scan_dir];
 
-        for dir_path in dirs {
-            // Find all source files in this directory
-            let mut source_files: Vec<PathBuf> = crate::errors::ctx(fs::read_dir(&dir_path), &format!("Failed to read directory {}", dir_path.display()))?
-                .filter_map(std::result::Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|e| e == ext))
-                .collect();
-            if source_files.is_empty() {
-                continue;
-            }
-            source_files.sort();
-
+        for (dir_path, source_files) in self.source_dirs(file_index) {
             let inputs: Vec<PathBuf> = source_files.iter().map(|src| {
                 super::output_path(src, &upstream_scan_dirs, &self.config.source_output_dir, "pdf")
             }).chain(extra.iter().cloned()).collect();

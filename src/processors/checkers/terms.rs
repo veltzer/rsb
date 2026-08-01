@@ -523,7 +523,7 @@ fn find_backticked_ambiguous_positions(
 
 /// Apply edits to text, right-to-left. Edits must not overlap.
 fn apply_edits(content: &str, edits: &mut Vec<(usize, usize, String)>) -> String {
-    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
     edits.dedup_by(|a, b| a.1 > b.0);
 
     let mut result = content.to_string();

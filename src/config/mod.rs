@@ -1813,10 +1813,9 @@ impl Config {
             // report user-set fields as `rsconstruct.toml:<line>` (or
             // `rsconstruct.local.toml:<line>`) instead of the sentinel
             // `line: 0` we seeded during deserialization.
-            let spans = provenance::build_span_map(&substituted);
-            let global_spans = provenance::build_global_span_map(&substituted);
+            let (spans, global_spans) = provenance::build_span_maps(&substituted);
             let (local_spans, local_global_spans) = match &local_substituted {
-                Some(content) => (provenance::build_span_map(content), provenance::build_global_span_map(content)),
+                Some(content) => provenance::build_span_maps(content),
                 None => (SpanMap::new(), provenance::GlobalSpanMap::new()),
             };
             (config, spans, global_spans, local_spans, local_global_spans)

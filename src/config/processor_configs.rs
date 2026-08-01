@@ -94,6 +94,15 @@ impl StandardConfig {
     }
 }
 
+/// Lets `SimpleChecker`/`SimpleGenerator` be generic over their config type:
+/// every processor config either *is* a `StandardConfig` or wraps one, and
+/// this is how the generic code reaches the scan/discover half of it.
+impl AsRef<Self> for StandardConfig {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl KnownFields for StandardConfig {
     fn known_fields() -> &'static [&'static str] {
         // Note: "enabled" is universal — declared once in
@@ -242,6 +251,11 @@ impl Default for PandocConfig {
                 ..StandardConfig::default()
             },
         }
+    }
+}
+impl AsRef<StandardConfig> for PandocConfig {
+    fn as_ref(&self) -> &StandardConfig {
+        &self.standard
     }
 }
 impl KnownFields for PandocConfig {

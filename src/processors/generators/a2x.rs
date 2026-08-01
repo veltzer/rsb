@@ -41,7 +41,7 @@ fn execute_a2x(ctx: &crate::build_context::BuildContext, config: &StandardConfig
 
 
 fn create_a2x(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::Processor>> {
-    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["python3"], discover_mode: DiscoverMode::SingleFormat("pdf"), execute_fn: execute_a2x, is_native: false })))
+    crate::registries::deserialize_and_create(toml, |cfg| Box::new(SimpleGenerator::new(cfg, SimpleGeneratorParams { extra_tools: &["python3"], extra_tools_fn: None, discover_mode: DiscoverMode::SingleFormat("pdf"), execute_fn: execute_a2x, is_native: false })))
 }
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,
