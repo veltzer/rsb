@@ -66,13 +66,10 @@ impl CppDepAnalyzer {
     }
 
     /// Check if a path is within the project root (not a system header).
+    /// A path that cannot be canonicalized is assumed not project-local.
     fn is_project_local(&self, path: &Path) -> bool {
-        if let Ok(canonical) = path.canonicalize() {
-            canonical.starts_with(self.canonical_root())
-        } else {
-            // If we can't canonicalize, assume it's not project-local
-            false
-        }
+        path.canonicalize()
+            .is_ok_and(|canonical| canonical.starts_with(self.canonical_root()))
     }
 
     /// Check if a source path matches any of the configured exclude-dir segments.

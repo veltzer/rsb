@@ -2,6 +2,61 @@
 
 ## Status
 
+Implemented, then tightened again in a second pass (2026-08-01, below).
+`clippy::pedantic` and `clippy::nursery` are `warn` at the crate root; all
+clippy checks pass. The crate-level allow list is down from 36 to 12.
+
+## Second pass (2026-08-01)
+
+The 36 allows from the first pass were suppressing **560 real hits**. The
+first pass had recorded per-lint counts as a to-do table; this pass worked
+through it.
+
+Result: **36 → 12 crate-level allows**, ~430 hits fixed, and the 12
+survivors re-justified. Twelve more allows moved from the crate root down
+to the specific site that needs them, which is the structural win — a new
+hit of those lints anywhere else in the codebase is now a build error
+instead of being silently covered by a blanket allow.
+
+| Lint | Hits | Outcome |
+| --- | --- | --- |
+| `doc_markdown` | 248 | Fixed (autofix). Bare identifiers in doc comments → backticks. |
+| `use_self` | 46 | Fixed (autofix). |
+| `format_push_string` | 32 | Fixed by hand. `push_str(&format!(..))` → `write!`/`writeln!`, matching the form already used in graph.rs. |
+| `or_fun_call` | 26 | Fixed by hand. 21 were `path.parent().unwrap_or(Path::new(".."))`; extracted `parent_dir` / `parent_dir_or_empty` helpers. |
+| `map_unwrap_or` | 20 | Fixed (autofix). |
+| `items_after_statements` | 16 | **Kept** — local `static REGEX: OnceLock` next to its `get_or_init`. |
+| `option_if_let_else` | 15 | **Kept** — suggests `map_or`, which clippy's own `unnecessary_map_or` then flags. One site improved to `is_ok_and`. |
+| `match_same_arms` | 25 | **Kept** — arms mean different things even when bodies coincide. |
+| `unused_self` | 18 | **Kept** — signatures fixed by the trait. |
+| `too_many_lines` | 14 | **Kept** — flat CLI dispatch tables. |
+| `significant_drop_tightening` | 13 | **Kept** — unchanged policy from the first pass. |
+| `needless_raw_string_hashes` | 12 | Fixed (autofix). |
+| `cast_*` | 15 | **Kept** — known-small ranges, no untrusted input. |
+| `implicit_clone`, `wildcard_imports`, `ref_as_ptr` | 10 | Fixed (autofix). |
+| `struct_excessive_bools` | 7 | **Kept** — clap derives one bool per `--flag`. |
+| `doc_link_with_quotes` | 7 | **Kept** — false positive on Rust array literals in doc comments. |
+| `needless_pass_by_value` | 7 | **Kept** — trait signatures; alternative forces caller clones. |
+| `case_sensitive_file_extension_comparisons` | 3 | Narrowed to 2 per-site allows (vim swap files are lowercase by definition). |
+| `too_many_arguments` | 3 | Narrowed to per-site allows. Checked whether `discover_checker_products` could fold `dep_inputs` into `scan` — it cannot; `terms`/`zspell` pass computed lists. |
+| `trivially_copy_pass_by_ref` | 2 | Fixed. `ProcessorType` is a fieldless `Copy` enum. |
+| `permissions_set_readonly_false` | 2 | Narrowed to per-site. Cache objects are read-only; both sites widen the mode only to unlink on the next statement. |
+| `similar_names` | 1 | Fixed. `proc`/`prov` in one scope → `processor`/`provenance`. |
+| `option_option`, `struct_field_names`, `module_inception`, `naive_bytecount` | 4 | Narrowed to per-site allows with the reason at the decision. |
+| `default_trait_access`, `needless_continue`, `if_not_else`, `single_match_else`, `unnested_or_patterns`, `ignored_unit_patterns` | ~15 | Fixed. |
+
+### The 12 that remain
+
+Each is now a decision with the alternative written out and rejected, not a
+backlog entry. The rule recorded at the top of `src/main.rs`: a crate-level
+allow requires that clippy's preferred form is not clearly better *and*
+that the lint fires broadly enough that per-site allows would be worse.
+Anything narrower belongs at the call site.
+
+---
+
+## Original pass
+
 Implemented. `clippy::pedantic` and `clippy::nursery` are now `warn` at the
 crate root. All clippy checks pass; all 529 tests pass. 36 explicit
 per-lint allows remain, each with a category comment explaining why.
