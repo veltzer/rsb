@@ -5,7 +5,6 @@ mod descriptors;
 mod management;
 mod operations;
 mod restore;
-mod validity;
 
 use anyhow::{Context, Result};
 use std::fs;
@@ -225,4 +224,17 @@ impl ObjectStore {
         Self::new_at(dir, "db.redb")
     }
 
+    /// Test-only store with a file:// remote and push+pull enabled, for
+    /// exercising the remote round-trip without an S3 bucket.
+    #[cfg(test)]
+    pub(crate) fn new_with_remote(dir: &Path, db_name: &str, remote_dir: &Path) -> Self {
+        fs::create_dir_all(dir).unwrap();
+        let mut store = Self::new_at(dir, db_name);
+        store.remote = Some(Box::new(
+            crate::remote_cache::FileBackend::new(&format!("file://{}", remote_dir.display())).unwrap(),
+        ));
+        store.remote_push = true;
+        store.remote_pull = true;
+        store
+    }
 }

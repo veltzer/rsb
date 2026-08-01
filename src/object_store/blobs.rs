@@ -12,15 +12,6 @@ use crate::config::RestoreMethod;
 pub(super) static NEXT_TMP_ID: AtomicU64 = AtomicU64::new(0);
 
 impl ObjectStore {
-    /// Calculate SHA-256 checksum of a file by reading its contents directly.
-    /// Does not use the BuildContext's in-memory cache — intended for one-off
-    /// integrity checks (e.g. restore verification), not hot-path input hashing.
-    pub fn calculate_checksum(file_path: &Path) -> Result<String> {
-        let contents = fs::read(file_path)
-            .with_context(|| format!("Failed to read file for checksum: {}", file_path.display()))?;
-        Ok(Self::calculate_checksum_bytes(&contents))
-    }
-
     /// Calculate SHA-256 checksum of bytes
     pub fn calculate_checksum_bytes(data: &[u8]) -> String {
         checksum::bytes_checksum(data)

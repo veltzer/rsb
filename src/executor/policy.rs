@@ -62,11 +62,14 @@ impl BuildPolicy for IncrementalPolicy {
     ) -> ProductAction {
         let desc_key = product.descriptor_key(input_checksum);
         let needs_rebuild = object_store.needs_rebuild_descriptor(ctx, &desc_key, &product.outputs);
-        let can_restore = object_store.can_restore_descriptor(&desc_key);
 
+        // can_restore is evaluated lazily: it warms the local cache from the
+        // remote when pull is enabled, so asking about a product that is
+        // going to be skipped (or forcibly rebuilt) would download objects
+        // nobody needs.
         if !force && !dep_changed && !needs_rebuild {
             ProductAction::Skip
-        } else if !force && !dep_changed && can_restore {
+        } else if !force && !dep_changed && object_store.can_restore_descriptor(ctx, &desc_key) {
             ProductAction::Restore
         } else {
             ProductAction::Build
@@ -119,7 +122,7 @@ mod tests {
         // Checker with a stored PASS marker: skip — unless a dependency
         // changed or the build is forced.
         let checker = g.get_product(chk_id).unwrap();
-        store.store_marker(&checker.descriptor_key(chk)).unwrap();
+        store.store_marker(&ctx, &checker.descriptor_key(chk)).unwrap();
         assert_eq!(policy.classify(&ctx, checker, &store, chk, false, false), ProductAction::Skip);
         assert_eq!(policy.classify(&ctx, checker, &store, chk, true, false), ProductAction::Build,
             "dep_changed must invalidate a matching marker");

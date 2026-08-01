@@ -6,23 +6,34 @@ use super::{CacheDescriptor, ExplainAction, ObjectStore, RebuildReason};
 
 impl ObjectStore {
     /// Restore outputs from a cache descriptor. Returns Ok(true) if restored.
-    pub fn restore_from_descriptor(&self, cache_key: &str, output_paths: &[PathBuf]) -> Result<bool> {
-        let Some(descriptor) = self.get_descriptor(cache_key) else { return Ok(false) };
+    ///
+    /// Both the descriptor and the objects it names are pulled from the
+    /// remote cache on a local miss when `remote_pull` is enabled.
+    pub fn restore_from_descriptor(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        cache_key: &str,
+        output_paths: &[PathBuf],
+    ) -> Result<bool> {
+        let Some(descriptor) = self.get_descriptor_pulling(ctx, cache_key) else { return Ok(false) };
         match descriptor {
             CacheDescriptor::Marker => Ok(true),
             CacheDescriptor::Blob { checksum, mode } => {
                 let Some(output_path) = output_paths.first() else { return Ok(true) };
                 // Verify content like the Tree path does: a modified or
                 // corrupted output must be re-restored, not reported OK.
+                // Uses the mtime-cached path, matching needs_rebuild_descriptor
+                // — a full re-read here was the third redundant hash of every
+                // cached output byte on a no-op build.
                 if output_path.exists() {
-                    if let Ok(existing) = Self::calculate_checksum(output_path)
+                    if let Some(existing) = Self::verify_checksum(ctx, output_path)
                         && existing == checksum {
                         return Ok(true);
                     }
                     fs::remove_file(output_path)
                         .with_context(|| format!("Failed to remove stale cached file: {}", output_path.display()))?;
                 }
-                if !self.has_object(&checksum) {
+                if !self.ensure_object(ctx, &checksum) {
                     return Ok(false);
                 }
                 if let Some(parent) = output_path.parent() {
@@ -37,14 +48,14 @@ impl ObjectStore {
                 for entry in &entries {
                     let file_path = Path::new(&entry.path);
                     if file_path.exists() {
-                        if let Ok(existing) = Self::calculate_checksum(file_path)
+                        if let Some(existing) = Self::verify_checksum(ctx, file_path)
                             && existing == entry.checksum {
                             continue;
                         }
                         fs::remove_file(file_path)
                             .with_context(|| format!("Failed to remove stale cached file: {}", file_path.display()))?;
                     }
-                    if !self.has_object(&entry.checksum) {
+                    if !self.ensure_object(ctx, &entry.checksum) {
                         return Ok(false);
                     }
                     if let Some(parent) = file_path.parent() {
@@ -78,7 +89,7 @@ impl ObjectStore {
         cache_key: &str,
         output_paths: &[PathBuf],
     ) -> bool {
-        let Some(descriptor) = self.get_descriptor(cache_key) else { return true };
+        let Some(descriptor) = self.get_descriptor_pulling(ctx, cache_key) else { return true };
         match descriptor {
             CacheDescriptor::Marker => false,
             CacheDescriptor::Blob { checksum, .. } => {
@@ -90,22 +101,34 @@ impl ObjectStore {
                 !content_ok || output_paths.iter().skip(1).any(|p| !p.exists())
             }
             CacheDescriptor::Tree { entries } => {
-                entries.iter().any(|e| {
-                    let p = Path::new(&e.path);
-                    !p.exists() || Self::verify_checksum(ctx, p).as_ref() != Some(&e.checksum)
-                })
+                // Declared outputs are existence-checked too: a tree records
+                // only what the previous run produced, so an output the
+                // product now declares but the descriptor never saw would
+                // otherwise go unnoticed.
+                output_paths.iter().any(|p| !p.exists())
+                    || entries.iter().any(|e| {
+                        let p = Path::new(&e.path);
+                        !p.exists() || Self::verify_checksum(ctx, p).as_ref() != Some(&e.checksum)
+                    })
             }
         }
     }
 
     /// Check if outputs can be restored from a descriptor.
-    pub fn can_restore_descriptor(&self, cache_key: &str) -> bool {
-        let Some(descriptor) = self.get_descriptor(cache_key) else { return false };
+    ///
+    /// Consults the remote cache on a local miss when `remote_pull` is
+    /// enabled — which also warms the local store, so the restore that
+    /// follows finds everything it needs.
+    pub fn can_restore_descriptor(&self, ctx: &crate::build_context::BuildContext, cache_key: &str) -> bool {
+        let Some(descriptor) = self.get_descriptor_pulling(ctx, cache_key) else { return false };
         match descriptor {
             CacheDescriptor::Marker => true,
-            CacheDescriptor::Blob { checksum, .. } => self.has_object(&checksum),
+            CacheDescriptor::Blob { checksum, .. } => self.ensure_object(ctx, &checksum),
             CacheDescriptor::Tree { entries } => {
-                entries.iter().all(|e| self.has_object(&e.checksum))
+                // Not short-circuiting: every object must be pulled, not just
+                // up to the first miss, or the restore that follows finds a
+                // half-warmed local store.
+                entries.iter().fold(true, |ok, e| self.ensure_object(ctx, &e.checksum) && ok)
             }
         }
     }
@@ -121,7 +144,7 @@ impl ObjectStore {
         if force {
             return ExplainAction::Rebuild(RebuildReason::Force);
         }
-        let Some(descriptor) = self.get_descriptor(descriptor_key) else {
+        let Some(descriptor) = self.get_descriptor_pulling(ctx, descriptor_key) else {
             return ExplainAction::Rebuild(RebuildReason::NoCacheEntry);
         };
         match descriptor {
@@ -139,7 +162,7 @@ impl ObjectStore {
                     };
                     if needs_restore {
                         let display = p.display().to_string();
-                        if self.has_object(&checksum) {
+                        if self.object_available(ctx, &checksum) {
                             return ExplainAction::Restore(RebuildReason::OutputMissing(display));
                         }
                         return ExplainAction::Rebuild(RebuildReason::OutputMissing(display));
@@ -153,7 +176,7 @@ impl ObjectStore {
                     let needs_restore = !p.exists()
                         || Self::verify_checksum(ctx, p).as_ref() != Some(&entry.checksum);
                     if needs_restore {
-                        if self.has_object(&entry.checksum) {
+                        if self.object_available(ctx, &entry.checksum) {
                             return ExplainAction::Restore(RebuildReason::OutputMissing(entry.path.clone()));
                         }
                         return ExplainAction::Rebuild(RebuildReason::OutputMissing(entry.path.clone()));
@@ -182,11 +205,11 @@ mod tests {
         ctx.set_mtime_check(false);
 
         assert!(store.needs_rebuild_descriptor(&ctx, "absent99", &[]));
-        assert!(!store.can_restore_descriptor("absent99"));
+        assert!(!store.can_restore_descriptor(&ctx, "absent99"));
 
-        store.store_marker("cafe1234").unwrap();
+        store.store_marker(&ctx, "cafe1234").unwrap();
         assert!(!store.needs_rebuild_descriptor(&ctx, "cafe1234", &[]));
-        assert!(store.can_restore_descriptor("cafe1234"));
+        assert!(store.can_restore_descriptor(&ctx, "cafe1234"));
     }
 
     /// Blob verification is tiered: the first output is content-verified
@@ -238,15 +261,15 @@ mod tests {
         store.store_blob_descriptor(&ctx, key, &out).unwrap();
 
         fs::write(&out, b"corrupted").unwrap();
-        assert!(store.restore_from_descriptor(key, &[out.clone()]).unwrap());
+        assert!(store.restore_from_descriptor(&ctx, key, std::slice::from_ref(&out)).unwrap());
         assert_eq!(fs::read(&out).unwrap(), b"cached bytes",
             "restore must replace corrupted content with the cached bytes");
 
         // Remove the object behind the descriptor: restore must decline.
-        let checksum = ObjectStore::calculate_checksum(&out).unwrap();
+        let checksum = ObjectStore::calculate_checksum_bytes(&fs::read(&out).unwrap());
         fs::remove_file(store.object_path(&checksum)).unwrap();
         fs::remove_file(&out).unwrap();
-        assert!(!store.restore_from_descriptor(key, &[out.clone()]).unwrap(),
+        assert!(!store.restore_from_descriptor(&ctx, key, std::slice::from_ref(&out)).unwrap(),
             "no object → cannot restore, caller must build");
     }
 
@@ -275,7 +298,7 @@ mod tests {
         assert!(store.needs_rebuild_descriptor(&ctx, key, &[]),
             "any corrupted tree entry must flag a rebuild");
 
-        assert!(store.restore_from_descriptor(key, &[]).unwrap());
+        assert!(store.restore_from_descriptor(&ctx, key, &[]).unwrap());
         assert_eq!(fs::read(outdir.join("b.txt")).unwrap(), b"beta");
         assert!(!store.needs_rebuild_descriptor(&ctx, key, &[]));
     }

@@ -51,11 +51,42 @@ impl ObjectStore {
         Ok(())
     }
 
-    /// Read a cache descriptor for a cache key. Returns None if not found.
+    /// Read a cache descriptor for a cache key from the local store.
+    /// Returns None if not found. Read paths that can legitimately consult
+    /// the remote cache should use `get_descriptor_pulling` instead.
     pub(super) fn get_descriptor(&self, cache_key: &str) -> Option<CacheDescriptor> {
         let path = self.descriptor_path(cache_key);
         let data = fs::read(&path).ok()?;
         serde_json::from_slice(&data).ok()
+    }
+
+    /// Read a cache descriptor, falling back to the remote cache on a local
+    /// miss when pull is enabled.
+    ///
+    /// Without this, a populated remote bucket could never satisfy a
+    /// restore: every descriptor lookup was local-only, so a machine with a
+    /// cold local cache always rebuilt regardless of what the remote held.
+    pub(super) fn get_descriptor_pulling(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        cache_key: &str,
+    ) -> Option<CacheDescriptor> {
+        if let Some(descriptor) = self.get_descriptor(cache_key) {
+            return Some(descriptor);
+        }
+        if !self.remote_pull {
+            return None;
+        }
+        // A remote miss degrades to a rebuild, which is always correct; only
+        // a malformed descriptor is worth reporting, since it means the
+        // bucket itself is bad.
+        match self.try_fetch_descriptor_from_remote(ctx, cache_key) {
+            Ok(descriptor) => descriptor,
+            Err(e) => {
+                eprintln!("Warning: failed to fetch descriptor from remote cache: {e}");
+                None
+            }
+        }
     }
 
     /// Return the list of file paths recorded in the product's last tree descriptor.
@@ -68,9 +99,29 @@ impl ObjectStore {
         }
     }
 
-    /// Store a marker descriptor (checker passed).
-    pub fn store_marker(&self, cache_key: &str) -> Result<()> {
-        self.store_descriptor(cache_key, &CacheDescriptor::Marker)
+    /// Store a descriptor locally and, when remote push is on, publish it so
+    /// another machine's pull can find it. Objects are pushed by their own
+    /// call sites (they must exist before the descriptor that names them).
+    fn store_and_push_descriptor(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        cache_key: &str,
+        descriptor: &CacheDescriptor,
+    ) -> Result<()> {
+        self.store_descriptor(cache_key, descriptor)?;
+        if self.remote_push {
+            let data = serde_json::to_vec(descriptor)
+                .context("Failed to serialize cache descriptor for remote push")?;
+            self.try_push_descriptor_to_remote(ctx, cache_key, &data)?;
+        }
+        Ok(())
+    }
+
+    /// Store a marker descriptor (checker passed), publishing it to the
+    /// remote cache when push is enabled — the same contract as
+    /// `store_blob_descriptor` and `store_tree_descriptor`.
+    pub fn store_marker(&self, ctx: &crate::build_context::BuildContext, cache_key: &str) -> Result<()> {
+        self.store_and_push_descriptor(ctx, cache_key, &CacheDescriptor::Marker)
     }
 
     /// Store a blob descriptor (generator produced a single output).
@@ -90,7 +141,7 @@ impl ObjectStore {
             self.try_push_object_to_remote(ctx, &checksum)?;
         }
 
-        self.store_descriptor(cache_key, &CacheDescriptor::Blob {
+        self.store_and_push_descriptor(ctx, cache_key, &CacheDescriptor::Blob {
             checksum,
             mode,
         })?;
@@ -164,7 +215,7 @@ impl ObjectStore {
             _ => true,
         };
 
-        self.store_descriptor(cache_key, &CacheDescriptor::Tree { entries })?;
+        self.store_and_push_descriptor(ctx, cache_key, &CacheDescriptor::Tree { entries })?;
         Ok(changed)
     }
 }
@@ -222,9 +273,10 @@ mod tests {
     fn descriptor_overwrite_survives_read_only_previous() {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = ObjectStore::new_in(tmp.path());
+        let ctx = BuildContext::new();
 
-        store.store_marker("cdcd1212").unwrap();
-        store.store_marker("cdcd1212").unwrap();
+        store.store_marker(&ctx, "cdcd1212").unwrap();
+        store.store_marker(&ctx, "cdcd1212").unwrap();
         assert!(matches!(store.get_descriptor("cdcd1212"), Some(CacheDescriptor::Marker)));
     }
 }

@@ -92,11 +92,13 @@ remote_pull = false
 
 ### Cache Structure
 
-Remote cache stores two types of objects:
+Remote cache stores two types of objects, mirroring the local layout:
 
-1. **Index entries** at `index/{cache_key}`
-   - JSON mapping input checksums to output checksums
-   - One entry per product (source file + processor + config)
+1. **Descriptors** at `descriptors/{descriptor_key}`
+   - JSON describing what a product build produced: a marker (a check
+     passed), a blob (one output), or a tree (a list of output paths and
+     their content checksums)
+   - One entry per product build — see [Cache keys](internal/cache.md#cache-keys)
 
 2. **Objects** at `objects/{xx}/{rest_of_checksum}`
    - Content-addressed storage (like git)
@@ -107,20 +109,25 @@ Remote cache stores two types of objects:
 1. RSConstruct computes the cache key and input checksum
 2. Checks local cache first
 3. If local miss and `remote_pull = true`:
-   - Fetches index entry from remote
-   - Fetches required objects from remote
+   - Fetches the descriptor from remote (and caches it locally)
+   - Fetches the objects the descriptor names
    - Restores outputs locally
+
+   Fetched objects are verified against their checksum before being admitted
+   to the local content-addressed store, and fetched descriptors must parse;
+   a corrupt remote cannot poison the local cache. A remote miss, or an
+   unreachable remote, simply degrades to a local rebuild.
 4. If rebuild required:
    - Executes the processor
    - Stores outputs in local cache
-   - If `remote_push = true`, pushes to remote
+   - If `remote_push = true`, pushes the objects and the descriptor to remote
 
 ### Cache Hit Flow
 
 ```
 Local cache hit → Restore from local → Done
        ↓ miss
-Remote cache hit → Download index + objects → Restore → Done
+Remote cache hit → Download descriptor + objects → Restore → Done
        ↓ miss
 Execute processor → Cache locally → Push to remote → Done
 ```

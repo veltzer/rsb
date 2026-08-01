@@ -92,7 +92,7 @@ impl Executor<'_> {
             return RestoreOutcome::NotRestorable;
         }
         let desc_key = ctx.product.descriptor_key(ctx.input_checksum);
-        let restore_result = object_store.restore_from_descriptor(&desc_key, &ctx.product.outputs);
+        let restore_result = object_store.restore_from_descriptor(self.build_ctx, &desc_key, &ctx.product.outputs);
         match restore_result {
             Ok(true) => {
                 if self.verbose {
@@ -192,7 +192,7 @@ impl Executor<'_> {
         let desc_key = ctx.product.descriptor_key(&post_input_checksum);
         let cache_result = if ctx.product.outputs.is_empty() && !ctx.product.has_output_dirs() {
             // Checker: no outputs, just mark as passed
-            object_store.store_marker(&desc_key).map(|()| false)
+            object_store.store_marker(self.build_ctx, &desc_key).map(|()| false)
         } else if ctx.product.outputs.len() == 1 && !ctx.product.has_output_dirs() {
             // Generator: single output file → blob
             object_store.store_blob_descriptor(self.build_ctx, &desc_key, &ctx.product.outputs[0])
