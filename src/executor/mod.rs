@@ -250,50 +250,6 @@ impl<'a> Executor<'a> {
             action);
     }
 
-    /// Check if any dependency of a product has failed
-    fn has_failed_dependency(&self, graph: &BuildGraph, id: usize, failed: &HashSet<usize>) -> bool {
-        for &dep_id in graph.get_dependencies(id) {
-            if failed.contains(&dep_id) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Compute levels of products that can be executed in parallel
-    /// Products in the same level have no dependencies on each other
-    fn compute_parallel_levels(&self, graph: &BuildGraph, order: &[usize]) -> Vec<Vec<usize>> {
-        let mut levels: Vec<Vec<usize>> = Vec::new();
-        let mut product_level: HashMap<usize, usize> = HashMap::new();
-
-        for &id in order {
-            // Find the maximum level of all dependencies
-            let max_dep_level = graph.get_dependencies(id)
-                .iter()
-                .filter_map(|&dep_id| product_level.get(&dep_id))
-                .max()
-                .copied()
-                .unwrap_or(0);
-
-            // This product goes in the next level after its dependencies
-            let my_level = if graph.get_dependencies(id).is_empty() {
-                0
-            } else {
-                max_dep_level + 1
-            };
-
-            product_level.insert(id, my_level);
-
-            // Ensure we have enough levels
-            while levels.len() <= my_level {
-                levels.push(Vec::new());
-            }
-            levels[my_level].push(id);
-        }
-
-        levels
-    }
-
     /// Clean all products.
     /// Returns a map of processor name → number of files removed.
     pub fn clean(&self, graph: &BuildGraph, verbose: bool) -> Result<HashMap<String, usize>> {
@@ -307,5 +263,121 @@ impl<'a> Executor<'a> {
             }
         }
         Ok(stats)
+    }
+}
+
+/// Check if any dependency of a product has failed
+pub(super) fn has_failed_dependency(graph: &BuildGraph, id: usize, failed: &HashSet<usize>) -> bool {
+    for &dep_id in graph.get_dependencies(id) {
+        if failed.contains(&dep_id) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Compute levels of products that can be executed in parallel
+/// Products in the same level have no dependencies on each other
+pub(super) fn compute_parallel_levels(graph: &BuildGraph, order: &[usize]) -> Vec<Vec<usize>> {
+    let mut levels: Vec<Vec<usize>> = Vec::new();
+    let mut product_level: HashMap<usize, usize> = HashMap::new();
+
+    for &id in order {
+        // Find the maximum level of all dependencies
+        let max_dep_level = graph.get_dependencies(id)
+            .iter()
+            .filter_map(|&dep_id| product_level.get(&dep_id))
+            .max()
+            .copied()
+            .unwrap_or(0);
+
+        // This product goes in the next level after its dependencies
+        let my_level = if graph.get_dependencies(id).is_empty() {
+            0
+        } else {
+            max_dep_level + 1
+        };
+
+        product_level.insert(id, my_level);
+
+        // Ensure we have enough levels
+        while levels.len() <= my_level {
+            levels.push(Vec::new());
+        }
+        levels[my_level].push(id);
+    }
+
+    levels
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A diamond A → {B, C} → D must schedule as three levels with B and C
+    /// side by side; an independent node always lands in level 0.
+    #[test]
+    fn parallel_levels_diamond() {
+        let mut g = BuildGraph::new();
+        let a = g.add_product(vec!["a.src".into()], vec!["a.o".into()], "cc", None).unwrap();
+        let b = g.add_product(vec!["a.o".into()], vec!["b.o".into()], "cc", None).unwrap();
+        let c = g.add_product(vec!["a.o".into()], vec!["c.o".into()], "cc", None).unwrap();
+        let d = g.add_product(vec!["b.o".into(), "c.o".into()], vec!["d.o".into()], "cc", None).unwrap();
+        let lone = g.add_product(vec!["x.src".into()], vec!["x.o".into()], "cc", None).unwrap();
+        g.resolve_dependencies();
+        let order = g.topological_sort().unwrap();
+
+        let levels = compute_parallel_levels(&g, &order);
+
+        assert_eq!(levels.len(), 3, "diamond plus a free node is three levels: {levels:?}");
+        let mut level0 = levels[0].clone();
+        level0.sort_unstable();
+        assert_eq!(level0, {
+            let mut v = vec![a, lone];
+            v.sort_unstable();
+            v
+        });
+        let mut level1 = levels[1].clone();
+        level1.sort_unstable();
+        assert_eq!(level1, {
+            let mut v = vec![b, c];
+            v.sort_unstable();
+            v
+        });
+        assert_eq!(levels[2], vec![d]);
+    }
+
+    /// Every product must appear in exactly one level — a dropped product
+    /// would silently never build.
+    #[test]
+    fn parallel_levels_cover_all_products() {
+        let mut g = BuildGraph::new();
+        g.add_product(vec!["a.src".into()], vec!["a.o".into()], "cc", None).unwrap();
+        g.add_product(vec!["a.o".into()], vec!["b.o".into()], "cc", None).unwrap();
+        g.add_product(vec!["free.src".into()], vec!["free.o".into()], "cc", None).unwrap();
+        g.resolve_dependencies();
+        let order = g.topological_sort().unwrap();
+
+        let levels = compute_parallel_levels(&g, &order);
+        let mut all: Vec<usize> = levels.into_iter().flatten().collect();
+        all.sort_unstable();
+        assert_eq!(all, vec![0, 1, 2]);
+    }
+
+    /// Only direct dependencies count as failed here — transitive failure
+    /// propagation happens level by level as each product is marked failed.
+    #[test]
+    fn failed_dependency_is_direct_only() {
+        let mut g = BuildGraph::new();
+        let a = g.add_product(vec!["a.src".into()], vec!["a.o".into()], "cc", None).unwrap();
+        let b = g.add_product(vec!["a.o".into()], vec!["b.o".into()], "cc", None).unwrap();
+        let c = g.add_product(vec!["b.o".into()], vec!["c.o".into()], "cc", None).unwrap();
+        g.resolve_dependencies();
+
+        let failed: HashSet<usize> = [a].into();
+        assert!(has_failed_dependency(&g, b, &failed), "b directly depends on failed a");
+        assert!(!has_failed_dependency(&g, c, &failed),
+            "c depends on a only through b; direct check must not see it");
+        assert!(!has_failed_dependency(&g, a, &failed), "a has no dependencies");
     }
 }

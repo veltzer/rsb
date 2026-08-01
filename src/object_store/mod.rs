@@ -209,6 +209,31 @@ impl ObjectStore {
         })
     }
 
+    /// Test-only store rooted at `dir` with its own db file — production
+    /// `new()` hardcodes the CWD-relative `.rsconstruct` and cannot be
+    /// pointed at a tempdir. The redb file allows only one open handle, so
+    /// tests that build several stores over the same dir must give each its
+    /// own `db_name`.
+    #[cfg(test)]
+    pub(crate) fn new_at(dir: &Path, db_name: &str) -> Self {
+        Self {
+            objects_dir: dir.join(OBJECTS_DIR),
+            descriptors_dir: dir.join(DESCRIPTORS_DIR),
+            db: crate::db::open_or_recreate(&dir.join(db_name), "test cache database").unwrap(),
+            restore_method: RestoreMethod::Hardlink,
+            compression: false,
+            remote: None,
+            remote_push: false,
+            remote_pull: false,
+        }
+    }
+
+    /// Test-only store rooted at `dir` with the default db file name.
+    #[cfg(test)]
+    pub(crate) fn new_in(dir: &Path) -> Self {
+        Self::new_at(dir, "db.redb")
+    }
+
     /// Check if a cache entry exists for the given key (legacy DB format).
     pub fn has_cache_entry(&self, cache_key: &str) -> bool {
         self.get_entry(cache_key).is_some()

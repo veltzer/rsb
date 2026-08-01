@@ -244,3 +244,87 @@ pub fn combined_input_checksum(ctx: &BuildContext, inputs: &[PathBuf]) -> Result
 pub fn bytes_checksum(data: &[u8]) -> String {
     hex::encode(Sha256::digest(data))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Length-prefixing exists precisely so element boundaries can't be
+    /// forged: ["a:b", "c"] and ["a", "b:c"] concatenate identically under
+    /// a plain `:` join.
+    #[test]
+    fn hash_checksums_is_injection_proof() {
+        let joined_left = hash_checksums(&["a:b".to_string(), "c".to_string()]);
+        let joined_right = hash_checksums(&["a".to_string(), "b:c".to_string()]);
+        assert_ne!(joined_left, joined_right);
+
+        assert_ne!(hash_checksums(&[]), hash_checksums(&[String::new()]),
+            "no elements and one empty element must differ");
+        assert_eq!(hash_checksums(&["x".to_string()]), hash_checksums(&["x".to_string()]),
+            "must be deterministic");
+    }
+
+    /// The streaming hasher must agree with the one-shot hasher at every
+    /// buffer boundary — off-by-one in the read loop shows up exactly there.
+    #[test]
+    fn stream_checksum_matches_bytes_checksum_at_buffer_boundaries() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        for size in [0, HASH_BUF_SIZE - 1, HASH_BUF_SIZE, HASH_BUF_SIZE + 1] {
+            let data = vec![0xABu8; size];
+            let path = tmp.path().join(format!("f{size}"));
+            fs::write(&path, &data).unwrap();
+            assert_eq!(stream_file_checksum(&path).unwrap(), bytes_checksum(&data),
+                "stream and one-shot checksums diverge at {size} bytes");
+        }
+    }
+
+    /// Missing inputs are part of the combined key (a vanished input must
+    /// change it), and the combination is positional, not a set.
+    #[test]
+    fn combined_input_checksum_missing_and_order_semantics() {
+        let ctx = BuildContext::new();
+        ctx.set_mtime_check(false);
+        let tmp = tempfile::TempDir::new().unwrap();
+
+        let empty = tmp.path().join("empty.txt");
+        fs::write(&empty, b"").unwrap();
+        let missing = tmp.path().join("missing.txt");
+
+        assert_ne!(
+            combined_input_checksum(&ctx, &[empty.clone()]).unwrap(),
+            combined_input_checksum(&ctx, &[missing.clone()]).unwrap(),
+            "a missing input must not hash like an empty one"
+        );
+
+        let a = tmp.path().join("a.txt");
+        let b = tmp.path().join("b.txt");
+        fs::write(&a, b"aaa").unwrap();
+        fs::write(&b, b"bbb").unwrap();
+        assert_ne!(
+            combined_input_checksum(&ctx, &[a.clone(), b.clone()]).unwrap(),
+            combined_input_checksum(&ctx, &[b, a]).unwrap(),
+            "input order is part of the key"
+        );
+    }
+
+    /// The in-session cache assumes file content is stable across one build
+    /// run: a second read through the same context must return the cached
+    /// value even if the bytes changed. `fast_checksum`'s mid-build-write
+    /// handling is built on exactly this invariant.
+    #[test]
+    fn file_checksum_caches_per_context() {
+        let ctx = BuildContext::new();
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("f.txt");
+
+        fs::write(&path, b"one").unwrap();
+        let first = file_checksum(&ctx, &path).unwrap();
+        fs::write(&path, b"two").unwrap();
+        assert_eq!(file_checksum(&ctx, &path).unwrap(), first,
+            "same context must serve the in-session cached checksum");
+
+        let fresh_ctx = BuildContext::new();
+        assert_ne!(file_checksum(&fresh_ctx, &path).unwrap(), first,
+            "a fresh context must see the new content");
+    }
+}

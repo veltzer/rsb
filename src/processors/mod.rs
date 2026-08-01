@@ -627,6 +627,19 @@ pub fn run_checker(
         return run_checker_once(ctx, tool, subcommand, args, files);
     }
 
+    for (start, end) in checker_chunk_ranges(base_len, files, max_arg_len) {
+        run_checker_once(ctx, tool, subcommand, args, &files[start..end])?;
+    }
+    Ok(())
+}
+
+/// Greedily pack `files` into chunks whose command line stays within
+/// `max_arg_len`, returning half-open (start, end) index ranges. Every chunk
+/// re-pays `base_len` (tool + subcommand + config args). A single path longer
+/// than the limit still gets its own over-limit chunk so packing always makes
+/// progress.
+fn checker_chunk_ranges(base_len: usize, files: &[&Path], max_arg_len: usize) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
     let mut chunk_start = 0;
     while chunk_start < files.len() {
         let mut chunk_len = base_len;
@@ -639,10 +652,10 @@ pub fn run_checker(
             chunk_len += file_len;
             chunk_end += 1;
         }
-        run_checker_once(ctx, tool, subcommand, args, &files[chunk_start..chunk_end])?;
+        ranges.push((chunk_start, chunk_end));
         chunk_start = chunk_end;
     }
-    Ok(())
+    ranges
 }
 
 fn run_checker_once(
@@ -1893,5 +1906,90 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Chunks must respect the limit, and their concatenation must be
+    /// exactly the input — no file dropped, none duplicated.
+    #[test]
+    fn checker_chunks_respect_limit_and_cover_all_files() {
+        let bufs: Vec<PathBuf> = (0..6).map(|i| PathBuf::from(format!("fil{i}"))).collect();
+        let files: Vec<&Path> = bufs.iter().map(PathBuf::as_path).collect();
+        // base 10 + two files of cost 5 each = 20 exactly; a third would overflow.
+        let ranges = checker_chunk_ranges(10, &files, 20);
+
+        assert_eq!(ranges, vec![(0, 2), (2, 4), (4, 6)]);
+        for &(start, end) in &ranges {
+            let cost: usize = 10 + files[start..end].iter()
+                .map(|f| f.as_os_str().len() + 1).sum::<usize>();
+            assert!(cost <= 20, "chunk {start}..{end} costs {cost}");
+        }
+    }
+
+    /// A single path longer than the limit must still get its own
+    /// (over-limit) chunk — the alternative is an infinite loop.
+    #[test]
+    fn checker_chunks_oversized_path_still_makes_progress() {
+        let long = PathBuf::from("x".repeat(50));
+        let small = PathBuf::from("ok");
+        let files: Vec<&Path> = vec![long.as_path(), small.as_path()];
+        let ranges = checker_chunk_ranges(5, &files, 20);
+        assert_eq!(ranges, vec![(0, 1), (1, 2)],
+            "oversized path alone, then the rest");
+    }
+
+    /// Every chunk re-pays the base command length — with a base that
+    /// nearly fills the limit, each chunk holds exactly one file.
+    #[test]
+    fn checker_chunks_repay_base_len_per_chunk() {
+        let bufs: Vec<PathBuf> = (0..4).map(|i| PathBuf::from(format!("{i}"))).collect();
+        let files: Vec<&Path> = bufs.iter().map(PathBuf::as_path).collect();
+        // base 18 + one file of cost 2 = 20; a second file would need 22.
+        let ranges = checker_chunk_ranges(18, &files, 20);
+        assert_eq!(ranges.len(), files.len(),
+            "base_len must be budgeted in every chunk, not only the first");
+    }
+
+    /// External-tool batches have one exit status for the whole chunk, so a
+    /// failure must fan out to every product in it — and a success must not.
+    #[test]
+    fn checker_batch_failure_fans_out_to_all_products() {
+        let ctx = crate::build_context::BuildContext::new();
+        let mut g = crate::graph::BuildGraph::new();
+        for name in ["a.py", "b.py", "c.py"] {
+            g.add_product(vec![PathBuf::from(name)], vec![], "check", None).unwrap();
+        }
+        let products: Vec<&crate::graph::Product> = g.products().iter().collect();
+
+        let failed = execute_checker_batch(&ctx, &products, |_, files| {
+            assert_eq!(files.len(), 3, "tool must see the whole chunk");
+            anyhow::bail!("tool reported problems")
+        });
+        assert_eq!(failed.len(), 3);
+        for r in &failed {
+            let msg = r.as_ref().unwrap_err().to_string();
+            assert!(msg.contains("tool reported problems"), "got: {msg}");
+        }
+
+        let passed = execute_checker_batch(&ctx, &products, |_, _| Ok(()));
+        assert!(passed.iter().all(Result::is_ok));
+    }
+
+    /// In-process checkers report per file: one bad file must fail only its
+    /// own product — this is what --keep-going correctness rests on.
+    #[test]
+    fn checker_batch_per_file_fails_only_its_own_product() {
+        let mut g = crate::graph::BuildGraph::new();
+        for name in ["good1.py", "bad.py", "good2.py"] {
+            g.add_product(vec![PathBuf::from(name)], vec![], "check", None).unwrap();
+        }
+        let products: Vec<&crate::graph::Product> = g.products().iter().collect();
+
+        let results = execute_checker_batch_per_file(&products, |path| {
+            anyhow::ensure!(!path.ends_with("bad.py"), "bad file");
+            Ok(())
+        });
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+        assert!(results[2].is_ok());
     }
 }

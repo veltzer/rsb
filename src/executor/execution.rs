@@ -41,6 +41,27 @@ fn effective_supports_batch(name: &str, proc: &dyn crate::processors::Processor)
     plugin_ok && proc.scan_config().batch
 }
 
+/// Chunk size for one batch group. `Some(0)` means no limit (one chunk);
+/// with no explicit batch size, keep-going batches everything while
+/// fail-fast (the default) runs one file per invocation so the build stops
+/// at the first failure. Never returns 0 — `chunks(0)` panics.
+fn batch_chunk_size(batch_size: Option<usize>, keep_going: bool, n_items: usize) -> usize {
+    let size = match batch_size {
+        Some(0) => n_items,
+        Some(n) => n,
+        None if keep_going => n_items,
+        None => 1,
+    };
+    size.max(1)
+}
+
+/// Whether a processor's items take the batch path. Batching requires an
+/// explicit batch size (`batch_size: None` disables it entirely), a
+/// processor that supports it, and more than one item actually rebuilding.
+fn should_batch(batching_enabled: bool, supports_batch: bool, rebuild_count: usize) -> bool {
+    batching_enabled && supports_batch && rebuild_count > 1
+}
+
 /// A simple counting semaphore for limiting per-processor concurrency.
 struct Semaphore {
     state: Mutex<usize>,
@@ -207,7 +228,7 @@ impl Executor<'_> {
     ) -> Result<BuildStats> {
         let build_start = Instant::now();
         // Group products into levels that can run in parallel
-        let levels = self.compute_parallel_levels(graph, order);
+        let levels = super::compute_parallel_levels(graph, order);
 
         // Count total products per processor for progress display
         let mut total_per_processor: HashMap<String, usize> = HashMap::new();
@@ -374,16 +395,7 @@ impl Executor<'_> {
         let proc_total = items.len();
         let mut proc_current = items.len() - to_execute.len();
 
-        // Determine chunk size: 0 means no limit.
-        // In fail-fast mode (default), use chunk_size=1 unless explicitly set,
-        // so we stop after the first file that fails rather than batching all
-        // files into one subprocess invocation.
-        let chunk_size = match self.batch_size {
-            Some(0) => to_execute.len(),
-            Some(n) => n,
-            None if lctx.keep_going => to_execute.len(),
-            None => 1,
-        };
+        let chunk_size = batch_chunk_size(self.batch_size, lctx.keep_going, to_execute.len());
 
         // Process in chunks
         for chunk in to_execute.chunks(chunk_size) {
@@ -674,7 +686,7 @@ impl Executor<'_> {
         {
             let failed_guard = shared.failed_products.lock();
             for &id in level {
-                if self.has_failed_dependency(graph, id, &failed_guard) {
+                if super::has_failed_dependency(graph, id, &failed_guard) {
                     let product = graph.get_product(id).expect(errors::INVALID_PRODUCT_ID);
                     if self.verbose {
                         println!("[{}] {} {}", product.processor,
@@ -770,7 +782,7 @@ impl Executor<'_> {
             // Count items that actually need rebuild (not just cache-skip)
             let rebuild_count = items.iter().filter(|item| item.needs_rebuild).count();
 
-            if batching_enabled && supports_batch && rebuild_count > 1 {
+            if should_batch(batching_enabled, supports_batch, rebuild_count) {
                 batch_groups.insert(proc_name, items);
             } else {
                 non_batch_items.extend(items);
@@ -778,5 +790,45 @@ impl Executor<'_> {
         }
 
         LevelWork { batch_groups, non_batch_items }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The full decision table for batch chunk sizing. Fail-fast (no explicit
+    /// batch size, not keep-going) must stay at 1 — that is what stops the
+    /// build after the first failing file instead of smearing one exit code
+    /// over a whole chunk.
+    #[test]
+    fn batch_chunk_size_decision_table() {
+        assert_eq!(batch_chunk_size(Some(0), false, 7), 7, "0 means no limit");
+        assert_eq!(batch_chunk_size(Some(0), true, 7), 7);
+        assert_eq!(batch_chunk_size(Some(3), false, 7), 3, "explicit size wins");
+        assert_eq!(batch_chunk_size(Some(3), true, 7), 3);
+        assert_eq!(batch_chunk_size(None, true, 7), 7, "keep-going batches everything");
+        assert_eq!(batch_chunk_size(None, false, 7), 1, "fail-fast runs one file at a time");
+    }
+
+    /// `chunks(0)` panics; the sizing function must never return 0 even for
+    /// degenerate inputs.
+    #[test]
+    fn batch_chunk_size_never_zero() {
+        assert_eq!(batch_chunk_size(Some(0), false, 0), 1);
+        assert_eq!(batch_chunk_size(None, true, 0), 1);
+    }
+
+    /// Batching needs all three conditions; in particular a single rebuilding
+    /// item must go down the non-batch path, and `batch_size: None`
+    /// (`--batch-size -1`) disables batching no matter what the processor
+    /// supports.
+    #[test]
+    fn should_batch_requires_all_conditions() {
+        assert!(should_batch(true, true, 2));
+        assert!(!should_batch(true, true, 1), "one rebuilding item is not a batch");
+        assert!(!should_batch(true, true, 0));
+        assert!(!should_batch(true, false, 5), "processor must support batching");
+        assert!(!should_batch(false, true, 5), "batch_size None disables batching entirely");
     }
 }

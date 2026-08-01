@@ -178,23 +178,12 @@ impl ObjectStore {
 mod tests {
     use super::*;
 
-    /// The redb file allows only one open handle, so tests that build several
-    /// stores over the same objects dir must give each its own db file.
     fn store_with_db(dir: &Path, db_name: &str) -> ObjectStore {
-        ObjectStore {
-            objects_dir: dir.join("objects"),
-            descriptors_dir: dir.join("descriptors"),
-            db: crate::db::open_or_recreate(&dir.join(db_name), "test cache database").unwrap(),
-            restore_method: RestoreMethod::Hardlink,
-            compression: false,
-            remote: None,
-            remote_push: false,
-            remote_pull: false,
-        }
+        ObjectStore::new_at(dir, db_name)
     }
 
     fn store_in(dir: &Path) -> ObjectStore {
-        store_with_db(dir, "db.redb")
+        ObjectStore::new_in(dir)
     }
 
     /// A hardlink restore shares the object's inode: applying the stored mode

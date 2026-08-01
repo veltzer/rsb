@@ -132,3 +132,106 @@ impl ObjectStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build_context::BuildContext;
+
+    /// Marker descriptors are the checker fast-path: a stored PASS must
+    /// never trigger a rebuild, and a missing descriptor always must.
+    #[test]
+    fn marker_never_rebuilds_missing_descriptor_always_does() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+
+        assert!(store.needs_rebuild_descriptor("absent99", &[]));
+        assert!(!store.can_restore_descriptor("absent99"));
+
+        store.store_marker("cafe1234").unwrap();
+        assert!(!store.needs_rebuild_descriptor("cafe1234", &[]));
+        assert!(store.can_restore_descriptor("cafe1234"));
+    }
+
+    /// Blob verification is tiered: the first output is content-verified
+    /// (its checksum is the descriptor), the remaining outputs are
+    /// existence-checked only — their checksums were never recorded.
+    #[test]
+    fn blob_rebuild_verification_is_tiered() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+        let ctx = BuildContext::new();
+        let key = "beef5678";
+
+        let first = tmp.path().join("first.out");
+        let second = tmp.path().join("second.out");
+        fs::write(&first, b"primary").unwrap();
+        store.store_blob_descriptor(&ctx, key, &first).unwrap();
+
+        let outputs = vec![first.clone(), second.clone()];
+        assert!(store.needs_rebuild_descriptor(key, &outputs),
+            "second output missing → rebuild");
+
+        fs::write(&second, b"anything at all").unwrap();
+        assert!(!store.needs_rebuild_descriptor(key, &outputs),
+            "extra outputs are existence-checked only");
+
+        fs::write(&first, b"tampered").unwrap();
+        assert!(store.needs_rebuild_descriptor(key, &outputs),
+            "first output is content-verified");
+    }
+
+    /// A corrupted output must be re-materialized from the cache, not
+    /// reported OK; a descriptor whose object is gone must report false so
+    /// the caller falls back to building.
+    #[test]
+    fn restore_replaces_corrupted_output_and_reports_missing_object() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+        let ctx = BuildContext::new();
+        let key = "feed9abc";
+
+        let out = tmp.path().join("out.txt");
+        fs::write(&out, b"cached bytes").unwrap();
+        store.store_blob_descriptor(&ctx, key, &out).unwrap();
+
+        fs::write(&out, b"corrupted").unwrap();
+        assert!(store.restore_from_descriptor(key, &[out.clone()]).unwrap());
+        assert_eq!(fs::read(&out).unwrap(), b"cached bytes",
+            "restore must replace corrupted content with the cached bytes");
+
+        // Remove the object behind the descriptor: restore must decline.
+        let checksum = ObjectStore::calculate_checksum(&out).unwrap();
+        fs::remove_file(store.object_path(&checksum)).unwrap();
+        fs::remove_file(&out).unwrap();
+        assert!(!store.restore_from_descriptor(key, &[out.clone()]).unwrap(),
+            "no object → cannot restore, caller must build");
+    }
+
+    /// Tree descriptors content-verify every entry — corrupting any one
+    /// file flags a rebuild, and restore puts the recorded bytes back.
+    #[test]
+    fn tree_verifies_and_restores_every_entry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+        let ctx = BuildContext::new();
+        let key = "dead4321";
+
+        let outdir = tmp.path().join("outdir");
+        fs::create_dir_all(&outdir).unwrap();
+        fs::write(outdir.join("a.txt"), b"alpha").unwrap();
+        fs::write(outdir.join("b.txt"), b"beta").unwrap();
+        let dirs = [std::sync::Arc::new(outdir.clone())];
+        store.store_tree_descriptor(&ctx, key, &dirs, &[], &|_| false).unwrap();
+
+        assert!(!store.needs_rebuild_descriptor(key, &[]));
+
+        fs::write(outdir.join("b.txt"), b"tampered").unwrap();
+        assert!(store.needs_rebuild_descriptor(key, &[]),
+            "any corrupted tree entry must flag a rebuild");
+
+        assert!(store.restore_from_descriptor(key, &[]).unwrap());
+        assert_eq!(fs::read(outdir.join("b.txt")).unwrap(), b"beta");
+        assert!(!store.needs_rebuild_descriptor(key, &[]));
+    }
+}

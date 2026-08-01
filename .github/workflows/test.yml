@@ -30,6 +30,13 @@ jobs:
           python3 -m venv "$HOME/.venv"
           echo "$HOME/.venv/bin" >> "$GITHUB_PATH"
 
+      # The runner's system gem directory is root-owned; give gem installs
+      # a user-writable home.
+      - name: Set up user gem home for gem-installed tools
+        run: |
+          echo "GEM_HOME=$HOME/.gem" >> "$GITHUB_ENV"
+          echo "$HOME/.gem/bin" >> "$GITHUB_PATH"
+
       # Registry-driven: install every tool rsconstruct knows about, so a
       # new processor's tool is covered without touching this workflow.
       # Skipped: entries with a manual-only install method (checkpatch.pl)
@@ -49,13 +56,11 @@ jobs:
             ./target/debug/rsconstruct tools install -y "$tool"
           done
 
-      # Tools the tests probe by bare name whose registry entries are
-      # project-local paths, so the loop above cannot cover them.
-      - name: Install system markdownlint and mdl
-        run: |
-          set -euo pipefail
-          npm install -g markdownlint-cli
-          sudo gem install mdl
+      # markdownlint is probed by bare name in tests but its registry entry
+      # is the project-local path node_modules/.bin/markdownlint, so the
+      # loop above cannot cover it.
+      - name: Install system markdownlint
+        run: npm install -g markdownlint-cli
 
       # The suite hard-fails on any missing tool (tests never skip), so a
       # gap in the matrix fails the run loudly instead of shrinking it.

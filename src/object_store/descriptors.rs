@@ -157,3 +157,63 @@ impl ObjectStore {
         Ok(changed)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build_context::BuildContext;
+
+    /// Descriptor files are sharded by the key's first two characters; a
+    /// degenerately short key must not panic.
+    #[test]
+    fn descriptor_path_shards_and_survives_short_keys() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+
+        let path = store.descriptor_path("abcdef");
+        assert!(path.ends_with(Path::new("ab").join("cdef")),
+            "expected ab/cdef sharding, got {}", path.display());
+
+        // One-char key: must not panic on split_at.
+        let short = store.descriptor_path("a");
+        assert!(short.starts_with(tmp.path()));
+    }
+
+    /// The entries are sorted before comparison precisely so that
+    /// filesystem-dependent read_dir order can't read as a change; content
+    /// changes still must.
+    #[test]
+    fn tree_change_detection_ignores_order_but_sees_content() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+        let ctx = BuildContext::new();
+        let key = "abba7777";
+
+        let outdir = tmp.path().join("out");
+        fs::create_dir_all(&outdir).unwrap();
+        fs::write(outdir.join("a.txt"), b"one").unwrap();
+        fs::write(outdir.join("b.txt"), b"two").unwrap();
+        let dirs = [std::sync::Arc::new(outdir.clone())];
+
+        assert!(store.store_tree_descriptor(&ctx, key, &dirs, &[], &|_| false).unwrap(),
+            "first store is always a change");
+        assert!(!store.store_tree_descriptor(&ctx, key, &dirs, &[], &|_| false).unwrap(),
+            "identical re-store must not read as a change");
+
+        fs::write(outdir.join("a.txt"), b"changed").unwrap();
+        assert!(store.store_tree_descriptor(&ctx, key, &dirs, &[], &|_| false).unwrap(),
+            "content change must be detected");
+    }
+
+    /// Descriptors are stored read-only; a second store over the same key
+    /// must take the PermissionDenied retry path and still succeed.
+    #[test]
+    fn descriptor_overwrite_survives_read_only_previous() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let store = ObjectStore::new_in(tmp.path());
+
+        store.store_marker("cdcd1212").unwrap();
+        store.store_marker("cdcd1212").unwrap();
+        assert!(matches!(store.get_descriptor("cdcd1212"), Some(CacheDescriptor::Marker)));
+    }
+}
