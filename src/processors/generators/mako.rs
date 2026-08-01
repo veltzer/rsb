@@ -19,14 +19,14 @@ fn render_mako(ctx: &crate::build_context::BuildContext, python: &str, item: &Te
         .replace('\\', "\\\\").replace('\'', "\\'");
 
     let python_script = format!(
-        r#"
+        r"
 import mako.template, mako.lookup
 lookup = mako.lookup.TemplateLookup(directories=['.'])
 t = mako.template.Template(filename='{source}', lookup=lookup)
 output = t.render()
 with open('{target}', 'w') as f:
     f.write(output)
-"#
+"
     );
 
     let mut cmd = Command::new(python);

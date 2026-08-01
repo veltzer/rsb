@@ -203,6 +203,10 @@ impl Function for VersionStrFunction {
             .and_then(|v| v.as_str())
             .unwrap_or("config/version.py");
 
+        // Case-sensitive on purpose: `path` comes from the template author,
+        // and every other extension check in this codebase treats the
+        // lowercase form as canonical.
+        #[allow(clippy::case_sensitive_file_extension_comparisons)]
         let config = if path.ends_with(".lua") {
             load_lua_config(Path::new(path))
         } else {
@@ -487,7 +491,7 @@ fn load_python_config(ctx: &crate::build_context::BuildContext, python_file: &Pa
     let config_path = absolute_path.display().to_string()
         .replace('\\', "\\\\").replace('\'', "\\'");
     let python_script = format!(
-        r#"
+        r"
 import sys
 import json
 import os
@@ -517,7 +521,7 @@ for key, value in namespace.items():
             result[key] = str(value)
 
 print(json.dumps(result))
-"#
+"
     );
 
     // Execute Python and capture output
@@ -675,14 +679,14 @@ pub static TERA_FUNCTIONS: &[TeraFunctionDoc] = &[
         name: "workflow_names",
         summary: "List GitHub Actions workflow files under `.github/workflows/*.yml` with their `name` fields.",
         args: "(none)",
-        returns: r#"array<{file: string, name: string}>"#,
+        returns: r"array<{file: string, name: string}>",
         dep_tracking: "Not currently tracked by the analyzer; rebuilds rely on the template body itself.",
-        example: r#"{% for wf in workflow_names() %}![{{ wf.name }}](.../{{ wf.file }}){% endfor %}"#,
+        example: r"{% for wf in workflow_names() %}![{{ wf.name }}](.../{{ wf.file }}){% endfor %}",
     },
     TeraFunctionDoc {
         name: "shell_output",
         summary: "Run a shell command and return its trimmed stdout.",
-        args: r#"command: string, depends_on: array<string> (glob patterns; pass [] if none)"#,
+        args: r"command: string, depends_on: array<string> (glob patterns; pass [] if none)",
         returns: "string",
         dep_tracking: "Content-tracked. Files matched by any pattern in `depends_on` are added \
                        as inputs. The literal command string is mixed into the cache hash so \
@@ -701,7 +705,7 @@ pub static TERA_FUNCTIONS: &[TeraFunctionDoc] = &[
     TeraFunctionDoc {
         name: "grep_count",
         summary: "Count lines matching a regex across all files matching a glob (in-process; no shell).",
-        args: r#"pattern: string (regex), glob: string (file glob)"#,
+        args: r"pattern: string (regex), glob: string (file glob)",
         returns: "int",
         dep_tracking: "Content-tracked. Files matched by `glob` are added as inputs. The regex \
                        literal and resolved file set are mixed into the cache hash.",

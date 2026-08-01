@@ -210,6 +210,12 @@ impl Executor<'_> {
     /// Execute products in parallel where dependencies allow.
     /// Within each level, batch-supporting processors with multiple items
     /// are grouped and executed via `execute_batch()` in a single thread.
+    ///
+    /// 8 arguments against clippy's limit of 7. They are the whole build
+    /// request and are already grouped where grouping is meaningful
+    /// (`Classification`, `ObjectStore`); bundling the three remaining flags
+    /// into an options struct would add a type used at exactly one call site.
+    #[allow(clippy::too_many_arguments)]
     fn execute_parallel(
         &self,
         graph: &BuildGraph,

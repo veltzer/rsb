@@ -122,6 +122,11 @@ impl CcProcessor {
 
     /// Link object files into an executable.
     /// `has_cxx` selects the C++ driver, which C++ objects need at link time.
+    ///
+    /// 8 arguments against clippy's limit of 7 — each is a distinct part of
+    /// a linker invocation, and the natural grouping (`CcManifest`) is
+    /// already one of them.
+    #[allow(clippy::too_many_arguments)]
     fn link_program(ctx: &crate::build_context::BuildContext, manifest: &CcManifest, exe_path: &Path, objects: &[PathBuf], lib_dir: &Path, link_libs: &[String], ldflags: &[String], has_cxx: bool) -> Result<()> {
         crate::processors::ensure_output_dir(exe_path)?;
         let compiler = if has_cxx { &manifest.cxx } else { &manifest.cc };

@@ -138,7 +138,7 @@ fn scan_template_recursive(
     let grep_count_re = GREP_COUNT_RE.get_or_init(|| {
         // Capture both args; both can appear in either order. Two regexes:
         // first locate the call body, then extract pattern= and glob= inside.
-        Regex::new(r#"grep_count\s*\(([^)]*)\)"#).expect(errors::INVALID_REGEX)
+        Regex::new(r"grep_count\s*\(([^)]*)\)").expect(errors::INVALID_REGEX)
     });
     static GREP_COUNT_PATTERN_RE: OnceLock<Regex> = OnceLock::new();
     let grep_count_pattern_re = GREP_COUNT_PATTERN_RE.get_or_init(|| {
@@ -154,7 +154,7 @@ fn scan_template_recursive(
     // depends_on must be diagnosed (analyzer-time error).
     static SHELL_OUTPUT_RE: OnceLock<Regex> = OnceLock::new();
     let shell_re = SHELL_OUTPUT_RE.get_or_init(|| {
-        Regex::new(r#"shell_output\s*\(([^)]*)\)"#).expect(errors::INVALID_REGEX)
+        Regex::new(r"shell_output\s*\(([^)]*)\)").expect(errors::INVALID_REGEX)
     });
 
     // Inner extraction inside a shell_output(...) body.
@@ -164,7 +164,7 @@ fn scan_template_recursive(
     });
     static SHELL_DEPS_RE: OnceLock<Regex> = OnceLock::new();
     let shell_deps_re = SHELL_DEPS_RE.get_or_init(|| {
-        Regex::new(r#"depends_on\s*=\s*\[([^\]]*)\]"#).expect(errors::INVALID_REGEX)
+        Regex::new(r"depends_on\s*=\s*\[([^\]]*)\]").expect(errors::INVALID_REGEX)
     });
     static QUOTED_STR_RE: OnceLock<Regex> = OnceLock::new();
     let quoted_str_re = QUOTED_STR_RE.get_or_init(|| {

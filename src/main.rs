@@ -16,19 +16,24 @@
 // Stylistic / debatable. These either prefer a specific code shape that
 // is not always clearer, or warn about patterns the codebase uses
 // deliberately.
-#![allow(clippy::case_sensitive_file_extension_comparisons)]
-#![allow(clippy::doc_link_with_quotes)]
 #![allow(clippy::format_push_string)]
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::match_same_arms)]
-#![allow(clippy::naive_bytecount)]
 #![allow(clippy::needless_pass_by_value)]
-#![allow(clippy::needless_raw_string_hashes)]
 #![allow(clippy::option_if_let_else)]
-#![allow(clippy::struct_excessive_bools)]
-#![allow(clippy::too_many_arguments)]
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::unused_self)]
+
+// Fires on doc comments containing Rust array/slice literals like
+// `["a", "b"]`, which it mistakes for intra-doc links. Every hit in this
+// codebase is that false positive, so there is nothing to fix per-site.
+#![allow(clippy::doc_link_with_quotes)]
+
+// CLI argument structs and config structs are flag bags by nature — clap
+// derives one bool per `--flag`, and the config mirrors the TOML. Grouping
+// them into sub-structs to satisfy a 3-bool limit would obscure the
+// one-field-per-option mapping that makes them readable.
+#![allow(clippy::struct_excessive_bools)]
 
 // Mutex/lock guard tightening. The lint flags every guard whose scope
 // extends past the last use, even by one statement. In practice our
@@ -915,7 +920,7 @@ fn init_project() -> Result<()> {
     // Create .rsconstructignore if it doesn't exist
     let rsconstructignore_path = cwd.join(".rsconstructignore");
     if !rsconstructignore_path.exists() {
-        let rsconstructignore_content = r#"# .rsconstructignore - Exclude files from rsconstruct processing
+        let rsconstructignore_content = r"# .rsconstructignore - Exclude files from rsconstruct processing
 # Uses .gitignore syntax (glob patterns, one per line)
 # Lines starting with # are comments
 #
@@ -925,7 +930,7 @@ fn init_project() -> Result<()> {
 # /src/vendor/**    # Exclude vendored source code
 # /experiments/     # Exclude experimental code
 # *.bak             # Exclude backup files
-"#;
+";
         crate::errors::ctx(fs::write(&rsconstructignore_path, rsconstructignore_content), "Failed to write .rsconstructignore")?;
         println!("Created .rsconstructignore");
     }

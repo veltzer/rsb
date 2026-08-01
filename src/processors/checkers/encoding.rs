@@ -48,7 +48,10 @@ fn validate_utf8(bytes: &[u8]) -> std::result::Result<(), String> {
     // Validate UTF-8
     if let Err(e) = std::str::from_utf8(bytes) {
         let byte_pos = e.valid_up_to();
-        // Find line number
+        // Find line number. Clippy suggests the `bytecount` crate; this runs
+        // once, only on the error path of a file that already failed UTF-8
+        // validation, so a whole dependency for it would not pay for itself.
+        #[allow(clippy::naive_bytecount)]
         let line_num = bytes[..byte_pos].iter().filter(|&&b| b == b'\n').count() + 1;
         return Err(format!("invalid UTF-8 at byte {byte_pos} (line {line_num})"));
     }

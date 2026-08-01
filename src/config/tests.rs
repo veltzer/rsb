@@ -339,12 +339,12 @@ fn analyzer_validator_rejects_unknown_field() {
 
 #[test]
 fn analyzer_validator_collects_multiple_errors() {
-    let raw = toml_of(r#"
+    let raw = toml_of(r"
 [analyzer.python]
 enabeld = false
 
 [analyzer.nonsense]
-"#);
+");
     let errors = validate_analyzer_fields_raw(&raw);
     assert!(errors.len() >= 2, "expected multiple errors, got: {errors:?}");
     assert!(errors.iter().any(|e| e.contains("enabeld")));

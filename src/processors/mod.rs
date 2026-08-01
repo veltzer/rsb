@@ -580,6 +580,11 @@ pub fn discover_directory_products(
 /// Replaces the former `discover_checker_products` (no `dep_auto` merge)
 /// and `checker_discover` (with `dep_auto` merge) — the split was a
 /// correctness hazard since picking the wrong one silently lost `dep_auto`.
+/// 8 arguments against clippy's limit of 7. `dep_inputs` and `dep_auto` look
+/// redundant with `scan` but are not — `terms` and `zspell` pass computed
+/// lists rather than the config's own, so folding them into `scan` would
+/// silently change what those two processors depend on.
+#[allow(clippy::too_many_arguments)]
 pub fn discover_checker_products(
     graph: &mut BuildGraph,
     scan: &crate::config::StandardConfig,
