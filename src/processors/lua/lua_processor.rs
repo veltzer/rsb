@@ -93,7 +93,7 @@ impl LuaProcessor {
     pub fn discover_plugins(
         plugins_dir: &str,
         extra_configs: &std::collections::HashMap<String, toml::Value>,
-    ) -> Result<Vec<(String, LuaProcessor)>> {
+    ) -> Result<Vec<(String, Self)>> {
         let dir = Path::new(plugins_dir);
         if !dir.is_dir() {
             return Ok(Vec::new());
@@ -120,9 +120,9 @@ impl LuaProcessor {
                 let config_value = extra_configs
                     .get(&name)
                     .cloned()
-                    .unwrap_or(toml::Value::Table(toml::map::Map::new()));
+                    .unwrap_or_else(|| toml::Value::Table(toml::map::Map::new()));
 
-                let proc = LuaProcessor::new(
+                let proc = Self::new(
                     name.clone(),
                     &path,
                     config_value,

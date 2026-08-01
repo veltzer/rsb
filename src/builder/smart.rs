@@ -172,12 +172,12 @@ pub fn minimal(detected: &HashSet<String>) -> Result<()> {
     }
 
     save_doc(&doc)?;
-    if !detected.is_empty() {
+    if detected.is_empty() {
+        println!("No processors detected.");
+    } else {
         let mut names: Vec<&String> = detected.iter().collect();
         names.sort();
         println!("Minimal config: {}", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
-    } else {
-        println!("No processors detected.");
     }
     Ok(())
 }

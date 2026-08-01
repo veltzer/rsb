@@ -89,7 +89,7 @@ impl Processor for PdfuniteProcessor {
             // Mirror the directory structure from source_dir into output_dir,
             // naming each merged PDF after its leaf directory.
             let relative = dir_path.strip_prefix(base).unwrap_or(&dir_path);
-            let parent = relative.parent().unwrap_or(Path::new(""));
+            let parent = crate::processors::parent_dir_or_empty(relative);
             let leaf = relative.file_name()
                 .with_context(|| format!("Cannot extract leaf directory name from {}", dir_path.display()))?;
             let outputs = vec![

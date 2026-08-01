@@ -13,8 +13,7 @@
 pub fn resolve_distribution(import_name: &str) -> &str {
     MAPPINGS.binary_search_by_key(&import_name, |&(k, _)| k)
         .ok()
-        .map(|i| MAPPINGS[i].1)
-        .unwrap_or(import_name)
+        .map_or(import_name, |i| MAPPINGS[i].1)
 }
 
 /// Sorted list of (`import_name`, `distribution_name`) pairs. Must stay sorted —

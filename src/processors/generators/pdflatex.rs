@@ -76,7 +76,7 @@ impl Processor for PdflatexProcessor {
         crate::processors::ensure_output_dir(final_output)?;
 
         // Use the output directory as pdflatex's output-directory
-        let build_dir = final_output.parent().unwrap_or(Path::new("."));
+        let build_dir = crate::processors::parent_dir(final_output);
 
         // Run pdflatex N times
         for run in 0..self.config.runs {

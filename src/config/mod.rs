@@ -386,11 +386,11 @@ impl RestoreMethod {
     /// Resolve `Auto` to a concrete method based on environment.
     pub fn resolve(self) -> Self {
         match self {
-            RestoreMethod::Auto => {
+            Self::Auto => {
                 if std::env::var("CI").is_ok_and(|v| v == "true") {
-                    RestoreMethod::Copy
+                    Self::Copy
                 } else {
-                    RestoreMethod::Hardlink
+                    Self::Hardlink
                 }
             }
             other => other,
@@ -895,7 +895,7 @@ impl Serialize for ProcessorConfig {
 impl<'de> Deserialize<'de> for ProcessorConfig {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let table = toml::Value::deserialize(deserializer)?;
-        Ok(ProcessorConfig::from_toml(&table))
+        Ok(Self::from_toml(&table))
     }
 }
 
@@ -1213,7 +1213,7 @@ impl Serialize for AnalyzerConfig {
 impl<'de> Deserialize<'de> for AnalyzerConfig {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
         let table = toml::Value::deserialize(deserializer)?;
-        AnalyzerConfig::from_toml(&table).map_err(serde::de::Error::custom)
+        Self::from_toml(&table).map_err(serde::de::Error::custom)
     }
 }
 
@@ -1306,28 +1306,28 @@ enum FieldType {
 impl FieldType {
     const fn label(self) -> &'static str {
         match self {
-            FieldType::String => "a string",
-            FieldType::Bool => "a boolean",
-            FieldType::Integer => "an integer",
-            FieldType::StringArray => "an array of strings",
-            FieldType::TableArray => "an array of tables",
-            FieldType::Table => "a table",
-            FieldType::Array => "an array",
+            Self::String => "a string",
+            Self::Bool => "a boolean",
+            Self::Integer => "an integer",
+            Self::StringArray => "an array of strings",
+            Self::TableArray => "an array of tables",
+            Self::Table => "a table",
+            Self::Array => "an array",
         }
     }
 
     /// Check whether a TOML value matches this expected type.
     fn matches(self, value: &toml::Value) -> bool {
         match self {
-            FieldType::String => value.is_str(),
-            FieldType::Bool => value.as_bool().is_some(),
-            FieldType::Integer => value.is_integer(),
-            FieldType::StringArray => value.as_array()
+            Self::String => value.is_str(),
+            Self::Bool => value.as_bool().is_some(),
+            Self::Integer => value.is_integer(),
+            Self::StringArray => value.as_array()
                 .is_some_and(|arr| arr.iter().all(toml::Value::is_str)),
-            FieldType::TableArray => value.as_array()
+            Self::TableArray => value.as_array()
                 .is_some_and(|arr| arr.iter().all(toml::Value::is_table)),
-            FieldType::Table => value.is_table(),
-            FieldType::Array => value.is_array(),
+            Self::Table => value.is_table(),
+            Self::Array => value.is_array(),
         }
     }
 
@@ -1800,7 +1800,7 @@ impl Config {
                 return Err(crate::exit_code::config_error(
                     format!("Invalid config:\n{}", all_errors.join("\n"))));
             }
-            let config: Config = raw.try_into()
+            let config: Self = raw.try_into()
                 .map_err(|e| crate::exit_code::config_error(
                     format!("Failed to parse config file {}: {e}", config_path.display())))?;
             // Capture byte-level spans from the substituted sources so we can
@@ -1820,7 +1820,7 @@ impl Config {
                     "{LOCAL_CONFIG_FILE} found without {CONFIG_FILE} — the local overlay only extends a main config file",
                 );
             }
-            (Config::default(), SpanMap::new(), provenance::GlobalSpanMap::new(), SpanMap::new(), provenance::GlobalSpanMap::new())
+            (Self::default(), SpanMap::new(), provenance::GlobalSpanMap::new(), SpanMap::new(), provenance::GlobalSpanMap::new())
         };
         config.processor.resolve_scan_defaults();
         config.processor.apply_output_dir_defaults(&config.build.output_dir);

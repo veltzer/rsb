@@ -20,7 +20,7 @@ impl RustSingleFileProcessor {
 
     fn get_output_path(&self, source: &Path) -> PathBuf {
         let src_dirs = self.config.standard.src_dirs();
-        let full_parent = source.parent().unwrap_or(Path::new(""));
+        let full_parent = crate::processors::parent_dir_or_empty(source);
         let parent = src_dirs.iter()
             .filter(|d| !d.is_empty())
             .find_map(|d| full_parent.strip_prefix(d).ok())

@@ -433,9 +433,7 @@ impl CcSingleFileConfig {
     /// If `compilers` is set, returns enabled profiles from that list.
     /// Otherwise, creates a single profile from the legacy fields.
     pub(crate) fn get_compiler_profiles(&self) -> Vec<CompilerProfile> {
-        if !self.compilers.is_empty() {
-            self.compilers.iter().filter(|p| p.enabled).cloned().collect()
-        } else {
+        if self.compilers.is_empty() {
             // Legacy mode: create single profile from top-level fields
             vec![CompilerProfile {
                 name: String::new(), // Empty name = no subdirectory
@@ -447,6 +445,8 @@ impl CcSingleFileConfig {
                 ldflags: self.ldflags.clone(),
                 output_suffix: self.output_suffix.clone(),
             }]
+        } else {
+            self.compilers.iter().filter(|p| p.enabled).cloned().collect()
         }
     }
 }

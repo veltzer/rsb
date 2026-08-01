@@ -30,7 +30,7 @@ impl MarpImagesProcessor {
 
         for &file in files {
             let content = crate::errors::ctx(std::fs::read_to_string(file), &format!("Failed to read {}", file.display()))?;
-            let dir = file.parent().unwrap_or(Path::new("."));
+            let dir = crate::processors::parent_dir(file);
 
             for (line_num, line) in content.lines().enumerate() {
                 for cap in IMAGE_RE.captures_iter(line) {

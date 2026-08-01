@@ -179,7 +179,7 @@ impl CcProcessor {
     /// Compute the output directory for a cc.yaml file.
     /// Output goes under out/cc/<relative-path-to-cc.yaml-dir>/.
     fn output_dir_for(yaml_path: &Path) -> PathBuf {
-        let anchor_dir = yaml_path.parent().unwrap_or(Path::new(""));
+        let anchor_dir = crate::processors::parent_dir_or_empty(yaml_path);
         if anchor_dir.as_os_str().is_empty() {
             PathBuf::from("out/cc")
         } else {
@@ -192,7 +192,7 @@ impl CcProcessor {
     /// to project-root-relative paths using the cc.yaml's parent directory.
     fn execute_build(&self, ctx: &crate::build_context::BuildContext, yaml_path: &Path) -> Result<()> {
         let manifest = Self::parse_manifest(yaml_path)?;
-        let anchor_dir = yaml_path.parent().unwrap_or(Path::new(""));
+        let anchor_dir = crate::processors::parent_dir_or_empty(yaml_path);
         let output_dir = Self::output_dir_for(yaml_path);
         let obj_dir = output_dir.join("obj");
         let lib_dir = output_dir.join("lib");
@@ -307,7 +307,7 @@ impl Processor for CcProcessor {
 
             // Source paths in the manifest are relative to the cc.yaml directory.
             // Resolve to project-root-relative paths for the build graph.
-            let anchor_dir = yaml_path.parent().unwrap_or(Path::new(""));
+            let anchor_dir = crate::processors::parent_dir_or_empty(&yaml_path);
 
             let mut inputs: Vec<PathBuf> = Vec::new();
             inputs.push(yaml_path.clone());

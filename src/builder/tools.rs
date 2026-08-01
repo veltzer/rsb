@@ -188,9 +188,7 @@ fn run_tools_command(
                             .collect();
                         if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
                     } else {
-                        info.install_methods.first()
-                            .map(super::super::processors::InstallMethod::command)
-                            .unwrap_or_else(|| "?".to_string())
+                        info.install_methods.first().map_or_else(|| "?".to_string(), super::super::processors::InstallMethod::command)
                     };
                     row.push(install_str);
                 }
@@ -214,7 +212,7 @@ fn run_tools_command(
                         json_output::ToolListEntry {
                             tool: tool.clone(),
                             installed: which::which(tool).is_ok(),
-                            runtime: info.map(|i| i.runtime).unwrap_or("unknown").to_string(),
+                            runtime: info.map_or("unknown", |i| i.runtime).to_string(),
                             processors: procs.clone(),
                             install_methods,
                         }
@@ -231,7 +229,7 @@ fn run_tools_command(
                     color::red("missing")
                 };
                 let info = crate::processors::tool_info(tool);
-                let runtime = info.map(|i| i.runtime).unwrap_or("unknown");
+                let runtime = info.map_or("unknown", |i| i.runtime);
                 let install_str = if show_methods {
                     let methods: Vec<String> = info
                         .map(|i| i.install_methods.iter()
@@ -240,9 +238,7 @@ fn run_tools_command(
                         .unwrap_or_default();
                     if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
                 } else {
-                    info.and_then(|i| i.install_methods.first())
-                        .map(super::super::processors::InstallMethod::command)
-                        .unwrap_or_else(|| "?".to_string())
+                    info.and_then(|i| i.install_methods.first()).map_or_else(|| "?".to_string(), super::super::processors::InstallMethod::command)
                 };
                 println!("{} [{}] [{}] ({}) — {}",
                     tool, installed, runtime, procs.join(", "), color::dim(&install_str));
@@ -432,25 +428,22 @@ fn run_tools_command(
             // Collect missing tools with their install info
             let missing_tools: Vec<(&str, &crate::processors::InstallMethod)> = if let Some(ref name) = name {
                 // Install a specific tool
-                match crate::processors::tool_info(name) {
-                    Some(info) => {
-                        if let Some(method) = info.install_methods.first() {
-                            vec![(info.name, method)]
-                        } else {
-                            eprintln!("{}: No install method for '{}'", color::red("Error"), name);
-                            return Err(crate::exit_code::RsconstructError::new(
-                                crate::exit_code::RsconstructExitCode::ToolError,
-                                format!("No install method known for tool '{name}'"),
-                            ).into());
-                        }
-                    }
-                    None => {
-                        eprintln!("{}: Unknown tool '{}'", color::red("Error"), name);
+                if let Some(info) = crate::processors::tool_info(name) {
+                    if let Some(method) = info.install_methods.first() {
+                        vec![(info.name, method)]
+                    } else {
+                        eprintln!("{}: No install method for '{}'", color::red("Error"), name);
                         return Err(crate::exit_code::RsconstructError::new(
                             crate::exit_code::RsconstructExitCode::ToolError,
-                            format!("Unknown tool '{name}'"),
+                            format!("No install method known for tool '{name}'"),
                         ).into());
                     }
+                } else {
+                    eprintln!("{}: Unknown tool '{}'", color::red("Error"), name);
+                    return Err(crate::exit_code::RsconstructError::new(
+                        crate::exit_code::RsconstructExitCode::ToolError,
+                        format!("Unknown tool '{name}'"),
+                    ).into());
                 }
             } else {
                 // Build tool list from all enabled processors.
@@ -803,7 +796,7 @@ fn tools_graph_json(tool_map: &BTreeMap<String, Vec<String>>) -> Result<String> 
             crate::json_output::ToolListEntry {
                 tool: tool.clone(),
                 installed: which::which(tool).is_ok(),
-                runtime: info.map(|i| i.runtime).unwrap_or("unknown").to_string(),
+                runtime: info.map_or("unknown", |i| i.runtime).to_string(),
                 processors: procs.clone(),
                 install_methods,
             }

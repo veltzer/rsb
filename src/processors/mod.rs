@@ -47,6 +47,26 @@ pub fn resolve_anchor_path(anchor_dir: &Path, rel: &str) -> PathBuf {
     }
 }
 
+/// The directory containing `path`, as a relative path.
+///
+/// A path with no parent (a bare filename) yields `.`, so the result is
+/// always usable as a directory to join against or pass as a working
+/// directory. This idiom — `path.parent().unwrap_or(Path::new("."))` —
+/// appeared at 20+ sites; naming it says what the fallback means instead
+/// of leaving a bare `"."` at each one.
+pub fn parent_dir(path: &Path) -> &Path {
+    path.parent().unwrap_or_else(|| Path::new("."))
+}
+
+/// The directory containing `path`, as an empty path when there is none.
+///
+/// Distinct from [`parent_dir`]: callers that feed the result to
+/// [`resolve_anchor_path`] rely on "" meaning "no anchor, use the relative
+/// path as-is", where "." would produce a `./`-prefixed path instead.
+pub fn parent_dir_or_empty(path: &Path) -> &Path {
+    path.parent().unwrap_or_else(|| Path::new(""))
+}
+
 
 // Thread-local holding the current processor's declared tools.
 // Set before execute()/execute_batch() and cleared after.
@@ -252,32 +272,29 @@ fn run_command_inner(
             Ok(output)
         };
 
-        match timeout {
-            Some(dur) => tokio::select! {
-                biased;
+        if let Some(dur) = timeout { tokio::select! {
+            biased;
 
-                _ = interrupt_rx.changed() => {
-                    anyhow::bail!("Interrupted")
-                }
-                _ = tokio::time::sleep(dur) => {
-                    let prog = program.to_string_lossy();
-                    let args_str = args.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ");
-                    anyhow::bail!(
-                        "Command timed out after {}s and was killed: {} {}",
-                        dur.as_secs(), prog, args_str
-                    )
-                }
-                result = wait => result,
-            },
-            None => tokio::select! {
-                biased;
+            _ = interrupt_rx.changed() => {
+                anyhow::bail!("Interrupted")
+            }
+            () = tokio::time::sleep(dur) => {
+                let prog = program.to_string_lossy();
+                let args_str = args.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ");
+                anyhow::bail!(
+                    "Command timed out after {}s and was killed: {} {}",
+                    dur.as_secs(), prog, args_str
+                )
+            }
+            result = wait => result,
+        } } else { tokio::select! {
+            biased;
 
-                _ = interrupt_rx.changed() => {
-                    anyhow::bail!("Interrupted")
-                }
-                result = wait => result,
-            },
-        }
+            _ = interrupt_rx.changed() => {
+                anyhow::bail!("Interrupted")
+            }
+            result = wait => result,
+        } }
     })
 }
 
@@ -824,22 +841,22 @@ impl ProcessorType {
     /// Returns the string representation
     pub const fn as_str(&self) -> &'static str {
         match self {
-            ProcessorType::Generator => "generator",
-            ProcessorType::Checker => "checker",
-            ProcessorType::Creator => "creator",
-            ProcessorType::Explicit => "explicit",
-            ProcessorType::Lua => "lua",
+            Self::Generator => "generator",
+            Self::Checker => "checker",
+            Self::Creator => "creator",
+            Self::Explicit => "explicit",
+            Self::Lua => "lua",
         }
     }
 
     /// Returns a human-readable description of this processor type.
     pub const fn description(&self) -> &'static str {
         match self {
-            ProcessorType::Generator => "Generates output files from input files (1 input -> 1 output per format)",
-            ProcessorType::Checker => "Validates input files without producing outputs",
-            ProcessorType::Creator => "Runs a command and caches declared output files and directories",
-            ProcessorType::Explicit => "Many inputs aggregated into (possibly) many output files and/or directories",
-            ProcessorType::Lua => "User-defined processor implemented in Lua via the plugin runtime",
+            Self::Generator => "Generates output files from input files (1 input -> 1 output per format)",
+            Self::Checker => "Validates input files without producing outputs",
+            Self::Creator => "Runs a command and caches declared output files and directories",
+            Self::Explicit => "Many inputs aggregated into (possibly) many output files and/or directories",
+            Self::Lua => "User-defined processor implemented in Lua via the plugin runtime",
         }
     }
 
@@ -1035,9 +1052,7 @@ impl InstallMethod {
     /// multi-step installs (binary fetches), but adequate for `tools list`.
     pub fn command(&self) -> String {
         let steps = describe(self.method, &[self.package]);
-        steps.first()
-            .map(|argv| join_argv(argv))
-            .unwrap_or_else(|| format!("({}) {}", self.method, self.package))
+        steps.first().map_or_else(|| format!("({}) {}", self.method, self.package), |argv| join_argv(argv))
     }
 }
 
@@ -1121,7 +1136,7 @@ pub fn run(method: &str, packages: &[&str], ctx: &InstallCtx) -> anyhow::Result<
             anyhow::bail!(
                 "{} exited with code {}",
                 join_argv(argv),
-                status.code().map_or("unknown".to_string(), |c| c.to_string())
+                status.code().map_or_else(|| "unknown".to_string(), |c| c.to_string())
             );
         }
         Ok(())
@@ -1269,7 +1284,7 @@ fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
             anyhow::bail!(
                 "{} exited with code {}",
                 argv.join(" "),
-                status.code().map_or("unknown".to_string(), |c| c.to_string())
+                status.code().map_or_else(|| "unknown".to_string(), |c| c.to_string())
             );
         }
         Ok(())

@@ -69,14 +69,11 @@ impl Builder {
                 if !checked_tools.insert(tool.clone()) {
                     continue;
                 }
-                match tool_version(ctx, &tool) {
-                    Some(version) => {
-                        record(format!("{tool} available"), "ok", "tool", Some(version), None, &mut ok_count, &mut fail_count, &mut warn_count);
-                    }
-                    None => {
-                        let install_hint = crate::processors::tool_install_command(&tool);
-                        record(format!("{tool} not found"), "fail", "tool", None, install_hint, &mut ok_count, &mut fail_count, &mut warn_count);
-                    }
+                if let Some(version) = tool_version(ctx, &tool) {
+                    record(format!("{tool} available"), "ok", "tool", Some(version), None, &mut ok_count, &mut fail_count, &mut warn_count);
+                } else {
+                    let install_hint = crate::processors::tool_install_command(&tool);
+                    record(format!("{tool} not found"), "fail", "tool", None, install_hint, &mut ok_count, &mut fail_count, &mut warn_count);
                 }
             }
         }
@@ -184,5 +181,5 @@ fn tool_version(ctx: &crate::build_context::BuildContext, tool: &str) -> Option<
         }
         return Some(first_line.to_string());
     }
-    Some(version.lines().next().unwrap_or(version.as_ref()).to_string())
+    Some(version.lines().next().unwrap_or(version).to_string())
 }

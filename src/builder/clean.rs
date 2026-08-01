@@ -197,7 +197,7 @@ impl Builder {
             if !entry.file_type().is_some_and(|ft| ft.is_file()) {
                 continue;
             }
-            let path = entry.path().strip_prefix("./").unwrap_or(entry.path());
+            let path = entry.path().strip_prefix("./").unwrap_or_else(|_| entry.path());
             let path = PathBuf::from(path);
 
             // Skip .git/ and .rsconstruct/

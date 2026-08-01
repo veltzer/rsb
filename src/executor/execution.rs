@@ -375,7 +375,8 @@ impl Executor<'_> {
         let mut to_execute: Vec<&WorkItem> = Vec::new();
         for item in items {
             match self.try_skip_or_restore(item, proc_name, lctx, false) {
-                PreCheckResult::Handled => continue,
+                // Already skipped or restored — nothing left to execute.
+                PreCheckResult::Handled => {}
                 PreCheckResult::NeedsExecution => to_execute.push(item),
             }
         }

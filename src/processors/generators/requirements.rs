@@ -172,7 +172,7 @@ fn is_local(
     python_paths: &[String],
 ) -> bool {
     let module_path = module.replace('.', "/");
-    let source_dir = source.parent().unwrap_or(Path::new("."));
+    let source_dir = crate::processors::parent_dir(source);
 
     let mut roots: Vec<PathBuf> = Vec::with_capacity(2 + python_paths.len());
     roots.push(source_dir.to_path_buf());

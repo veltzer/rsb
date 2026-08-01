@@ -30,7 +30,7 @@ impl LinuxModuleProcessor {
 
     /// Compute the output directory for a linux-module.yaml file.
     fn output_dir_for(yaml_path: &Path) -> PathBuf {
-        let anchor_dir = yaml_path.parent().unwrap_or(Path::new(""));
+        let anchor_dir = crate::processors::parent_dir_or_empty(yaml_path);
         if anchor_dir.as_os_str().is_empty() {
             PathBuf::from("out/linux-module")
         } else {
@@ -154,7 +154,7 @@ impl LinuxModuleProcessor {
     /// Execute a full linux-module.yaml build.
     fn execute_build(&self, ctx: &crate::build_context::BuildContext, yaml_path: &Path) -> Result<()> {
         let manifest = Self::parse_manifest(yaml_path)?;
-        let anchor_dir = yaml_path.parent().unwrap_or(Path::new(""));
+        let anchor_dir = crate::processors::parent_dir_or_empty(yaml_path);
         let output_dir = Self::output_dir_for(yaml_path);
 
         for module in &manifest.modules {
@@ -202,7 +202,7 @@ impl Processor for LinuxModuleProcessor {
                 }
             };
 
-            let anchor_dir = yaml_path.parent().unwrap_or(Path::new(""));
+            let anchor_dir = crate::processors::parent_dir_or_empty(&yaml_path);
             let output_dir = Self::output_dir_for(&yaml_path);
 
             let mut inputs: Vec<PathBuf> = Vec::new();

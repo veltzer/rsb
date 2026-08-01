@@ -109,9 +109,7 @@ impl Product {
     pub fn display(&self, opts: DisplayOptions) -> String {
         // For checkers (empty outputs), display the input file instead
         if self.outputs.is_empty() {
-            return self.inputs.first()
-                .map(|p| Self::format_path(p, opts.path_format))
-                .unwrap_or_else(|| "?".to_string());
+            return self.inputs.first().map_or_else(|| "?".to_string(), |p| Self::format_path(p, opts.path_format));
         }
 
         // Format output part
@@ -509,7 +507,7 @@ impl BuildGraph {
     /// any product.
     pub fn products_consuming(&self, path: &Path) -> &[usize] {
         match self.interner.get(path) {
-            Some(id) => self.input_to_products.get(&id).map(Vec::as_slice).unwrap_or(&[]),
+            Some(id) => self.input_to_products.get(&id).map_or(&[], Vec::as_slice),
             None => &[],
         }
     }

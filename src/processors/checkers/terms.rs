@@ -622,11 +622,11 @@ pub fn fix_file(
 ) -> Result<bool> {
     let original = crate::errors::ctx(fs::read_to_string(path), &format!("Failed to read {}", path.display()))?;
     let fixed = fix_content(&original, terms, sorted_terms, remove_non_terms, forbid_ambiguous_backticks);
-    if fixed != original {
+    if fixed == original {
+        Ok(false)
+    } else {
         crate::errors::ctx(fs::write(path, &fixed), &format!("Failed to write {}", path.display()))?;
         Ok(true)
-    } else {
-        Ok(false)
     }
 }
 

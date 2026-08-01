@@ -133,7 +133,7 @@ impl ZspellProcessor {
 
         re.replace_all(line, |caps: &regex::Captures| {
             // For markdown links, keep the link text; for everything else, replace with space
-            caps.get(1).map_or(" ".to_string(), |m| m.as_str().to_string())
+            caps.get(1).map_or_else(|| " ".to_string(), |m| m.as_str().to_string())
         }).into_owned()
     }
 

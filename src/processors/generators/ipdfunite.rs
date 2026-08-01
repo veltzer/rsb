@@ -78,13 +78,13 @@ fn merge_pdfs(inputs: &[PathBuf], output: &Path) -> Result<()> {
                         dictionary.extend(old_dict);
                     }
                     pages_object = Some((
-                        pages_object.as_ref().map(|(id, _)| *id).unwrap_or(*object_id),
+                        pages_object.as_ref().map_or(*object_id, |(id, _)| *id),
                         Object::Dictionary(dictionary),
                     ));
                 }
             }
             Some(b"Page") => {} // handled separately
-            Some(b"Outlines") | Some(b"Outline") => {} // not supported
+            Some(b"Outlines" | b"Outline") => {} // not supported
             _ => {
                 document.objects.insert(*object_id, object.clone());
             }
@@ -206,7 +206,7 @@ impl Processor for IpdfuniteProcessor {
             }).chain(extra.iter().cloned()).collect();
 
             let relative = dir_path.strip_prefix(base).unwrap_or(&dir_path);
-            let parent = relative.parent().unwrap_or(Path::new(""));
+            let parent = crate::processors::parent_dir_or_empty(relative);
             let leaf = relative.file_name()
                 .with_context(|| format!("Cannot extract leaf directory name from {}", dir_path.display()))?;
             let outputs = vec![

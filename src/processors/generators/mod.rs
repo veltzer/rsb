@@ -141,7 +141,7 @@ fn collect_dirs_with_ext(dir: &Path, ext: &str, result: &mut Vec<PathBuf>) -> an
 /// and joins the result under `output_dir`. This is the single place where
 /// source-to-output path mapping is defined.
 pub(super) fn output_path(source: &Path, src_dirs: &[String], output_dir: &str, extension: &str) -> PathBuf {
-    let full_parent = source.parent().unwrap_or(Path::new(""));
+    let full_parent = super::parent_dir_or_empty(source);
     let parent = src_dirs.iter()
         .filter(|d| !d.is_empty())
         .find_map(|d| full_parent.strip_prefix(d).ok())

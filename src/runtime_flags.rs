@@ -80,17 +80,17 @@ pub fn quiet() -> bool {
 pub fn color_enabled() -> bool {
     // If flags aren't initialized yet, fall back to "no color". This can happen
     // during very early startup (e.g., CLI parse errors from clap).
-    FLAGS.get().map(|f| f.color_enabled).unwrap_or(false)
+    FLAGS.get().is_some_and(|f| f.color_enabled)
 }
 
 /// Non-panicking read of `quiet`, safe to call before `init()` — used by the
 /// final exit-status line in `main()`, which can run even when CLI parsing
 /// failed before flags were set up.
 pub fn quiet_or_default() -> bool {
-    FLAGS.get().map(|f| f.quiet).unwrap_or(false)
+    FLAGS.get().is_some_and(|f| f.quiet)
 }
 
 /// Non-panicking read of `json_mode`. Same rationale as `quiet_or_default`.
 pub fn json_mode_or_default() -> bool {
-    FLAGS.get().map(|f| f.json_mode).unwrap_or(false)
+    FLAGS.get().is_some_and(|f| f.json_mode)
 }

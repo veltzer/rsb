@@ -633,8 +633,7 @@ fn write_trace_file(path: &str, stats: &BuildStats) -> Result<()> {
         for pt in &cat.product_timings {
             let dur_us = pt.duration.as_micros() as i64;
             let ts_us = pt.start_offset
-                .map(|off| off.as_micros() as i64)
-                .unwrap_or(0);
+                .map_or(0, |off| off.as_micros() as i64);
             let name = format!("{}:{}", pt.processor, pt.display);
             events.push(serde_json::json!({
                 "name": name,

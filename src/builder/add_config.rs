@@ -22,7 +22,7 @@ pub fn add_processor(pname: &str, dry_run: bool) -> Result<()> {
 
     let defaults: serde_json::Value = (plugin.defconfig_json)(pname)
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(serde_json::Value::Object(Default::default()));
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::default()));
 
     let description = processor_description(pname);
 
@@ -46,8 +46,9 @@ pub fn add_analyzer(name: &str, dry_run: bool) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Unknown analyzer '{name}'"))?;
 
     let defaults: serde_json::Value = match (plugin.defconfig_toml)() {
-        Some(t) => toml::from_str::<serde_json::Value>(&t).unwrap_or(serde_json::Value::Object(Default::default())),
-        None => serde_json::Value::Object(Default::default()),
+        Some(t) => toml::from_str::<serde_json::Value>(&t)
+            .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::default())),
+        None => serde_json::Value::Object(serde_json::Map::default()),
     };
     let keys: Vec<&str> = match &defaults {
         serde_json::Value::Object(map) => map.keys().map(std::string::String::as_str).collect(),

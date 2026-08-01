@@ -23,7 +23,7 @@ impl SphinxProcessor {
     /// output dir is at project root level (e.g. "docs").
     fn execute_sphinx(&self, ctx: &crate::build_context::BuildContext, conf_py: &Path) -> Result<()> {
         let mut cmd = Command::new(&self.config.standard.command);
-        let anchor_dir = conf_py.parent().unwrap_or(Path::new(""));
+        let anchor_dir = crate::processors::parent_dir_or_empty(conf_py);
         // Source dir is the directory containing conf.py (e.g. "sphinx")
         if anchor_dir.as_os_str().is_empty() {
             cmd.arg(".");

@@ -240,8 +240,7 @@ impl FileIndex {
         self.files.iter().any(|path| {
             path.file_name()
                 .and_then(|n| n.to_str())
-                .map(|name| name.ends_with(ext))
-                .unwrap_or(false)
+                .is_some_and(|name| name.ends_with(ext))
         })
     }
 

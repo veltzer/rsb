@@ -100,9 +100,10 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions) -> R
                 }
                 Ok(Err(e)) => {
                     println!("{}", color::red(&format!("Watch error: {e}")));
-                    continue;
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                // Nothing arrived within the poll interval: loop round and
+                // re-check the interrupt flag.
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break false,
             }
         };

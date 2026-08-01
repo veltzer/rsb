@@ -66,9 +66,9 @@ pub enum RebuildReason {
 impl std::fmt::Display for RebuildReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RebuildReason::NoCacheEntry => write!(f, "no cache entry"),
-            RebuildReason::OutputMissing(path) => write!(f, "output missing: {path}"),
-            RebuildReason::Force => write!(f, "forced"),
+            Self::NoCacheEntry => write!(f, "no cache entry"),
+            Self::OutputMissing(path) => write!(f, "output missing: {path}"),
+            Self::Force => write!(f, "forced"),
         }
     }
 }
@@ -87,9 +87,9 @@ pub enum ExplainAction {
 impl std::fmt::Display for ExplainAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExplainAction::Skip => write!(f, "SKIP (inputs unchanged)"),
-            ExplainAction::Restore(reason) => write!(f, "RESTORE ({reason})"),
-            ExplainAction::Rebuild(reason) => write!(f, "BUILD ({reason})"),
+            Self::Skip => write!(f, "SKIP (inputs unchanged)"),
+            Self::Restore(reason) => write!(f, "RESTORE ({reason})"),
+            Self::Rebuild(reason) => write!(f, "BUILD ({reason})"),
         }
     }
 }

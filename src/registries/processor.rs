@@ -78,14 +78,13 @@ pub fn find_plugin(name: &str) -> Option<&'static ProcessorPlugin> {
 
 /// Return the static description for a processor by instance name, or `""` if unknown.
 pub fn description_of(name: &str) -> &'static str {
-    find_plugin(name).map(|p| p.description).unwrap_or("")
+    find_plugin(name).map_or("", |p| p.description)
 }
 
 /// Return the processor type for a processor by instance name, or `Checker` if unknown.
 pub fn processor_type_of(name: &str) -> crate::processors::ProcessorType {
     find_plugin(name)
-        .map(|p| p.processor_type)
-        .unwrap_or(crate::processors::ProcessorType::Checker)
+        .map_or(crate::processors::ProcessorType::Checker, |p| p.processor_type)
 }
 
 /// Return whether a processor is native (pure Rust) by instance name.

@@ -44,7 +44,7 @@ impl MarkdownDepAnalyzer {
             Regex::new(r"!?\[(?:[^\]]*)\]\(([^)]+)\)").expect(errors::INVALID_REGEX)
         });
 
-        let source_dir = source.parent().unwrap_or(Path::new("."));
+        let source_dir = crate::processors::parent_dir(source);
 
         for caps in ref_re.captures_iter(&content) {
             let path_str = caps[1].trim();

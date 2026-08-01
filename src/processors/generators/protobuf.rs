@@ -12,7 +12,7 @@ use crate::processors::{SimpleGenerator, SimpleGeneratorParams, DiscoverMode};
 fn execute_protobuf(ctx: &crate::build_context::BuildContext, config: &StandardConfig, product: &Product) -> Result<()> {
     let input = product.primary_input();
     let output = product.primary_output();
-    let output_dir = output.parent().unwrap_or(std::path::Path::new("."));
+    let output_dir = crate::processors::parent_dir(output);
     ensure_output_dir(output)?;
     let command = config.require_command("protobuf")?;
     let mut cmd = Command::new(command);

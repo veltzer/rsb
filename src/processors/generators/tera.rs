@@ -482,7 +482,7 @@ fn load_python_config(ctx: &crate::build_context::BuildContext, python_file: &Pa
 
     // Create a Python script that will execute the config file and output variables as JSON.
     // Escape backslashes and single quotes for safe embedding in Python string literals.
-    let config_dir = absolute_path.parent().unwrap_or(Path::new(".")).display().to_string()
+    let config_dir = crate::processors::parent_dir(&absolute_path).display().to_string()
         .replace('\\', "\\\\").replace('\'', "\\'");
     let config_path = absolute_path.display().to_string()
         .replace('\\', "\\\\").replace('\'', "\\'");

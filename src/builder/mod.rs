@@ -87,13 +87,13 @@ impl GraphSnapshot {
     /// in `SCREAMING_SNAKE_CASE`.
     const fn name(self) -> &'static str {
         match self {
-            GraphSnapshot::Start => "START",
-            GraphSnapshot::AfterDiscover => "AFTER_DISCOVER",
-            GraphSnapshot::AfterAddDependencies => "AFTER_ADD_DEPENDENCIES",
-            GraphSnapshot::AfterApplyToolHashes => "AFTER_APPLY_TOOL_HASHES",
-            GraphSnapshot::AfterResolve => "AFTER_RESOLVE",
-            GraphSnapshot::AfterClassify => "AFTER_CLASSIFY",
-            GraphSnapshot::AfterExecute => "AFTER_EXECUTE",
+            Self::Start => "START",
+            Self::AfterDiscover => "AFTER_DISCOVER",
+            Self::AfterAddDependencies => "AFTER_ADD_DEPENDENCIES",
+            Self::AfterApplyToolHashes => "AFTER_APPLY_TOOL_HASHES",
+            Self::AfterResolve => "AFTER_RESOLVE",
+            Self::AfterClassify => "AFTER_CLASSIFY",
+            Self::AfterExecute => "AFTER_EXECUTE",
         }
     }
 }

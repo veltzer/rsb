@@ -171,7 +171,7 @@ fn scan_template_recursive(
         Regex::new(r#"["']([^"']+)["']"#).expect(errors::INVALID_REGEX)
     });
 
-    let source_dir = source.parent().unwrap_or(Path::new("."));
+    let source_dir = crate::processors::parent_dir(source);
 
     // 1) include/import/extends and load_*. For include/import/extends, also
     // recurse into the included template so its glob/shell_output/git_count
