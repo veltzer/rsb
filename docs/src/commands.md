@@ -410,8 +410,9 @@ rsconstruct tools list-configured   # List tools this project's processors requi
 rsconstruct tools list-configured -a   # Include tools from disabled processors
 rsconstruct tools check             # Verify tool versions against .tools.versions lock file
 rsconstruct tools lock              # Lock tool versions to .tools.versions
-rsconstruct tools install           # Install all missing external tools
+rsconstruct tools install           # Install missing external tools for enabled processors
 rsconstruct tools install ruff      # Install a specific tool by name
+rsconstruct tools install --all     # Install every tool in the registry, ignoring the config (no config needed)
 rsconstruct tools install -y        # Skip confirmation prompt
 rsconstruct tools install --no-eatmydata        # Don't wrap apt/dnf/pacman with eatmydata
 rsconstruct tools install-deps      # Install declared [dependencies] in fixed order: system → pip → npm → gem
@@ -423,6 +424,13 @@ rsconstruct tools graph             # Show tool-to-processor dependency graph (D
 rsconstruct tools graph --format mermaid  # Mermaid format
 rsconstruct tools graph --view      # Open tool graph in browser
 ```
+
+`install --all` walks the central registry instead of the project config, so it
+needs no `rsconstruct.toml`. It never skips: a tool with no automatable install
+method is a hard error, not a warning. This makes it the intended way to
+provision CI — one command covers the whole matrix, and a registry entry that
+loses its install method fails the provisioning step instead of quietly
+shrinking the matrix. `--all` cannot be combined with a tool name.
 
 ## `rsconstruct tags`
 

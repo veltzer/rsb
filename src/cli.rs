@@ -595,6 +595,11 @@ pub enum ToolsAction {
     Install {
         /// Tool name to install (omit to install missing tools for enabled processors)
         name: Option<String>,
+        /// Install every tool in the registry, ignoring the config (no config
+        /// needed). Nothing is skipped: a tool with no automatable install
+        /// method is a hard error.
+        #[arg(short, long, conflicts_with = "name")]
+        all: bool,
         /// Skip confirmation prompt
         #[arg(short, long)]
         yes: bool,

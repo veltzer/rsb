@@ -1359,6 +1359,16 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
             archive: ArchiveKind::Raw,
             dest: "hadolint",
         }),
+        // checkpatch.pl ships only inside the kernel tree — there is no release
+        // artifact and no distro package. Fetching the single script from
+        // torvalds/linux master is the automatable equivalent of "copy it out
+        // of a kernel checkout", and keeps the tool out of the manual-only
+        // bucket that `tools install --all` rejects.
+        "checkpatch.pl" => Some(BinaryRecipe {
+            url: "https://raw.githubusercontent.com/torvalds/linux/master/scripts/checkpatch.pl",
+            archive: ArchiveKind::Raw,
+            dest: "checkpatch.pl",
+        }),
         _ => None,
     }
 }
@@ -1381,12 +1391,18 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "pyrefly", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "pyrefly" }] },
     ToolInfo { name: "yamllint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "yamllint" }] },
     ToolInfo { name: "sphinx-build", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "sphinx" }] },
-    ToolInfo { name: "pip", runtime: "python", install_methods: &[InstallMethod { method: "system", package: "python3 -m ensurepip" }] },
+    ToolInfo { name: "pip", runtime: "python", install_methods: &[InstallMethod { method: "apt", package: "python3-pip" }] },
     ToolInfo { name: "jsonlint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "demjson3" }] },
     ToolInfo { name: "cpplint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "cpplint" }] },
     ToolInfo { name: "black", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "black" }] },
     ToolInfo { name: "pytest", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "pytest" }] },
     ToolInfo { name: "a2x", runtime: "python", install_methods: &[InstallMethod { method: "apt", package: "asciidoc" }] },
+    // The mako processor runs `python3 -c "import mako..."`, so what it really
+    // needs is the Mako *library*, which the registry can't probe directly (it
+    // probes executables). The `mako-render` console script ships in the same
+    // distribution, so probing it is an exact proxy for "the library is
+    // importable", and installing it installs the library.
+    ToolInfo { name: "mako-render", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "mako" }] },
     ToolInfo { name: "python3", runtime: "python", install_methods: &[InstallMethod { method: "apt", package: "python3" }] },
     // Node tools
     ToolInfo { name: "marp", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "@marp-team/marp-cli" }] },
@@ -1414,12 +1430,17 @@ pub static TOOLS: &[ToolInfo] = &[
         InstallMethod { method: "binary", package: "taplo" },
         InstallMethod { method: "cargo", package: "taplo-cli" },
     ]},
-    ToolInfo { name: "cargo", runtime: "rust", install_methods: &[InstallMethod { method: "manual", package: "install via rustup: https://rustup.rs" }] },
-    ToolInfo { name: "rustc", runtime: "rust", install_methods: &[InstallMethod { method: "manual", package: "install via rustup: https://rustup.rs" }] },
+    // rustup is the canonical route, but `apt install rustc/cargo` is a real,
+    // automatable install and is what makes these reachable from
+    // `tools install --all` on a bare machine. A host that already has a
+    // rustup toolchain never reaches the install path: `which` finds these
+    // first.
+    ToolInfo { name: "cargo", runtime: "rust", install_methods: &[InstallMethod { method: "apt", package: "cargo" }] },
+    ToolInfo { name: "rustc", runtime: "rust", install_methods: &[InstallMethod { method: "apt", package: "rustc" }] },
     // Perl tools
     ToolInfo { name: "perl", runtime: "perl", install_methods: &[InstallMethod { method: "apt", package: "perl" }] },
     ToolInfo { name: "markdown", runtime: "perl", install_methods: &[InstallMethod { method: "apt", package: "markdown" }] },
-    ToolInfo { name: "checkpatch.pl", runtime: "perl", install_methods: &[InstallMethod { method: "manual", package: "install from Linux kernel source: scripts/checkpatch.pl" }] },
+    ToolInfo { name: "checkpatch.pl", runtime: "perl", install_methods: &[InstallMethod { method: "binary", package: "checkpatch.pl" }] },
     // System tools
     ToolInfo { name: "shellcheck", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "shellcheck" }] },
     ToolInfo { name: "luacheck", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "lua-check" }] },
@@ -1483,7 +1504,7 @@ pub static TOOLS: &[ToolInfo] = &[
     // Ruby tools (additional)
     ToolInfo { name: "jekyll", runtime: "ruby", install_methods: &[InstallMethod { method: "gem", package: "jekyll" }] },
     // Built-in / coreutils
-    ToolInfo { name: "true", runtime: "system", install_methods: &[InstallMethod { method: "system", package: "coreutils" }] },
+    ToolInfo { name: "true", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "coreutils" }] },
 ];
 
 /// Look up a tool by name.

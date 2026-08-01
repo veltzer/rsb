@@ -2119,10 +2119,17 @@ pub fn standard_config_from_toml(
 /// the env var.
 #[allow(clippy::unnecessary_wraps)] // Result<()> required by PhaseHook::run signature.
 fn eatmydata_ci_default(config: &mut Config) -> anyhow::Result<()> {
-    if std::env::var("CI").is_ok_and(|v| v == "true") {
+    if running_in_ci() {
         config.dependencies.eatmydata = true;
     }
     Ok(())
+}
+
+/// The `CI=true` policy predicate behind [`eatmydata_ci_default`], shared with
+/// the config-independent `tools install --all` path (which has no `Config` to
+/// run the hook against).
+pub fn running_in_ci() -> bool {
+    std::env::var("CI").is_ok_and(|v| v == "true")
 }
 
 inventory::submit! { crate::phases::PhaseHook {

@@ -124,7 +124,13 @@ fn run_tools_command(
     // `eatmydata_ci_default` flips it on when CI=true. Users who want it
     // off in CI should unset CI; users who want it on outside CI should
     // run with CI=true. The CLI flag --no-eatmydata always wins.
-    let config_enables_eatmydata = builder.is_some_and(|b| b.config.dependencies.eatmydata);
+    // `--all` is config-independent by design, so there may be no Config for
+    // the `eatmydata_ci_default` hook to have run against. Apply the same
+    // CI=true policy directly, otherwise the one caller that most wants the
+    // speedup (a CI runner with no rsconstruct.toml) would never get it.
+    let install_all = matches!(&action, ToolsAction::Install { all: true, .. });
+    let config_enables_eatmydata = builder.is_some_and(|b| b.config.dependencies.eatmydata)
+        || (install_all && crate::config::running_in_ci());
     let install_use_eatmydata = !install_no_eatmydata
         && config_enables_eatmydata
         && which::which("eatmydata").is_ok();
@@ -427,9 +433,65 @@ fn run_tools_command(
                 }
             }
         }
-        ToolsAction::Install { name, .. } => {
+        ToolsAction::Install { name, all, .. } => {
             // Collect missing tools with their install info
-            let missing_tools: Vec<(&str, &crate::processors::InstallMethod)> = if let Some(ref name) = name {
+            let missing_tools: Vec<(&str, &crate::processors::InstallMethod)> = if all {
+                // Registry-wide: every tool rsconstruct knows how to install,
+                // independent of any config. Mirrors `tools list`, which is the
+                // registry-wide counterpart of `tools list-configured`.
+                //
+                // A registry entry named by a project-local path
+                // (node_modules/.bin/markdownlint, gems/bin/mdl) is still
+                // installed: `which` can never find such a name, but its npm/gem
+                // package does put a binary on PATH, which is what a
+                // registry-wide install is asked to provide.
+                //
+                // Nothing is skipped. A tool with no automatable method is a
+                // hard error, not a warning to scroll past: --all claiming
+                // success while a tool is absent is exactly the silent-gap
+                // failure the strict-by-default rule exists to prevent.
+                let mut missing = Vec::new();
+                let mut manual_only: Vec<&crate::processors::ToolInfo> = Vec::new();
+                for info in crate::processors::TOOLS {
+                    let path_named = info.name.contains('/');
+                    if !path_named && which::which(info.name).is_ok() {
+                        continue;
+                    }
+                    // Prefer any automatable method over a manual one. clojure
+                    // lists manual first (the official Linux route) but also
+                    // carries a real brew method — taking `.first()` blindly
+                    // would strand it as uninstallable on a host that has brew.
+                    match info.install_methods.iter().find(|m| m.method != "manual") {
+                        Some(method) => missing.push((info.name, method)),
+                        None => manual_only.push(info),
+                    }
+                }
+                if !manual_only.is_empty() {
+                    eprintln!(
+                        "{}: {} tool(s) have no automatable install method:",
+                        color::red("Error"),
+                        manual_only.len(),
+                    );
+                    for info in &manual_only {
+                        let instructions = info.install_methods.first()
+                            .map_or("no install method known", |m| m.package);
+                        eprintln!("  {} — {}", color::bold(info.name), instructions);
+                    }
+                    return Err(crate::exit_code::RsconstructError::new(
+                        crate::exit_code::RsconstructExitCode::ToolError,
+                        format!(
+                            "Cannot install {} tool(s) automatically: {}",
+                            manual_only.len(),
+                            manual_only.iter().map(|i| i.name).collect::<Vec<_>>().join(", "),
+                        ),
+                    ).into());
+                }
+                if missing.is_empty() {
+                    println!("{}", color::green("All registry tools are already installed."));
+                    return Ok(());
+                }
+                missing
+            } else if let Some(ref name) = name {
                 // Install a specific tool
                 if let Some(info) = crate::processors::tool_info(name) {
                     if let Some(method) = info.install_methods.first() {

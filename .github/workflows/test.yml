@@ -23,55 +23,45 @@ jobs:
       - name: Build
         run: cargo build
 
+      # These three steps configure package-manager *destinations* only. They
+      # deliberately install no tools: naming a tool here would duplicate the
+      # registry, and a tool named in a workflow is a tool that silently
+      # diverges from what rsconstruct actually needs. Every tool comes from
+      # the single `tools install --all` step below.
+      #
       # pip installs into the system interpreter are rejected on modern
       # Ubuntu (PEP 668); pip-based tools go into this venv instead.
-      - name: Set up Python venv for pip-installed tools
+      - name: Set up Python venv as the pip destination
         run: |
           python3 -m venv "$HOME/.venv"
           echo "$HOME/.venv/bin" >> "$GITHUB_PATH"
-          # The mako processor imports the Mako Python module — a library
-          # dependency the tool registry doesn't model (it only probes
-          # executables), so the registry-driven install below can't cover it.
-          "$HOME/.venv/bin/pip" install mako
 
       # The runner's system gem directory is root-owned; give gem installs
       # a user-writable home.
-      - name: Set up user gem home for gem-installed tools
+      - name: Set up user gem home as the gem destination
         run: |
           echo "GEM_HOME=$HOME/.gem" >> "$GITHUB_ENV"
           echo "$HOME/.gem/bin" >> "$GITHUB_PATH"
 
       # Some npm packages (jslint) symlink man pages into root-owned
       # /usr/local/share; route npm -g installs to a user-writable prefix.
-      - name: Set up user npm prefix for npm-installed tools
+      - name: Set up user npm prefix as the npm destination
         run: |
           npm config set prefix "$HOME/.npm-global"
           echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
 
-      # Registry-driven: install every tool rsconstruct knows about, so a
-      # new processor's tool is covered without touching this workflow.
-      # Skipped: entries with a manual-only install method (checkpatch.pl)
-      # and entries named by project-local paths (node_modules/.bin/...,
-      # gems/bin/...) — their installed-flag can never turn true here.
+      # The whole tool matrix, in one registry-driven command. rsconstruct is
+      # the only thing this workflow installs by name (via `cargo build`
+      # above); every external tool comes from its own registry, so adding a
+      # processor never requires touching this file.
+      #
+      # Nothing is skipped and nothing is filtered here — `--all` treats a
+      # tool it cannot install automatically as a hard error rather than a
+      # warning, so a registry entry that loses its install method fails this
+      # step instead of quietly shrinking the matrix and surfacing later as a
+      # confusing test failure.
       - name: Install all registry tools
-        run: |
-          set -euo pipefail
-          missing="$(./target/debug/rsconstruct tools list --json \
-            | jq -r '.[] | select(.installed | not)
-                     | select(.install_methods[0].method != "manual")
-                     | select(.tool | contains("/") | not)
-                     | .tool')"
-          echo "Tools to install:"
-          echo "$missing"
-          for tool in $missing; do
-            ./target/debug/rsconstruct tools install -y "$tool"
-          done
-
-      # markdownlint is probed by bare name in tests but its registry entry
-      # is the project-local path node_modules/.bin/markdownlint, so the
-      # loop above cannot cover it.
-      - name: Install system markdownlint
-        run: npm install -g markdownlint-cli
+        run: ./target/debug/rsconstruct tools install -y --all
 
       # The suite hard-fails on any missing tool (tests never skip), so a
       # gap in the matrix fails the run loudly instead of shrinking it.

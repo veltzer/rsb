@@ -154,3 +154,95 @@ fn tools_stats_json() {
     let missing = summary["missing"].as_u64().unwrap();
     assert_eq!(installed + missing, total_tools, "installed + missing should equal total_tools");
 }
+
+/// Every install method named in the registry must be one that `install`
+/// actually implements. A method string with no arm in `processors::run`
+/// (there used to be a bogus "system") is not a config error the user can
+/// see — it surfaces only when someone tries to install that tool, as an
+/// "unknown install method" failure at the worst possible moment.
+#[test]
+fn tools_list_uses_only_implemented_install_methods() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    let output = run_rsconstruct_with_env(
+        project_path,
+        &["--json", "tools", "list"],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(output.status.success(), "tools list --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Kept in sync with the `match method` arms in processors::run().
+    const IMPLEMENTED: &[&str] = &[
+        "apt", "dnf", "pacman", "brew", "snap", "pip", "npm", "cargo", "gem", "binary", "manual",
+    ];
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("tools list --json should emit valid JSON");
+    let tools = parsed.as_array().expect("tools list --json should be an array");
+    assert!(!tools.is_empty(), "registry should not be empty");
+
+    for tool in tools {
+        let name = tool["tool"].as_str().unwrap_or("<unnamed>");
+        let methods = tool["install_methods"].as_array().expect("tool should have install_methods");
+        assert!(!methods.is_empty(), "tool '{name}' has no install method at all");
+        for m in methods {
+            let method = m["method"].as_str().expect("install method should have a 'method' string");
+            assert!(
+                IMPLEMENTED.contains(&method),
+                "tool '{name}' declares install method '{method}', which processors::run() does not implement",
+            );
+        }
+    }
+}
+
+/// `tools install --all` must be able to install every registry entry.
+/// A manual-only entry makes `--all` a hard error, which would break CI
+/// provisioning, so the registry must not contain one.
+#[test]
+fn tools_install_all_has_no_manual_only_entries() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    let output = run_rsconstruct_with_env(
+        project_path,
+        &["--json", "tools", "list"],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(output.status.success(), "tools list --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("tools list --json should emit valid JSON");
+    let manual_only: Vec<&str> = parsed.as_array().expect("array")
+        .iter()
+        .filter(|tool| {
+            tool["install_methods"].as_array().is_some_and(|ms| {
+                !ms.is_empty() && ms.iter().all(|m| m["method"].as_str() == Some("manual"))
+            })
+        })
+        .map(|tool| tool["tool"].as_str().unwrap_or("<unnamed>"))
+        .collect();
+
+    assert!(
+        manual_only.is_empty(),
+        "these tools have only a manual install method, so `tools install --all` cannot provision them: {manual_only:?}",
+    );
+}
+
+/// `--all` walks the registry instead of the config, so it must reject a
+/// tool name rather than silently ignoring one of the two.
+#[test]
+fn tools_install_all_conflicts_with_tool_name() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    let output = run_rsconstruct_with_env(
+        project_path,
+        &["tools", "install", "--all", "ruff"],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(!output.status.success(), "`tools install --all ruff` should be rejected");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot be used with"),
+        "expected a clap conflict error, got: {stderr}",
+    );
+}
