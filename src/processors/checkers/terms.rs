@@ -444,7 +444,7 @@ fn looks_like_term_reference(inner: &str) -> bool {
 }
 
 /// Find unquoted term positions (byte offsets) for the fix command.
-/// Returns (start, end, term_text) sorted longest-first, non-overlapping.
+/// Returns (start, end, `term_text`) sorted longest-first, non-overlapping.
 fn find_unquoted_positions(content: &str, sorted_terms: &[&str]) -> Vec<(usize, usize, String)> {
     let fenced = excluded_ranges(content);
     let backtick_spans = backtick_span_ranges(content, &fenced);

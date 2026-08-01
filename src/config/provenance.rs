@@ -47,7 +47,7 @@ pub enum Section {
     Analyzer,
 }
 
-/// A map from (section, instance_name, field) to the line number in the user's
+/// A map from (section, `instance_name`, field) to the line number in the user's
 /// rsconstruct.toml where the field was set. Populated by walking a
 /// [`DocumentMut`] once at config load time.
 ///

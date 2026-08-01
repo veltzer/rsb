@@ -1,4 +1,4 @@
-//! yaml2json generator — registered as a SimpleGenerator with a custom execute fn.
+//! yaml2json generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::fs;
 use anyhow::{Context, Result};

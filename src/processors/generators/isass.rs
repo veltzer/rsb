@@ -1,4 +1,4 @@
-//! isass generator — registered as a SimpleGenerator with a custom execute fn.
+//! isass generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::fs;
 use anyhow::{Context, Result};

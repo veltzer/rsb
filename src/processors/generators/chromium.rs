@@ -1,4 +1,4 @@
-//! chromium generator — registered as a SimpleGenerator with a custom execute fn.
+//! chromium generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::fs;
 use std::process::Command;

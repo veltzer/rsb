@@ -14,7 +14,7 @@ use crate::word_manager::WordManager;
 
 pub struct ZspellProcessor {
     config: ZspellConfig,
-    /// Cached dictionary, built once on first use and reused across all execute() calls
+    /// Cached dictionary, built once on first use and reused across all `execute()` calls
     cached_dict: OnceLock<Result<zspell::Dictionary, String>>,
     words: WordManager,
 }

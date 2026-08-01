@@ -242,7 +242,7 @@ mod tests {
     }
 
     /// The entries are sorted before comparison precisely so that
-    /// filesystem-dependent read_dir order can't read as a change; content
+    /// filesystem-dependent `read_dir` order can't read as a change; content
     /// changes still must.
     #[test]
     fn tree_change_detection_ignores_order_but_sees_content() {
@@ -268,7 +268,7 @@ mod tests {
     }
 
     /// Descriptors are stored read-only; a second store over the same key
-    /// must take the PermissionDenied retry path and still succeed.
+    /// must take the `PermissionDenied` retry path and still succeed.
     #[test]
     fn descriptor_overwrite_survives_read_only_previous() {
         let tmp = tempfile::TempDir::new().unwrap();

@@ -1,4 +1,4 @@
-//! cpplint checker — registered as a {SimpleChecker}.
+//! cpplint checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

@@ -47,8 +47,8 @@ fn expand_tilde(path: &str) -> String {
     path.to_string()
 }
 
-/// Recursively symlink all files from source_dir to target_root,
-/// preserving directory structure relative to source_root.
+/// Recursively symlink all files from `source_dir` to `target_root`,
+/// preserving directory structure relative to `source_root`.
 fn install_dir(source_dir: &Path, target_root: &Path, source_root: &Path) -> Result<(usize, usize, usize)> {
     if !source_dir.is_dir() {
         bail!("Source folder does not exist: {}", source_dir.display());

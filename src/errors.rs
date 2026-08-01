@@ -1,8 +1,8 @@
-/// Add context to a Result with automatic file:line location.
+/// Add context to a Result with automatic <file:line> location.
 ///
 /// Usage:
-///   ctx(fs::read(&path), "Failed to read config")?;
-///   let data = ctx(fs::read(&path), &format!("Failed to read {}", path.display()))?;
+///   `ctx(fs::read(&path)`, "Failed to read config")?;
+///   let data = `ctx(fs::read(&path)`, &format!("Failed to read {}", `path.display()`))?;
 ///
 /// Produces error messages like:
 ///   "Failed to read config at src/config/mod.rs:42: No such file or directory"
@@ -12,7 +12,7 @@ pub fn ctx<T, E: std::fmt::Display>(r: Result<T, E>, msg: &str) -> anyhow::Resul
     r.map_err(|e| anyhow::anyhow!("{} at {}:{}: {}", msg, loc.file(), loc.line(), e))
 }
 
-/// Like ctx() but for Option — converts None to an error with file:line location.
+/// Like `ctx()` but for Option — converts None to an error with <file:line> location.
 #[track_caller]
 pub fn ctx_opt<T>(r: Option<T>, msg: &str) -> anyhow::Result<T> {
     let loc = std::panic::Location::caller();

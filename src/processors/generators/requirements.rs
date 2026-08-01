@@ -2,7 +2,7 @@
 //!
 //! Scans every `.py` file in the project, collects the top-level import names,
 //! filters out local modules (resolve to project files) and stdlib, maps each
-//! remaining import name to its PyPI distribution name, and writes the sorted
+//! remaining import name to its `PyPI` distribution name, and writes the sorted
 //! result to `requirements.txt`.
 
 use std::collections::{BTreeSet, HashSet};

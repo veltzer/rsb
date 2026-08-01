@@ -1,4 +1,4 @@
-//! jslint checker — registered as a {SimpleChecker}.
+//! jslint checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

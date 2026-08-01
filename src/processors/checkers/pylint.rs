@@ -1,4 +1,4 @@
-//! pylint checker — registered as a {SimpleChecker}.
+//! pylint checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

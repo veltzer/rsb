@@ -188,7 +188,7 @@ impl Product {
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 struct PathId(u32);
 
-/// Interns `PathBuf`s into small integer IDs for use as HashMap keys in
+/// Interns `PathBuf`s into small integer IDs for use as `HashMap` keys in
 /// `BuildGraph`'s hot lookup tables. Hashing and comparing `u32` is one
 /// instruction each, versus walking every component of a path.
 #[derive(Default)]
@@ -232,7 +232,7 @@ pub struct BuildGraph {
     /// One path may feed many products (e.g. a shared header).
     input_to_products: HashMap<PathId, Vec<usize>>,
     /// Dedup index for checker products (outputs empty): maps
-    /// (processor, primary_input_id, variant) → product id. Replaces an O(N)
+    /// (processor, `primary_input_id`, variant) → product id. Replaces an O(N)
     /// linear scan that dominated `status` wall time on large projects.
     checker_dedup: HashMap<(String, PathId, Option<String>), usize>,
     /// Adjacency list: product id -> list of product ids that depend on it
@@ -387,7 +387,7 @@ impl BuildGraph {
     }
 
     /// Add a product with an output directory for creator caching.
-    /// The output_dir is the directory whose contents will be cached/restored as a whole.
+    /// The `output_dir` is the directory whose contents will be cached/restored as a whole.
     pub fn add_product_with_output_dir(&mut self, inputs: Vec<PathBuf>, outputs: Vec<PathBuf>, processor: &str, config_hash: Option<String>, output_dir: PathBuf) -> Result<usize> {
         self.add_product_with_output_dirs_and_variant(inputs, outputs, processor, config_hash, vec![output_dir], None)
     }
@@ -1145,7 +1145,7 @@ mod tests {
     }
 
     /// Simulate the fixed-point discovery bug: a product with no outputs
-    /// (like explicit processors with output_dirs) is first discovered with
+    /// (like explicit processors with `output_dirs`) is first discovered with
     /// only literal inputs (globs match nothing on pass 0). On pass 1,
     /// virtual files from upstream generators are available and the product
     /// is re-declared with expanded inputs. The dedup must update the inputs
@@ -1204,7 +1204,7 @@ mod tests {
             "pandoc (pos {gen_pos}) must run before explicit (pos {explicit_pos})");
     }
 
-    /// filter_by_targets rebuilds the graph with new ids; the edges between
+    /// `filter_by_targets` rebuilds the graph with new ids; the edges between
     /// surviving products must be re-resolved so a producer still runs
     /// before its consumer under `build -t <pattern>`.
     #[test]

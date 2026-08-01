@@ -21,7 +21,7 @@ pub struct RuntimeFlags {
     /// Suppress all output except errors (--quiet)
     pub quiet: bool,
     /// Whether to emit ANSI color escape sequences.
-    /// Resolved from --color (auto/always/never) and the NO_COLOR env var.
+    /// Resolved from --color (auto/always/never) and the `NO_COLOR` env var.
     pub color_enabled: bool,
 }
 

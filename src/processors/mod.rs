@@ -356,7 +356,7 @@ pub fn dot_to_svg(ctx: &crate::build_context::BuildContext, dot_content: &str) -
 }
 
 /// Append new words to a words file without truncating existing content.
-/// Used by aspell and zspell processors for their auto_add_words feature.
+/// Used by aspell and zspell processors for their `auto_add_words` feature.
 /// `existing` is the set of words already on disk, `new_words` the words to add.
 /// If `header_line` is Some and the file does not yet exist, it is written as the
 /// first line (e.g. aspell .pws header). New words are appended to the end of the
@@ -419,7 +419,7 @@ pub fn ensure_output_dir(output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Remove the output_dirs of a product. Used by creator clean() methods.
+/// Remove the `output_dirs` of a product. Used by creator `clean()` methods.
 /// Returns the number of directories removed.
 pub fn clean_output_dir(product: &Product, processor_name: &str, verbose: bool) -> Result<usize> {
     let mut count = 0;
@@ -449,7 +449,7 @@ pub fn build_anchor_inputs(anchor: &Path, sibling_files: &[PathBuf], extra: &[Pa
     inputs
 }
 
-/// Scan and skip-if-empty, the pattern creators repeat in their discover()
+/// Scan and skip-if-empty, the pattern creators repeat in their `discover()`
 /// methods. Returns None if no files were found, otherwise the file list.
 pub fn scan_or_skip(scan: &crate::config::StandardConfig, file_index: &FileIndex) -> Option<Vec<PathBuf>> {
     let files = file_index.scan(scan, true);
@@ -560,9 +560,9 @@ pub fn discover_directory_products(
 /// patterns like `"ruff.toml"` that expand to existing files). Both are
 /// from `StandardConfig`.
 ///
-/// Replaces the former `discover_checker_products` (no dep_auto merge)
-/// and `checker_discover` (with dep_auto merge) — the split was a
-/// correctness hazard since picking the wrong one silently lost dep_auto.
+/// Replaces the former `discover_checker_products` (no `dep_auto` merge)
+/// and `checker_discover` (with `dep_auto` merge) — the split was a
+/// correctness hazard since picking the wrong one silently lost `dep_auto`.
 pub fn discover_checker_products(
     graph: &mut BuildGraph,
     scan: &crate::config::StandardConfig,
@@ -592,10 +592,10 @@ pub fn discover_checker_products(
     Ok(())
 }
 
-/// Standard checker auto_detect: check if scan finds any files.
+/// Standard checker `auto_detect`: check if scan finds any files.
 /// When `check_scan_root` is true, also validates that the scan root
-/// directory exists (used by processors like clang_tidy that have a
-/// meaningful scan_root guard).
+/// directory exists (used by processors like `clang_tidy` that have a
+/// meaningful `scan_root` guard).
 pub fn checker_auto_detect(scan: &crate::config::StandardConfig, file_index: &FileIndex) -> bool {
     !file_index.scan(scan, true).is_empty()
 }
@@ -793,7 +793,7 @@ pub type ProcessorMap = HashMap<String, Box<dyn Processor>>;
 ///   entirely (instant).
 ///
 /// - **Creators** produce a mass of output files in a directory but don't enumerate
-///   those outputs individually (e.g., pip → site-packages, npm → node_modules, cargo → target).
+///   those outputs individually (e.g., pip → site-packages, npm → `node_modules`, cargo → target).
 ///   They use stamp files or empty outputs for cache tracking, similar to checkers.
 ///
 /// This design ensures that `rsconstruct clean && rsconstruct build` is fast for all types - generators
@@ -801,7 +801,7 @@ pub type ProcessorMap = HashMap<String, Box<dyn Processor>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[derive(strum::EnumIter)]
 pub enum ProcessorType {
-    /// Generates new output files from input files (e.g., tera, cc_single_file).
+    /// Generates new output files from input files (e.g., tera, `cc_single_file`).
     /// Products have non-empty `outputs` which are cached and can be restored.
     Generator,
     /// Checks/validates input files without producing output files (e.g., ruff, pylint, shellcheck).
@@ -845,8 +845,8 @@ impl ProcessorType {
 
 }
 
-/// Helper namespace for processor boilerplate (config_json, clean, clean_output_dir).
-/// No state — description and processor_type now live on the plugin metadata.
+/// Helper namespace for processor boilerplate (`config_json`, clean, `clean_output_dir`).
+/// No state — description and `processor_type` now live on the plugin metadata.
 pub struct ProcessorBase;
 
 impl ProcessorBase {
@@ -921,7 +921,7 @@ pub trait Processor: Sync + Send {
     fn scan_config(&self) -> &crate::config::StandardConfig;
 
     /// Discover all products this processor can produce.
-    /// Default: standard checker discover using dep_inputs/dep_auto from scan_config.
+    /// Default: standard checker discover using `dep_inputs/dep_auto` from `scan_config`.
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
         let cfg = self.scan_config();
         discover_checker_products(graph, cfg, file_index, &cfg.dep_inputs, &cfg.dep_auto, cfg, <crate::config::StandardConfig as crate::config::KnownFields>::checksum_fields(), instance_name)
@@ -951,7 +951,7 @@ pub trait Processor: Sync + Send {
         Vec::new()
     }
 
-    /// Return tool version commands: Vec of (tool_name, args_to_get_version).
+    /// Return tool version commands: Vec of (`tool_name`, `args_to_get_version`).
     fn tool_version_commands(&self) -> Vec<(String, Vec<String>)> {
         self.required_tools()
             .into_iter()
@@ -975,7 +975,7 @@ pub trait Processor: Sync + Send {
     }
 
     /// Fix a single product (modify source files in place).
-    /// Only called when can_fix() returns true.
+    /// Only called when `can_fix()` returns true.
     fn fix(&self, ctx: &crate::build_context::BuildContext, product: &Product) -> Result<()> {
         let _ = (ctx, product);
         anyhow::bail!("fix not implemented for this processor")
@@ -987,7 +987,7 @@ pub trait Processor: Sync + Send {
     }
 
     /// Fix multiple products in one invocation.
-    /// Only called when supports_fix_batch() returns true.
+    /// Only called when `supports_fix_batch()` returns true.
     fn fix_batch(&self, ctx: &crate::build_context::BuildContext, products: &[&Product]) -> Vec<Result<()>> {
         products.iter().map(|p| self.fix(ctx, p)).collect()
     }
@@ -1884,7 +1884,7 @@ mod tests {
     /// whether the default `command` appears in `required_tools()`, so
     /// comparing that against the registry flag pins them together.
     ///
-    /// Scoped to SimpleGenerator deliberately. Hand-written processors have
+    /// Scoped to `SimpleGenerator` deliberately. Hand-written processors have
     /// legitimate reasons to be native yet name tools (tera renders
     /// in-process but its template functions can shell out to `git`), and
     /// non-native ones may run something other than their configured command

@@ -28,7 +28,7 @@ pub struct CppDepAnalyzer {
     canonical_root: OnceLock<PathBuf>,
     /// Cached include paths from pkg-config
     pkg_config_include_paths: OnceLock<Vec<PathBuf>>,
-    /// Cached include paths from include_path_commands
+    /// Cached include paths from `include_path_commands`
     command_include_paths: OnceLock<Vec<PathBuf>>,
 }
 
@@ -58,7 +58,7 @@ impl CppDepAnalyzer {
         })
     }
 
-    /// Run configured include_path_commands to get additional include paths (lazy, cached).
+    /// Run configured `include_path_commands` to get additional include paths (lazy, cached).
     fn get_command_include_paths(&self, ctx: &crate::build_context::BuildContext) -> &[PathBuf] {
         self.command_include_paths.get_or_init(|| {
             super::run_include_path_commands(ctx, "cpp", &self.config.include_path_commands, self.verbose)

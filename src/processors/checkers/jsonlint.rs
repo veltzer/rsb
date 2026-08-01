@@ -1,4 +1,4 @@
-//! jsonlint checker — registered as a {SimpleChecker}.
+//! jsonlint checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

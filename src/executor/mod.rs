@@ -44,7 +44,7 @@ struct WorkItem {
 }
 
 /// Context passed to handler methods for a single product operation.
-/// Groups the parameters common across handle_restore, handle_error, handle_success.
+/// Groups the parameters common across `handle_restore`, `handle_error`, `handle_success`.
 struct HandlerContext<'b> {
     product: &'b crate::graph::Product,
     id: usize,

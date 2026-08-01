@@ -1,4 +1,4 @@
-//! black checker — registered as a {SimpleChecker}.
+//! black checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

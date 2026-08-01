@@ -44,7 +44,7 @@ enum GraphBuildMode {
     ForClean,
 }
 
-/// Return the keys of a HashMap sorted alphabetically.
+/// Return the keys of a `HashMap` sorted alphabetically.
 fn sorted_keys<V>(map: &HashMap<String, V>) -> Vec<&String> {
     let mut keys: Vec<&String> = map.keys().collect();
     keys.sort();
@@ -61,7 +61,7 @@ fn phases_debug() -> bool {
 /// new snapshot point means adding a variant here and a `print_graph_stats`
 /// call at the site — the type checker keeps the two in sync.
 ///
-/// The variant name (`SNAPSHOT_NAME` in SCREAMING_SNAKE_CASE) is printed
+/// The variant name (`SNAPSHOT_NAME` in `SCREAMING_SNAKE_CASE`) is printed
 /// verbatim next to the counts so the user can grep for a specific point
 /// or feed the symbolic name back into future CLI flags (e.g. stop-at).
 #[derive(Debug, Clone, Copy)]
@@ -84,7 +84,7 @@ pub enum GraphSnapshot {
 
 impl GraphSnapshot {
     /// Symbolic name shown in graph-stats output. Matches the enum variant
-    /// in SCREAMING_SNAKE_CASE.
+    /// in `SCREAMING_SNAKE_CASE`.
     const fn name(self) -> &'static str {
         match self {
             GraphSnapshot::Start => "START",
@@ -107,8 +107,8 @@ impl GraphSnapshot {
 ///   - `edges`: producer→consumer edges (one product's output is another's input).
 ///   - `inputs`: total input-file references across all products. Headers added
 ///     by analyzers don't form `edges` (they aren't outputs of any product),
-///     but they DO grow `inputs` — diff `inputs` between AFTER_DISCOVER and
-///     AFTER_ADD_DEPENDENCIES to see how much the analyzer phase contributed.
+///     but they DO grow `inputs` — diff `inputs` between `AFTER_DISCOVER` and
+///     `AFTER_ADD_DEPENDENCIES` to see how much the analyzer phase contributed.
 pub fn print_graph_stats(snapshot: GraphSnapshot, graph: &BuildGraph) {
     if !crate::runtime_flags::graph_stats() {
         return;
@@ -129,7 +129,7 @@ pub fn print_graph_stats(snapshot: GraphSnapshot, graph: &BuildGraph) {
     );
 }
 
-/// Labels for the four product states used by dry_run and status.
+/// Labels for the four product states used by `dry_run` and status.
 struct ProductStatusLabels<'a> {
     current: (Cow<'a, str>, &'static str),
     restorable: (Cow<'a, str>, &'static str),
@@ -184,10 +184,10 @@ pub struct Builder {
 }
 
 impl Builder {
-    /// Apply config-derived settings to the BuildContext. Call this once after
+    /// Apply config-derived settings to the `BuildContext`. Call this once after
     /// creating the Builder, before any build/status operations. This bridges
-    /// config values that affect BuildContext state (e.g. mtime_check) without
-    /// requiring Builder::new() to take &BuildContext.
+    /// config values that affect `BuildContext` state (e.g. `mtime_check`) without
+    /// requiring `Builder::new()` to take &`BuildContext`.
     pub fn apply_config_to_context(&self, ctx: &crate::build_context::BuildContext) {
         if !self.config.cache.mtime_check {
             ctx.set_mtime_check(false);
@@ -477,7 +477,7 @@ impl Builder {
     }
 
     /// Return the set of processor type names whose files are detected in the project.
-    /// Uses default configs for all builtin processors to check auto_detect.
+    /// Uses default configs for all builtin processors to check `auto_detect`.
     pub fn detected_processors(&self) -> Result<std::collections::HashSet<String>> {
         let processors = create_all_default_processors()?;
         let mut detected = std::collections::HashSet::new();
@@ -643,7 +643,7 @@ impl Builder {
     }
 
     /// Build the dependency graph using provided processors
-    /// processor_filter: if Some, only run processors in this list (in addition to enabled check)
+    /// `processor_filter`: if Some, only run processors in this list (in addition to enabled check)
     fn build_graph_with_processors_impl(&self, ctx: &crate::build_context::BuildContext, processors: &ProcessorMap, mode: GraphBuildMode, stop_after: BuildPhase, processor_filter: Option<&[String]>, verbose: bool) -> Result<(BuildGraph, PhaseTimings)> {
         if phases_debug() {
             eprintln!("{}", color::bold("Phase: Building dependency graph..."));

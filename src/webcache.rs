@@ -232,7 +232,7 @@ pub fn list_with_ttl(ttl_secs: u64) -> Result<Vec<CacheEntry>> {
     })
 }
 
-/// Return (total_bytes, entry_count) for the webcache.
+/// Return (`total_bytes`, `entry_count`) for the webcache.
 pub fn stats() -> Result<(u64, usize)> {
     let entries = list()?;
     let total: u64 = entries.iter().map(|e| e.size as u64).sum();
@@ -262,7 +262,7 @@ mod tests {
     }
 
     /// A clock that moves backwards (NTP correction, VM restore) must not
-    /// produce a gigantic age that wraps — saturating_sub keeps it at 0,
+    /// produce a gigantic age that wraps — `saturating_sub` keeps it at 0,
     /// meaning "fresh", which is the safe direction for a cache.
     #[test]
     fn backwards_clock_does_not_underflow() {

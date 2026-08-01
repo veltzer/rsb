@@ -1,4 +1,4 @@
-//! protobuf generator — registered as a SimpleGenerator with a custom execute fn.
+//! protobuf generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::process::Command;
 use anyhow::Result;

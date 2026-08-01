@@ -28,7 +28,7 @@ struct MtimeEntry {
     checksum: String,
 }
 
-/// Open or get the mtime database from the BuildContext.
+/// Open or get the mtime database from the `BuildContext`.
 fn get_mtime_db(ctx: &BuildContext) -> Result<std::sync::MutexGuard<'_, Option<redb::Database>>> {
     let mut guard = ctx.mtime_db.lock().unwrap();
     if guard.is_none() {
@@ -40,7 +40,7 @@ fn get_mtime_db(ctx: &BuildContext) -> Result<std::sync::MutexGuard<'_, Option<r
     Ok(guard)
 }
 
-/// Calculate SHA-256 checksum of a file's contents, using the BuildContext's
+/// Calculate SHA-256 checksum of a file's contents, using the `BuildContext`'s
 /// in-memory cache. First call for a given path streams the file through
 /// the hasher and caches the result. Subsequent calls return the cached
 /// value.

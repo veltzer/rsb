@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(enabled(), crate::json_output::human_output_enabled());
     }
 
-    /// Under the test defaults (no runtime_flags::init), the non-panicking
+    /// Under the test defaults (no `runtime_flags::init`), the non-panicking
     /// accessors report neither json nor quiet, so human output is on.
     #[test]
     fn defaults_allow_human_output() {

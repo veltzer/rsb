@@ -6,7 +6,7 @@ use crate::config::all_type_names;
 
 const CONFIG_FILE: &str = "rsconstruct.toml";
 
-/// Load rsconstruct.toml as a toml_edit document.
+/// Load rsconstruct.toml as a `toml_edit` document.
 fn load_doc() -> Result<toml_edit::DocumentMut> {
     let content = fs::read_to_string(CONFIG_FILE)
         .with_context(|| format!("Failed to read {CONFIG_FILE}"))?;
@@ -14,7 +14,7 @@ fn load_doc() -> Result<toml_edit::DocumentMut> {
         .with_context(|| format!("Failed to parse {CONFIG_FILE}"))
 }
 
-/// Write a toml_edit document back to rsconstruct.toml.
+/// Write a `toml_edit` document back to rsconstruct.toml.
 fn save_doc(doc: &toml_edit::DocumentMut) -> Result<()> {
     fs::write(CONFIG_FILE, doc.to_string())
         .with_context(|| format!("Failed to write {CONFIG_FILE}"))

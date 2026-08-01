@@ -1,12 +1,12 @@
-//! Import name → PyPI distribution name mapping for the `requirements` generator.
+//! Import name → `PyPI` distribution name mapping for the `requirements` generator.
 //!
-//! Most PyPI distributions use the same name as their top-level import — we
+//! Most `PyPI` distributions use the same name as their top-level import — we
 //! default to identity. This table lists the common exceptions where the
 //! import name differs from the distribution name.
 //!
 //! Users can override these via the `mapping` config field; user entries win.
 
-/// Resolve a Python import name to a PyPI distribution name using the curated
+/// Resolve a Python import name to a `PyPI` distribution name using the curated
 /// table. Returns the distribution name if the import is mapped, or the
 /// original import name otherwise. Callers should consult the user's
 /// configured mapping first.
@@ -17,7 +17,7 @@ pub fn resolve_distribution(import_name: &str) -> &str {
         .unwrap_or(import_name)
 }
 
-/// Sorted list of (import_name, distribution_name) pairs. Must stay sorted —
+/// Sorted list of (`import_name`, `distribution_name`) pairs. Must stay sorted —
 /// `resolve_distribution` relies on binary search.
 const MAPPINGS: &[(&str, &str)] = &[
     ("PIL",                    "Pillow"),

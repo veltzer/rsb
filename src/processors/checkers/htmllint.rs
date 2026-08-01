@@ -1,4 +1,4 @@
-//! htmllint checker — registered as a {SimpleChecker}.
+//! htmllint checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

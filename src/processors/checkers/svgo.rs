@@ -1,4 +1,4 @@
-//! svgo checker — registered as a {SimpleChecker}.
+//! svgo checker — registered as a {`SimpleChecker`}.
 //! Runs `svgo --quiet -o - -i <file>` to validate SVG files; stdout is
 //! discarded and we only care about svgo's exit code (non-zero = malformed SVG).
 //! Batch is disabled: svgo requires matching input/output counts, so N inputs

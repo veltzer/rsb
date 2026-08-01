@@ -68,8 +68,8 @@ fn extract_comment_value(line: &str) -> Option<&str> {
 /// Check if a source file should be excluded from a specific compiler profile.
 ///
 /// Looks for directives like:
-///   // EXCLUDE_PROFILE=clang
-///   // EXCLUDE_PROFILE=gcc clang
+///   // `EXCLUDE_PROFILE=clang`
+///   // `EXCLUDE_PROFILE=gcc` clang
 ///
 /// Returns true if the file should be excluded for the given profile.
 fn should_exclude_for_profile(source: &Path, profile_name: &str) -> bool {
@@ -102,16 +102,16 @@ fn should_exclude_for_profile(source: &Path, profile_name: &str) -> bool {
 ///   /* EXTRA_COMPILE_FLAGS_AFTER=-O2 -DNDEBUG */
 ///   // EXTRA_COMPILE_CMD=pkg-config --cflags ACE
 ///   // EXTRA_LINK_CMD=pkg-config --libs ACE
-///   // EXTRA_COMPILE_SHELL=echo -DLEVEL2_CACHE_LINESIZE=$(getconf LEVEL2_CACHE_LINESIZE)
-///   // EXTRA_LINK_SHELL=echo -L$(brew --prefix openssl)/lib
+///   // `EXTRA_COMPILE_SHELL=echo` -`DLEVEL2_CACHE_LINESIZE=$(getconf` `LEVEL2_CACHE_LINESIZE`)
+///   // `EXTRA_LINK_SHELL=echo` -L$(brew --prefix openssl)/lib
 ///
 /// Compiler profile-specific flags (only applied when compiling with the named profile):
-///   // EXTRA_COMPILE_FLAGS_BEFORE[gcc]=-femit-struct-debug-baseonly
-///   // EXTRA_COMPILE_FLAGS_BEFORE[clang]=-gline-tables-only
+///   // `EXTRA_COMPILE_FLAGS_BEFORE`[gcc]=-femit-struct-debug-baseonly
+///   // `EXTRA_COMPILE_FLAGS_BEFORE`[clang]=-gline-tables-only
 ///
 /// Exclude file from specific profiles:
-///   // EXCLUDE_PROFILE=clang
-///   // EXCLUDE_PROFILE=gcc clang
+///   // `EXCLUDE_PROFILE=clang`
+///   // `EXCLUDE_PROFILE=gcc` clang
 ///
 /// `EXTRA_*_FLAGS_*` values are literal flags (with backtick expansion).
 /// `EXTRA_*_CMD` values are executed as a subprocess (no shell) and stdout is used as flags.
@@ -200,15 +200,15 @@ fn parse_source_flags(ctx: &crate::build_context::BuildContext, source: &Path, p
 }
 
 /// Match a directive with optional profile suffix.
-/// Returns Some((rest_of_line, applies)) if the directive matches.
+/// Returns `Some((rest_of_line`, applies)) if the directive matches.
 /// - `applies` is true if the directive applies to the current profile
 ///   (either no profile suffix, or profile suffix matches current profile)
 /// - `rest_of_line` is everything after the directive name (and optional profile suffix)
 ///
 /// Examples:
 ///   "EXTRA_COMPILE_FLAGS_BEFORE=-g" with profile "gcc" -> Some(("=-g", true))
-///   "EXTRA_COMPILE_FLAGS_BEFORE[gcc]=-g" with profile "gcc" -> Some(("=-g", true))
-///   "EXTRA_COMPILE_FLAGS_BEFORE[clang]=-g" with profile "gcc" -> Some(("=-g", false))
+///   "`EXTRA_COMPILE_FLAGS_BEFORE`[gcc]=-g" with profile "gcc" -> Some(("=-g", true))
+///   "`EXTRA_COMPILE_FLAGS_BEFORE`[clang]=-g" with profile "gcc" -> Some(("=-g", false))
 fn match_directive_with_profile<'a>(line: &'a str, directive: &str, profile_name: &str) -> Option<(&'a str, bool)> {
     if let Some(rest) = line.strip_prefix(directive) {
         // Check for profile suffix [profile_name]
@@ -354,7 +354,7 @@ impl CcSingleFileProcessor {
         src.as_os_str().is_empty() || src.exists()
     }
 
-    /// Find all C/C++ source files. Returns (path, is_cpp) pairs.
+    /// Find all C/C++ source files. Returns (path, `is_cpp`) pairs.
     fn find_source_files(&self, file_index: &FileIndex) -> Vec<(PathBuf, bool)> {
         file_index.scan(&self.config.standard, true)
             .into_iter()
@@ -367,8 +367,8 @@ impl CcSingleFileProcessor {
 
     /// Get executable path for a source file with a specific compiler profile.
     /// Preserves the full source path relative to project root.
-    /// E.g., src/a.cc -> out/cc_single_file/src/a.elf
-    /// With profile: src/a.cc -> out/cc_single_file/<profile_name>/src/a.elf
+    /// E.g., src/a.cc -> `out/cc_single_file/src/a.elf`
+    /// With profile: src/a.cc -> `out/cc_single_file`/<`profile_name>/src/a.elf`
     fn get_executable_path(&self, source: &Path, profile: &CompilerProfile) -> PathBuf {
         // Keep the full source path, just change the extension
         let stem = source.with_extension("");
@@ -452,7 +452,7 @@ impl CcSingleFileProcessor {
             .ok_or_else(|| anyhow::anyhow!("no compiler profiles configured"))
     }
 
-    /// Shared implementation for discover and discover_for_clean.
+    /// Shared implementation for discover and `discover_for_clean`.
     /// When `for_clean` is true, skips config hash and extra inputs (only needs output mapping).
     fn discover_impl(&self, graph: &mut BuildGraph, file_index: &FileIndex, for_clean: bool, instance_name: &str) -> Result<()> {
         if !self.should_process() {

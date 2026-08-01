@@ -18,7 +18,7 @@ use crate::progress;
 
 use super::{Classification, Executor, HandlerContext, LevelWork, PreCheckResult, RestoreOutcome, SharedState, WorkItem};
 
-/// Compute the effective max_jobs for a processor instance. The config
+/// Compute the effective `max_jobs` for a processor instance. The config
 /// field is capped by the plugin's static `max_jobs_cap`; `None` on either
 /// side means no limit on that side.
 fn effective_max_jobs(name: &str, proc: &dyn crate::processors::Processor) -> Option<usize> {
@@ -95,7 +95,7 @@ impl Semaphore {
 /// overwrite the read-only file. Removing outputs first ensures the tool
 /// can create fresh files.
 ///
-/// For products with output_dirs (Creators), we do NOT wipe entire directories
+/// For products with `output_dirs` (Creators), we do NOT wipe entire directories
 /// because other processors may contribute files to the same directory. Instead,
 /// we remove just the files recorded in this product's last tree descriptor
 /// (falling back to creating empty dirs if there is no prior tree).
@@ -209,7 +209,7 @@ impl Executor<'_> {
 
     /// Execute products in parallel where dependencies allow.
     /// Within each level, batch-supporting processors with multiple items
-    /// are grouped and executed via execute_batch() in a single thread.
+    /// are grouped and executed via `execute_batch()` in a single thread.
     fn execute_parallel(
         &self,
         graph: &BuildGraph,

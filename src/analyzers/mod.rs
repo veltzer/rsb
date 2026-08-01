@@ -65,7 +65,7 @@ pub trait DepAnalyzer: Sync + Send {
     /// The analyzer should:
     /// 1. Find products it can analyze (via `match_product`)
     /// 2. For each product, scan the primary source file for dependencies
-    /// 3. Use deps_cache to avoid re-scanning unchanged files
+    /// 3. Use `deps_cache` to avoid re-scanning unchanged files
     /// 4. Add discovered dependencies to the product's inputs
     /// 5. Tick `progress` once per product it processed (whether cache hit or miss)
     fn analyze(
@@ -206,14 +206,14 @@ pub fn run_include_path_commands(ctx: &crate::build_context::BuildContext, tag: 
 }
 
 /// Result of scanning a single source file: a list of dependency paths and
-/// a list of structured pieces mixed into each affected product's config_hash.
+/// a list of structured pieces mixed into each affected product's `config_hash`.
 ///
 /// `hash_pieces` is for analyzer state that must invalidate the cache key but
 /// is *not* a file content (e.g. the sorted set of paths matching a glob
 /// pattern, or the literal text of a shell command embedded in a template).
 /// Each piece is a `kind:body` string; the order is determined by the analyzer
 /// and must be stable across runs. The pieces are joined with `|` and mixed
-/// into the existing config_hash, so adding/removing entries from the set or
+/// into the existing `config_hash`, so adding/removing entries from the set or
 /// rewording the command flips the key even when no individual input file's
 /// content changed.
 ///

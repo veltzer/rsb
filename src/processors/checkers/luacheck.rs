@@ -1,4 +1,4 @@
-//! luacheck checker — registered as a {SimpleChecker}.
+//! luacheck checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

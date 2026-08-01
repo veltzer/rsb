@@ -26,14 +26,14 @@ const CONFIG_FILE: &str = "rsconstruct.toml";
 /// in a separate local file.
 pub const LOCAL_CONFIG_FILE: &str = "rsconstruct.local.toml";
 
-/// Scan field names in StandardConfig.
+/// Scan field names in `StandardConfig`.
 /// These are automatically appended to every processor's known fields during validation.
 pub const SCAN_CONFIG_FIELDS: &[&str] = &[
     "src_dirs", "src_extensions", "src_exclude_dirs", "src_exclude_files", "src_exclude_paths", "src_files",
 ];
 
-/// Universal StandardConfig fields that apply to every processor.
-/// Automatically appended to every processor's known_fields list during validation
+/// Universal `StandardConfig` fields that apply to every processor.
+/// Automatically appended to every processor's `known_fields` list during validation
 /// and to the defconfig display table — individual processors don't need to repeat them.
 pub const STANDARD_EXTRA_FIELDS: &[&str] = &["enabled"];
 
@@ -43,7 +43,7 @@ pub trait KnownFields {
 
     /// Return only the fields that affect build output.
     /// Changes to these fields should trigger config change detection.
-    /// Fields not listed here (e.g., src_dirs, src_exclude_dirs, batch, max_jobs)
+    /// Fields not listed here (e.g., `src_dirs`, `src_exclude_dirs`, batch, `max_jobs`)
     /// are discovery or execution parameters that don't affect what the tool produces.
     fn checksum_fields() -> &'static [&'static str];
 
@@ -54,7 +54,7 @@ pub trait KnownFields {
         &[]
     }
 
-    /// Return (field_name, description) pairs for processor-specific fields only.
+    /// Return (`field_name`, description) pairs for processor-specific fields only.
     /// Shared scan/dep/exec field descriptions are added by the display layer.
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
         &[]
@@ -62,7 +62,7 @@ pub trait KnownFields {
 }
 
 /// Default scan configuration for a processor, as plain data.
-/// Used to resolve None scan fields in StandardConfig after TOML deserialization.
+/// Used to resolve None scan fields in `StandardConfig` after TOML deserialization.
 pub struct ScanDefaultsData {
     pub src_dirs: &'static [&'static str],
     pub src_extensions: &'static [&'static str],
@@ -74,7 +74,7 @@ pub struct ScanDefaultsData {
 pub struct ProcessorDefaults {
     /// Default command binary name. Empty if not applicable.
     pub command: &'static str,
-    /// Default dep_auto entries.
+    /// Default `dep_auto` entries.
     pub dep_auto: &'static [&'static str],
     /// Default output directory (generators only). Empty if not applicable.
     pub output_dir: &'static str,
@@ -82,7 +82,7 @@ pub struct ProcessorDefaults {
     pub formats: &'static [&'static str],
     /// Default args. Empty if not applicable.
     pub args: &'static [&'static str],
-    /// Override for batch. None means leave the StandardConfig default (true).
+    /// Override for batch. None means leave the `StandardConfig` default (true).
     pub batch: Option<bool>,
 }
 
@@ -104,13 +104,13 @@ pub struct SimpleCheckerParams {
     /// processor has no fix capability.
     pub fix_subcommand: Option<&'static str>,
     /// Args prepended in fix mode (e.g., &["--write"] for prettier, &["--fix"] for eslint).
-    /// Empty means no fix capability (unless fix_subcommand is set).
+    /// Empty means no fix capability (unless `fix_subcommand` is set).
     pub fix_prepend_args: &'static [&'static str],
     /// Whether fix mode supports batch execution. Defaults follow check batch.
     pub fix_batch: Option<bool>,
 }
 
-/// Validate dep_inputs paths exist and return them as PathBufs.
+/// Validate `dep_inputs` paths exist and return them as `PathBufs`.
 /// Paths are relative to project root (which is cwd).
 pub fn resolve_extra_inputs(dep_inputs: &[String]) -> Result<Vec<PathBuf>> {
     let mut resolved = Vec::new();
@@ -157,7 +157,7 @@ pub const SHARED_FIELD_DESCRIPTIONS: &[(&str, &str)] = &[
 
 /// Compute a config hash including only the fields named in `checksum_fields`.
 /// This is allowlist-based: any key not in `checksum_fields` is removed before
-/// hashing. Each processor declares its own checksum_fields() list, which is the
+/// hashing. Each processor declares its own `checksum_fields()` list, which is the
 /// single source of truth for which config fields trigger cache invalidation.
 pub fn output_config_hash(value: &impl Serialize, checksum_fields: &[&str]) -> String {
     let json_value: serde_json::Value = serde_json::to_value(value).expect(errors::CONFIG_SERIALIZE);
@@ -260,7 +260,7 @@ pub struct Config {
     /// Field-level provenance for every top-level `[section]` (build, cache,
     /// graph, plugins, dependencies, command, completions). Each key is the
     /// section name; the inner map's keys are field names within that section.
-    /// Populated by `Config::load` from a toml_edit walk — never present in
+    /// Populated by `Config::load` from a `toml_edit` walk — never present in
     /// user TOML, so skipped during (de)serialization.
     #[serde(skip)]
     pub global_provenance: HashMap<String, ProvenanceMap>,
@@ -299,7 +299,7 @@ pub struct BuildConfig {
     #[serde(default)]
     pub batch_size: usize,
     /// Global output directory prefix (default: "out").
-    /// Processor output_dir fields that start with "out/" will use this as the base instead.
+    /// Processor `output_dir` fields that start with "out/" will use this as the base instead.
     #[serde(default = "default_output_dir")]
     pub output_dir: String,
     /// Maximum total argument length (in bytes) before splitting a checker
@@ -407,7 +407,7 @@ pub struct CacheConfig {
     /// Incompatible with hardlink restore method.
     #[serde(default)]
     pub compression: bool,
-    /// Remote cache URL (e.g., "s3://bucket/prefix", "http://host:port/path", or local "file:///path")
+    /// Remote cache URL (e.g., "<s3://bucket/prefix>", "http://host:port/path", or local "<file:///path>")
     #[serde(default)]
     pub remote: Option<String>,
     /// Whether to push local builds to remote cache (default: true)
@@ -456,8 +456,8 @@ pub const fn default_true() -> bool {
 }
 
 /// A single processor instance parsed from the TOML config.
-/// `[processor.pylint]` produces one instance with type_name="pylint", instance_name="pylint".
-/// `[processor.pylint.core]` produces one with type_name="pylint", instance_name="pylint.core".
+/// `[processor.pylint]` produces one instance with `type_name="pylint`", `instance_name="pylint`".
+/// `[processor.pylint.core]` produces one with `type_name="pylint`", `instance_name="pylint.core`".
 #[derive(Debug, Clone)]
 pub struct ProcessorInstance {
     /// Instance name: "pylint" for single, "pylint.core" for named
@@ -495,7 +495,7 @@ pub fn is_builtin_type(name: &str) -> bool {
 /// marking each as originating from the user's TOML. Defaults applied afterwards
 /// will see these entries and not overwrite them.
 ///
-/// Line numbers are filled in later by the toml_edit span pass; until then we
+/// Line numbers are filled in later by the `toml_edit` span pass; until then we
 /// use line 0 as a sentinel meaning "from user TOML, line unknown".
 pub fn seed_user_provenance(value: &toml::Value) -> ProvenanceMap {
     let mut map = ProvenanceMap::new();
@@ -555,7 +555,7 @@ impl ProcessorConfig {
         find_registry_entry(type_name).map(|e| (e.field_descriptions)())
     }
 
-    /// Return the default src_dirs for a builtin processor type, or None for Lua plugins.
+    /// Return the default `src_dirs` for a builtin processor type, or None for Lua plugins.
     pub(crate) fn default_src_dirs_for(type_name: &str) -> Option<&'static [&'static str]> {
         scan_defaults_for(type_name).map(|d| d.src_dirs)
     }
@@ -666,7 +666,7 @@ pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
     })
 }
 
-/// Return per-processor default values (command, dep_auto, batch override).
+/// Return per-processor default values (command, `dep_auto`, batch override).
 /// Only needed for processors whose defaults differ from the struct's Default impl.
 pub fn processor_defaults_for(type_name: &str) -> Option<ProcessorDefaults> {
     let d = ProcessorDefaults::default();
@@ -752,7 +752,7 @@ pub fn processor_defaults_for(type_name: &str) -> Option<ProcessorDefaults> {
 }
 
 /// Apply processor-specific defaults to a config TOML value.
-/// Sets command and dep_auto if they weren't explicitly provided by the user.
+/// Sets command and `dep_auto` if they weren't explicitly provided by the user.
 /// Every field that's actually injected is recorded in `provenance` as a processor default.
 /// Fields already present in `provenance` (i.e. user-set) are skipped.
 pub fn apply_processor_defaults(
@@ -829,7 +829,7 @@ fn set_maybe_empty_array_default(
 }
 
 /// Apply scan defaults to a config TOML value.
-/// Sets src_dirs, src_extensions, and src_exclude_dirs if not explicitly provided.
+/// Sets `src_dirs`, `src_extensions`, and `src_exclude_dirs` if not explicitly provided.
 /// Every field that's actually injected is recorded in `provenance` as a scan default.
 pub fn apply_scan_defaults(
     type_name: &str,
@@ -848,7 +848,7 @@ pub fn apply_scan_defaults(
 
 /// Processor configuration: a collection of declared processor instances.
 /// Each `[processor.TYPE]` or `[processor.TYPE.NAME]` section in rsconstruct.toml
-/// creates a ProcessorInstance. No instances exist by default — only what's declared.
+/// creates a `ProcessorInstance`. No instances exist by default — only what's declared.
 #[derive(Debug, Default)]
 pub struct ProcessorConfig {
     /// All declared processor instances
@@ -1046,8 +1046,8 @@ impl ProcessorConfig {
     /// 2. If the global `output_dir` is not "out", replace the `out/` prefix with the
     ///    global value (e.g., `build/` → `build/marp`).
     ///
-    /// When a field was originally a ProcessorDefault and gets rewritten here, its
-    /// provenance is upgraded to OutputDirDefault so `config show` can explain why
+    /// When a field was originally a `ProcessorDefault` and gets rewritten here, its
+    /// provenance is upgraded to `OutputDirDefault` so `config show` can explain why
     /// the value differs from the processor's own default.
     pub(crate) fn apply_output_dir_defaults(&mut self, global_output_dir: &str) {
         for inst in &mut self.instances {
@@ -1159,13 +1159,13 @@ impl Default for CompletionsConfig {
 }
 
 /// A single analyzer instance parsed from the TOML config.
-/// `[analyzer.cpp]` produces one instance with type_name="cpp", instance_name="cpp".
-/// `[analyzer.cpp.kernel]` produces one with type_name="cpp", instance_name="cpp.kernel".
+/// `[analyzer.cpp]` produces one instance with `type_name="cpp`", `instance_name="cpp`".
+/// `[analyzer.cpp.kernel]` produces one with `type_name="cpp`", `instance_name="cpp.kernel`".
 #[derive(Debug, Clone)]
 pub struct AnalyzerInstance {
     /// Instance name: "cpp" for single, "cpp.kernel" for named
     pub instance_name: String,
-    /// Analyzer type name (must match a registered AnalyzerPlugin name)
+    /// Analyzer type name (must match a registered `AnalyzerPlugin` name)
     pub type_name: String,
     /// The raw TOML config for this instance
     pub config_toml: toml::Value,
@@ -1174,7 +1174,7 @@ pub struct AnalyzerInstance {
 }
 
 /// Configuration for dependency analyzers.
-/// Each `[analyzer.NAME]` section in rsconstruct.toml creates an AnalyzerInstance.
+/// Each `[analyzer.NAME]` section in rsconstruct.toml creates an `AnalyzerInstance`.
 /// No analyzers run unless explicitly declared in the config.
 #[derive(Debug, Default)]
 pub struct AnalyzerConfig {
@@ -1221,9 +1221,9 @@ impl AnalyzerConfig {
     /// Parse the `[analyzer]` table from TOML into instances.
     ///
     /// Supports both single-instance and multi-instance syntax:
-    /// - `[analyzer.cpp]` with config fields → one instance, instance_name="cpp"
+    /// - `[analyzer.cpp]` with config fields → one instance, `instance_name="cpp`"
     /// - `[analyzer.cpp.kernel]` + `[analyzer.cpp.userspace]` → two instances,
-    ///   instance_name="cpp.kernel" and "cpp.userspace"
+    ///   `instance_name="cpp.kernel`" and "cpp.userspace"
     pub(crate) fn from_toml(value: &toml::Value) -> Result<Self> {
         let Some(table) = value.as_table() else {
             return Ok(Self::default());
@@ -1294,12 +1294,12 @@ enum FieldType {
     Bool,
     Integer,
     StringArray,
-    /// Array of tables (e.g., [[processor.cc_single_file.compilers]])
+    /// Array of tables (e.g., [[`processor.cc_single_file.compilers`]])
     TableArray,
-    /// Inline table (e.g., tags.field_types = { author = "string" })
+    /// Inline table (e.g., `tags.field_types` = { author = "string" })
     Table,
     /// Array with element types the validator doesn't constrain
-    /// (e.g. tags.required_field_groups is an array of string arrays).
+    /// (e.g. `tags.required_field_groups` is an array of string arrays).
     Array,
 }
 
@@ -1345,7 +1345,7 @@ impl FieldType {
 }
 
 /// Return the expected TOML type for a processor config field.
-/// Fields common to all processors (scan fields, enabled, args, dep_inputs)
+/// Fields common to all processors (scan fields, enabled, args, `dep_inputs`)
 /// are handled generically. Processor-specific fields are looked up by processor name.
 fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
     // Scan fields — shared by all processors
@@ -1699,7 +1699,7 @@ fn validate_analyzer_fields_raw(raw: &toml::Value) -> Vec<String> {
     errors
 }
 
-/// Check a single analyzer section's fields against the plugin's known_fields list.
+/// Check a single analyzer section's fields against the plugin's `known_fields` list.
 fn validate_analyzer_section(
     plugin: &registry::AnalyzerPlugin,
     section_label: &str,
@@ -1919,7 +1919,7 @@ impl Config {
     }
 
     /// Replace sentinel `UserToml { line: 0 }` entries with real line numbers
-    /// from the toml_edit pass. Any user-set field that didn't get a span
+    /// from the `toml_edit` pass. Any user-set field that didn't get a span
     /// stays at line 0 (fine — the `config show` formatter falls back to
     /// "from rsconstruct.toml" without a line number).
     fn apply_span_map(&mut self, spans: &SpanMap, local_spans: &SpanMap) {

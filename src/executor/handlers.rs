@@ -78,7 +78,7 @@ impl Executor<'_> {
 
     /// Handle cache restore for a product.
     /// Try to restore a product from cache.
-    /// When `emit_fail_event` is true, emits a product_complete "failed" JSON event on error.
+    /// When `emit_fail_event` is true, emits a `product_complete` "failed" JSON event on error.
     pub(super) fn handle_restore(
         &self,
         ctx: &HandlerContext,
@@ -150,7 +150,7 @@ impl Executor<'_> {
 
     /// Handle caching outputs and recording stats after successful execution.
     /// Returns `true` if caching succeeded, `false` if it failed (error is handled internally).
-    /// On success, emits a product_complete "success" JSON event and increments processed/files_created.
+    /// On success, emits a `product_complete` "success" JSON event and increments `processed/files_created`.
     pub(super) fn handle_success(
         &self,
         ctx: &HandlerContext,

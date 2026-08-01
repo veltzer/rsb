@@ -1,4 +1,4 @@
-//! doctest checker — registered as a {SimpleChecker}.
+//! doctest checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

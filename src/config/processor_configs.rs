@@ -118,7 +118,7 @@ impl KnownFields for StandardConfig {
 }
 
 /// Simple checker config. No custom fields.
-/// Unused StandardConfig fields: formats, output_dir.
+/// Unused `StandardConfig` fields: formats, `output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct CheckerConfig {
@@ -132,14 +132,14 @@ impl KnownFields for CheckerConfig {
     fn field_descriptions() -> &'static [(&'static str, &'static str)] { StandardConfig::field_descriptions() }
 }
 
-/// Alias for CheckerConfig (used by SimpleChecker).
+/// Alias for `CheckerConfig` (used by `SimpleChecker`).
 pub type CheckerConfigWithCommand = CheckerConfig;
 
 /// Config for Creator processors — run a command and cache declared outputs.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 /// Creator processor config.
-/// Custom fields: output_dirs, output_files.
-/// Unused StandardConfig fields: formats, output_dir.
+/// Custom fields: `output_dirs`, `output_files`.
+/// Unused `StandardConfig` fields: formats, `output_dir`.
 #[derive(Default)]
 pub struct CreatorConfig {
     /// Directories to cache after the command runs.
@@ -173,7 +173,7 @@ impl KnownFields for CreatorConfig {
     }
 }
 /// Tera template processor config. No custom fields.
-/// Unused StandardConfig fields: command, formats, output_dir.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct TeraConfig {
@@ -189,7 +189,7 @@ impl KnownFields for TeraConfig {
 
 /// Mako template processor config. No custom fields.
 /// `command` is the Python interpreter used to render (default: python3).
-/// Unused StandardConfig fields: formats, output_dir.
+/// Unused `StandardConfig` fields: formats, `output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct MakoConfig {
@@ -205,7 +205,7 @@ impl KnownFields for MakoConfig {
 
 /// Jinja2 template processor config. No custom fields.
 /// `command` is the Python interpreter used to render (default: python3).
-/// Unused StandardConfig fields: formats, output_dir.
+/// Unused `StandardConfig` fields: formats, `output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct Jinja2Config {
@@ -222,7 +222,7 @@ impl KnownFields for Jinja2Config {
 /// Engines accepted for `pandoc.pdf_engine`. Empty string means "use pandoc's default".
 pub const PANDOC_PDF_ENGINES: &[&str] = &["pdflatex", "xelatex", "lualatex", "tectonic", "wkhtmltopdf", "weasyprint", "prince", "context"];
 
-/// Pandoc processor config. Custom field: pdf_engine (forwarded to --pdf-engine
+/// Pandoc processor config. Custom field: `pdf_engine` (forwarded to --pdf-engine
 /// when format == pdf). Empty string keeps pandoc's default engine.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PandocConfig {
@@ -335,8 +335,8 @@ impl KnownFields for MarpConfig {
 
 pub type MarpImagesConfig = CheckerConfig;
 
-/// ClangTidy config. Custom fields: compiler_args.
-/// Unused StandardConfig fields: command, formats, output_dir.
+/// `ClangTidy` config. Custom fields: `compiler_args`.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct ClangTidyConfig {
@@ -398,8 +398,8 @@ pub struct CompilerProfile {
     pub output_suffix: String,
 }
 
-/// CcSingleFile config. Custom fields: cc, cxx, cflags, cxxflags, ldflags, output_suffix, compilers, include_paths, include_scanner.
-/// Unused StandardConfig fields: command, formats.
+/// `CcSingleFile` config. Custom fields: cc, cxx, cflags, cxxflags, ldflags, `output_suffix`, compilers, `include_paths`, `include_scanner`.
+/// Unused `StandardConfig` fields: command, formats.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CcSingleFileConfig {
     /// Legacy single-compiler fields (used when `compilers` is empty)
@@ -563,7 +563,7 @@ pub struct CcManifest {
     pub programs: Vec<CcProgramDef>,
 }
 
-/// CC (full C/C++ project) config. Custom: cc, cxx, cflags, cxxflags, ldflags, include_dirs, single_invocation, cache_output_dir.
+/// CC (full C/C++ project) config. Custom: cc, cxx, cflags, cxxflags, ldflags, `include_dirs`, `single_invocation`, `cache_output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CcConfig {
     #[serde(default = "default_cc_compiler")]
@@ -674,7 +674,7 @@ const fn default_linux_module_w() -> u32 {
 }
 
 /// Linux module config. No custom fields.
-/// Unused StandardConfig fields: command, formats, output_dir, args.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`, args.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
 pub struct LinuxModuleConfig {
@@ -700,15 +700,15 @@ fn default_zspell_dict_dir() -> String {
     "/usr/share/hunspell".into()
 }
 
-/// Zspell config. Custom fields: language, words_file, auto_add_words, dict_dir.
-/// Unused StandardConfig fields: command, formats, output_dir.
+/// Zspell config. Custom fields: language, `words_file`, `auto_add_words`, `dict_dir`.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ZspellConfig {
     #[serde(default = "default_zspell_language")]
     pub language: String,
     #[serde(default = "default_zspell_words_file")]
     pub words_file: String,
-    /// When true, automatically add misspelled words to words_file instead of failing
+    /// When true, automatically add misspelled words to `words_file` instead of failing
     #[serde(default)]
     pub auto_add_words: bool,
     /// Directory holding the hunspell .aff/.dic files for `language`.
@@ -757,7 +757,7 @@ fn default_cargo_profiles() -> Vec<String> {
     vec!["dev".into(), "release".into()]
 }
 
-/// Cargo config. Custom: cargo, profiles, cache_output_dir.
+/// Cargo config. Custom: cargo, profiles, `cache_output_dir`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CargoConfig {
     #[serde(default = "default_cargo")]
@@ -911,7 +911,7 @@ pub struct TagsConfig {
     /// Frontmatter fields that every markdown file must have.
     #[serde(default)]
     pub required_fields: Vec<String>,
-    /// Scalar fields whose values must exist in the corresponding tag_lists file.
+    /// Scalar fields whose values must exist in the corresponding `tag_lists` file.
     #[serde(default)]
     pub required_values: Vec<String>,
     /// Fields whose values must be unique across all files.
@@ -1004,7 +1004,7 @@ impl KnownFields for TagsConfig {
 
 
 /// Script processor config. No custom fields.
-/// Unused StandardConfig fields: formats, output_dir.
+/// Unused `StandardConfig` fields: formats, `output_dir`.
 /// Note: empty command means "no command configured".
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[derive(Default)]
@@ -1046,7 +1046,7 @@ fn default_generator_output_extension() -> String {
     "out".into()
 }
 
-/// Generator config. Custom: output_extension.
+/// Generator config. Custom: `output_extension`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GeneratorConfig {
     #[serde(default = "default_generator_output_extension")]
@@ -1086,7 +1086,7 @@ impl KnownFields for GeneratorConfig {
 
 // --- explicit processor (many inputs → few outputs, fully declared) ---
 
-/// Explicit config. Custom: inputs, input_globs, output_files, output_dirs.
+/// Explicit config. Custom: inputs, `input_globs`, `output_files`, `output_dirs`.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ExplicitConfig {
     #[serde(default)]
@@ -1199,7 +1199,7 @@ pub struct RequirementsConfig {
     /// are always checked in addition to these. Use this when modules live in
     /// a directory that is added to sys.path at runtime (e.g. via PYTHONPATH
     /// or sys.path.insert) so the static scanner doesn't mistake them for
-    /// PyPI distributions.
+    /// `PyPI` distributions.
     #[serde(default)]
     pub python_paths: Vec<String>,
     #[serde(flatten)]
@@ -1249,7 +1249,7 @@ impl KnownFields for RequirementsConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-/// Sphinx config. Custom: working_dir, cache_output_dir.
+/// Sphinx config. Custom: `working_dir`, `cache_output_dir`.
 pub struct SphinxConfig {
     #[serde(default)]
     pub working_dir: Option<String>,
@@ -1294,7 +1294,7 @@ impl KnownFields for SphinxConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-/// Mdbook config. Custom: cache_output_dir.
+/// Mdbook config. Custom: `cache_output_dir`.
 pub struct MdbookConfig {
     #[serde(default = "default_true")]
     pub cache_output_dir: bool,
@@ -1335,7 +1335,7 @@ impl KnownFields for MdbookConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-/// Npm config. Custom: cache_output_dir.
+/// Npm config. Custom: `cache_output_dir`.
 pub struct NpmConfig {
     #[serde(default = "default_true")]
     pub cache_output_dir: bool,

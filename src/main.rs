@@ -19,7 +19,6 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 #![allow(clippy::default_trait_access)]
 #![allow(clippy::doc_link_with_quotes)]
-#![allow(clippy::doc_markdown)]
 #![allow(clippy::format_push_string)]
 #![allow(clippy::if_not_else)]
 #![allow(clippy::ignored_unit_patterns)]
@@ -140,7 +139,7 @@ fn main() -> std::process::ExitCode {
     std::process::ExitCode::from(exit_code.code())
 }
 
-/// Returns (result, show_status_line). The status line is only shown for
+/// Returns (result, `show_status_line`). The status line is only shown for
 /// build, watch, and clean — commands where pass/fail matters to the user.
 fn run() -> (Result<()>, bool) {
     let t_start = Instant::now();

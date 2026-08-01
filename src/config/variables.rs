@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use crate::errors;
 
-/// Convert a toml::Value to its inline TOML string representation.
+/// Convert a `toml::Value` to its inline TOML string representation.
 /// This is used for variable substitution to insert values into the config.
 pub(super) fn value_to_toml_inline(value: &toml::Value) -> String {
     match value {

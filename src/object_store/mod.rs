@@ -100,9 +100,9 @@ impl std::fmt::Display for ExplainAction {
 ///
 /// Methods are split across submodules:
 /// - `blobs.rs` — content-addressed blob read/write/restore
-/// - `descriptors.rs` — cache descriptor CRUD and store_marker/blob/tree
-/// - `restore.rs` — restore_from_descriptor, needs_rebuild, can_restore, explain
-/// - `management.rs` — size, trim, remove_stale, list, stats
+/// - `descriptors.rs` — cache descriptor CRUD and `store_marker/blob/tree`
+/// - `restore.rs` — `restore_from_descriptor`, `needs_rebuild`, `can_restore`, explain
+/// - `management.rs` — size, trim, `remove_stale`, list, stats
 /// - `operations.rs` — remote cache push/fetch
 /// - `config_diff.rs` — processor config change tracking
 pub struct ObjectStore {
@@ -166,7 +166,7 @@ pub struct CacheListOutput {
     pub exists: bool,
 }
 
-/// Options for configuring an ObjectStore instance.
+/// Options for configuring an `ObjectStore` instance.
 pub struct ObjectStoreOptions {
     pub restore_method: RestoreMethod,
     pub compression: bool,

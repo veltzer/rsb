@@ -607,7 +607,7 @@ impl Builder {
 
 
 /// Write a Chrome trace format JSON file from build statistics.
-/// The file can be opened in chrome://tracing or https://ui.perfetto.dev
+/// The file can be opened in <chrome://tracing> or <https://ui.perfetto.dev>
 fn write_trace_file(path: &str, stats: &BuildStats) -> Result<()> {
     let mut events: Vec<serde_json::Value> = Vec::new();
     let mut tid_counter = 1u64;

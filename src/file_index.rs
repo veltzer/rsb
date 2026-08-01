@@ -10,7 +10,7 @@ pub struct FileIndex {
 
 #[cfg(test)]
 impl FileIndex {
-    /// Create a FileIndex from an explicit list of paths (for testing).
+    /// Create a `FileIndex` from an explicit list of paths (for testing).
     fn from_paths(mut files: Vec<PathBuf>) -> Self {
         files.sort();
         Self { files }

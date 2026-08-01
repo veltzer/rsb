@@ -65,7 +65,7 @@ impl TeraDepAnalyzer {
 
 /// Scan `source` for dependencies and recurse into any `{% include %}`,
 /// `{% import %}`, or `{% extends %}` referenced templates so that
-/// glob/git_count_files/shell_output calls in *any* transitively-included
+/// `glob/git_count_files/shell_output` calls in *any* transitively-included
 /// template participate in the parent product's dependency set and cache key.
 ///
 /// `paths` and `seen` accumulate the input file set; `hash_pieces` accumulates

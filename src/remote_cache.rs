@@ -25,7 +25,7 @@ pub trait RemoteCache: Send + Sync {
     fn download_bytes(&self, ctx: &crate::build_context::BuildContext, key: &str) -> Result<Option<Vec<u8>>>;
 
     /// Upload raw bytes (for index entries).
-    /// Default implementation writes to a temp file and delegates to upload().
+    /// Default implementation writes to a temp file and delegates to `upload()`.
     fn upload_bytes(&self, ctx: &crate::build_context::BuildContext, key: &str, data: &[u8]) -> Result<()> {
         use std::io::Write;
         let temp_dir = std::env::temp_dir();

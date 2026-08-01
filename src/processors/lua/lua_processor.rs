@@ -10,7 +10,7 @@ use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{clean_outputs, ensure_stub_dir, run_command, Processor};
 
-/// Convert a LuaResult to an anyhow::Result with a contextual message.
+/// Convert a `LuaResult` to an `anyhow::Result` with a contextual message.
 fn lua_context<T>(result: LuaResult<T>, msg: impl std::fmt::Display) -> Result<T> {
     result.map_err(|e| anyhow::anyhow!("{msg}: {e}"))
 }
@@ -32,13 +32,13 @@ impl CtxPtr {
     }
 }
 
-/// Retrieve the BuildContext from Lua app data. Returns a Lua error when
-/// called outside execute() — e.g. from clean() or auto_detect() — instead of
+/// Retrieve the `BuildContext` from Lua app data. Returns a Lua error when
+/// called outside `execute()` — e.g. from `clean()` or `auto_detect()` — instead of
 /// panicking or dereferencing a stale pointer.
 ///
-/// SAFETY: The raw pointer stored in CtxPtr is valid because it is set at the
-/// start of execute(), which holds a &BuildContext for the entire Lua call,
-/// and removed again before execute() returns.
+/// SAFETY: The raw pointer stored in `CtxPtr` is valid because it is set at the
+/// start of `execute()`, which holds a &`BuildContext` for the entire Lua call,
+/// and removed again before `execute()` returns.
 fn get_ctx_from_lua(lua: &Lua) -> Result<&crate::build_context::BuildContext, LuaError> {
     let guard = lua.app_data_ref::<CtxPtr>().ok_or_else(|| LuaError::external(
         "rsconstruct.run_command is only available during execute()"
@@ -55,7 +55,7 @@ pub struct LuaProcessor {
 }
 
 impl LuaProcessor {
-    /// Create a new LuaProcessor from a plugin script file.
+    /// Create a new `LuaProcessor` from a plugin script file.
     pub fn new(
         name: String,
         script_path: &Path,
@@ -89,7 +89,7 @@ impl LuaProcessor {
     }
 
     /// Discover all Lua plugins in the plugins directory.
-    /// Returns a Vec of (name, LuaProcessor) pairs.
+    /// Returns a Vec of (name, `LuaProcessor`) pairs.
     pub fn discover_plugins(
         plugins_dir: &str,
         extra_configs: &std::collections::HashMap<String, toml::Value>,
@@ -293,7 +293,7 @@ impl LuaProcessor {
         Ok(())
     }
 
-    /// Convert a toml::Value to a Lua value for passing config to Lua functions.
+    /// Convert a `toml::Value` to a Lua value for passing config to Lua functions.
     fn toml_to_lua(lua: &Lua, value: &toml::Value) -> LuaResult<LuaValue> {
         match value {
             toml::Value::String(s) => Ok(LuaValue::String(lua.create_string(s)?)),

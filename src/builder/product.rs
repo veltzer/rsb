@@ -1,5 +1,5 @@
 //! `rsconstruct product show <path>` — print everything that contributes to a
-//! single product's cache key: inputs (broken down by source), config_hash,
+//! single product's cache key: inputs (broken down by source), `config_hash`,
 //! analyzer-contributed hash pieces (live-recomputed), and the resulting
 //! descriptor key + cache state.
 //!

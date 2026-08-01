@@ -1,4 +1,4 @@
-//! imarkdown2html generator — registered as a SimpleGenerator with a custom execute fn.
+//! imarkdown2html generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::fs;
 use anyhow::{Context, Result};

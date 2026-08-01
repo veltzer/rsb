@@ -56,7 +56,7 @@ pub struct ProcessorPlugin {
     pub supports_batch: bool,
     /// Hard cap on parallel jobs for this processor. `None` means no cap.
     /// `Some(1)` means the processor must run one product at a time (e.g. package
-    /// managers, whole-project aggregators). The effective max_jobs is
+    /// managers, whole-project aggregators). The effective `max_jobs` is
     /// `min(config.max_jobs, max_jobs_cap)` with `None` treated as unlimited.
     pub max_jobs_cap: Option<usize>,
 }

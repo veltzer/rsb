@@ -38,7 +38,7 @@ impl WordManager {
         self.custom_words.lock().contains(word)
     }
 
-    /// Handle misspelled words: collect them if auto_add_words is true, or return an error.
+    /// Handle misspelled words: collect them if `auto_add_words` is true, or return an error.
     pub fn handle_misspelled(
         &self,
         misspelled: &[impl AsRef<str>],
@@ -86,7 +86,7 @@ impl WordManager {
     }
 
     /// Execute a single product with auto-flush: check the file, then flush if
-    /// auto_add_words. A failed flush fails the product — the collected words
+    /// `auto_add_words`. A failed flush fails the product — the collected words
     /// would otherwise be lost while the product caches as passing.
     pub fn execute_with_flush(
         &self,
@@ -139,7 +139,7 @@ impl WordManager {
 mod tests {
     use super::*;
 
-    /// flush() runs after every product; an already-flushed word must never be
+    /// `flush()` runs after every product; an already-flushed word must never be
     /// appended again, and flushed words become known for later files.
     #[test]
     fn flush_does_not_reappend_words() {

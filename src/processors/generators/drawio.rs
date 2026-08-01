@@ -1,4 +1,4 @@
-//! drawio generator — registered as a SimpleGenerator with a custom execute fn.
+//! drawio generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::process::Command;
 use anyhow::{Context, Result};

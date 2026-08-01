@@ -22,9 +22,9 @@ impl ExplicitProcessor {
         }
     }
 
-    /// Resolve literal inputs. Unlike dep_inputs, missing files are silently
+    /// Resolve literal inputs. Unlike `dep_inputs`, missing files are silently
     /// skipped — they may be virtual files from upstream generators that only
-    /// appear after fixed-point discovery injects them into the FileIndex.
+    /// appear after fixed-point discovery injects them into the `FileIndex`.
     fn resolve_inputs(&self, file_index: &FileIndex) -> Result<Vec<PathBuf>> {
         let mut resolved = Vec::new();
         // Literal inputs (in config order), only include files that exist

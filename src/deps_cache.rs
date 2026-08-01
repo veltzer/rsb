@@ -8,7 +8,7 @@
 //! `mypy-imports` pair) never overwrite each other's entries. The NUL
 //! separator is safe: neither analyzer inames nor paths can contain NUL.
 //!
-//! Cache value: (source_checksum, dependencies)
+//! Cache value: (`source_checksum`, dependencies)
 //!
 //! The cache is invalidated when the source file's checksum changes.
 
@@ -39,7 +39,7 @@ struct DepsEntry {
 }
 
 /// Result of a `classify` call — the predict-pass analogue of `DepsCacheStats`.
-/// MtimeHit + ContentHit = a hit that `get` would also report; Miss means
+/// `MtimeHit` + `ContentHit` = a hit that `get` would also report; Miss means
 /// `get` would rescan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClassifyResult {
@@ -55,7 +55,7 @@ pub enum ClassifyResult {
 /// `mtime_hits + content_hits == hits` always holds.
 #[derive(Debug, Default, Clone)]
 pub struct DepsCacheStats {
-    /// Total number of cache hits (mtime_hits + content_hits).
+    /// Total number of cache hits (`mtime_hits` + `content_hits`).
     pub hits: usize,
     /// Hits where the mtime cache shortcut succeeded — no file I/O was done.
     pub mtime_hits: usize,
@@ -225,7 +225,7 @@ impl DepsCache {
         &self.stats
     }
 
-    /// Collect all entries from the database as (analyzer, source_path, DepsEntry) triples.
+    /// Collect all entries from the database as (analyzer, `source_path`, `DepsEntry`) triples.
     /// Returns an empty Vec on any error (missing table, etc.).
     /// Entries with malformed keys (no NUL separator) are skipped — that would
     /// be a pre-key-format-change entry from an older build, effectively invalid.
@@ -244,7 +244,7 @@ impl DepsCache {
 
     /// Get all raw cached entries for a given source path, across every
     /// analyzer that has scanned it. Each returned tuple is (dependencies,
-    /// analyzer_name). Returns an empty Vec if the source has no entries.
+    /// `analyzer_name`). Returns an empty Vec if the source has no entries.
     /// Used by `analyzers show files <path>`, where the user gives a path and
     /// expects to see every analyzer's view of it.
     pub fn get_raw_for_path(&self, source: &Path) -> Vec<(Vec<PathBuf>, String)> {
@@ -259,7 +259,7 @@ impl DepsCache {
     }
 
     /// List all cached source files and their dependencies.
-    /// Returns tuples of (source_path, dependencies, analyzer_name).
+    /// Returns tuples of (`source_path`, dependencies, `analyzer_name`).
     pub fn list_all(&self) -> Vec<(PathBuf, Vec<PathBuf>, String)> {
         self.collect_entries()
             .into_iter()
@@ -271,7 +271,7 @@ impl DepsCache {
     }
 
     /// Get statistics about cached dependencies by analyzer.
-    /// Returns a map of analyzer_name -> (file_count, total_dep_count).
+    /// Returns a map of `analyzer_name` -> (`file_count`, `total_dep_count`).
     pub fn stats_by_analyzer(&self) -> std::collections::HashMap<String, (usize, usize)> {
         let mut stats: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
         for (analyzer, _source, entry) in self.collect_entries() {
@@ -284,7 +284,7 @@ impl DepsCache {
     }
 
     /// List cached source files and their dependencies filtered by analyzer names.
-    /// Returns tuples of (source_path, dependencies, analyzer_name).
+    /// Returns tuples of (`source_path`, dependencies, `analyzer_name`).
     pub fn list_by_analyzers(&self, analyzers: &[String]) -> Vec<(PathBuf, Vec<PathBuf>, String)> {
         self.collect_entries()
             .into_iter()

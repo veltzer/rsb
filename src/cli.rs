@@ -40,7 +40,7 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub quiet: bool,
 
-    /// Show build phase messages (discover, add_dependencies, etc.)
+    /// Show build phase messages (discover, `add_dependencies`, etc.)
     #[arg(long, global = true)]
     pub phases: bool,
 
@@ -54,7 +54,7 @@ pub struct Cli {
     pub no_mtime_cache: bool,
 
     /// When to use ANSI color output: auto (tty only), always, or never.
-    /// Also honored via the NO_COLOR env var (sets mode to never).
+    /// Also honored via the `NO_COLOR` env var (sets mode to never).
     #[arg(long, global = true, value_enum, default_value = "auto")]
     pub color: ColorMode,
 
@@ -64,7 +64,7 @@ pub struct Cli {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum ColorMode {
-    /// Enable color if stdout is a tty and NO_COLOR is not set
+    /// Enable color if stdout is a tty and `NO_COLOR` is not set
     Auto,
     /// Always emit ANSI color escapes
     Always,
@@ -133,7 +133,7 @@ pub enum OutputDisplay {
     None,
     /// Show only the filename (e.g., "main.elf")
     Basename,
-    /// Show full relative path (e.g., "out/cc_single_file/main.elf")
+    /// Show full relative path (e.g., "`out/cc_single_file/main.elf`")
     Path,
 }
 
@@ -708,7 +708,7 @@ pub enum AnalyzersShowFilter {
         #[arg(required = true)]
         files: Vec<String>,
         /// Also print the structured hash pieces each analyzer contributes
-        /// to the product's cache key (e.g. resolved glob/git_count file
+        /// to the product's cache key (e.g. resolved `glob/git_count` file
         /// sets, embedded shell commands). Recomputed live — reflects the
         /// current filesystem state, not the last build's state.
         #[arg(long)]
@@ -790,7 +790,7 @@ pub enum TagsAction {
     },
     /// Show tags grouped by prefix/category (requires config)
     Tree,
-    /// List tags in the allowlist (tags_dir) that are not used by any file (requires config)
+    /// List tags in the allowlist (`tags_dir`) that are not used by any file (requires config)
     Unused {
         /// Exit with error if unused tags are found (useful for CI)
         #[arg(long)]
@@ -858,7 +858,7 @@ pub struct SharedBuildArgs {
     #[arg(short, long = "dir")]
     pub dirs: Option<Vec<String>>,
 
-    /// Write a Chrome trace JSON file for build visualization (open in chrome://tracing or Perfetto)
+    /// Write a Chrome trace JSON file for build visualization (open in <chrome://tracing> or Perfetto)
     #[arg(long, value_name = "FILE")]
     pub trace: Option<String>,
 
@@ -880,7 +880,7 @@ pub struct SharedBuildArgs {
 }
 
 impl SharedBuildArgs {
-    /// Convert to BuildOptions with the given overrides for build-only fields.
+    /// Convert to `BuildOptions` with the given overrides for build-only fields.
     pub fn to_build_options(&self, cli: &Cli, force: bool, stop_after: BuildPhase) -> BuildOptions {
         // Merge --dir values into targets as glob patterns
         let targets = match (&self.targets, &self.dirs) {
@@ -979,7 +979,7 @@ pub fn print_completions(shell: Shell) -> Result<()> {
 
 /// Generate the completion script for a shell as a string.
 /// Separated from `print_completions` so tests can round-trip the real
-/// clap_complete output through the bash injection.
+/// `clap_complete` output through the bash injection.
 fn generate_completion_script(shell: Shell) -> Result<String> {
     let mut cmd = Cli::command();
     let mut buf = Vec::new();
@@ -1183,7 +1183,7 @@ _rsconstruct_fixer_inames() {
 mod tests {
     use super::*;
 
-    /// The bash iname injection locates its patch points in clap_complete's
+    /// The bash iname injection locates its patch points in `clap_complete`'s
     /// generated script by exact string matching. clap-complete owns that
     /// format and has changed it before (case labels went from
     /// `rsconstruct__processors__files` to

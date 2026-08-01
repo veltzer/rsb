@@ -138,7 +138,7 @@ impl Builder {
         Ok(())
     }
 
-    /// Remove files not tracked by git and not known as RSConstruct build outputs.
+    /// Remove files not tracked by git and not known as `RSConstruct` build outputs.
     /// Dry-run by default (lists files); use `force` to actually delete.
     pub fn clean_unknown(&self, ctx: &crate::build_context::BuildContext, force: bool, verbose: bool, respect_gitignore: bool) -> Result<()> {
         use ignore::WalkBuilder;

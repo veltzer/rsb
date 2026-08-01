@@ -1,4 +1,4 @@
-//! mermaid generator — registered as a SimpleGenerator with a custom execute fn.
+//! mermaid generator — registered as a `SimpleGenerator` with a custom execute fn.
 
 use std::process::Command;
 use anyhow::Result;

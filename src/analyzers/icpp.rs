@@ -29,7 +29,7 @@ pub struct IcppDepAnalyzer {
     verbose: bool,
     /// Cached include paths discovered from pkg-config
     pkg_config_include_paths: OnceLock<Vec<PathBuf>>,
-    /// Cached include paths from include_path_commands
+    /// Cached include paths from `include_path_commands`
     command_include_paths: OnceLock<Vec<PathBuf>>,
 }
 
@@ -56,7 +56,7 @@ impl IcppDepAnalyzer {
         })
     }
 
-    /// Run configured include_path_commands to get additional include paths (lazy, cached).
+    /// Run configured `include_path_commands` to get additional include paths (lazy, cached).
     fn get_command_include_paths(&self, ctx: &crate::build_context::BuildContext) -> &[PathBuf] {
         self.command_include_paths.get_or_init(|| {
             super::run_include_path_commands(ctx, "icpp", &self.config.include_path_commands, self.verbose)
@@ -64,7 +64,7 @@ impl IcppDepAnalyzer {
     }
 
     /// Resolve a single `#include` directive to a file, if any.
-    /// Searches in order: including file's directory, configured include_paths,
+    /// Searches in order: including file's directory, configured `include_paths`,
     /// pkg-config-discovered include paths, then include paths from configured commands.
     fn resolve_include(&self, ctx: &crate::build_context::BuildContext, include: &str, including_dir: &Path) -> Option<PathBuf> {
         let candidate = including_dir.join(include);

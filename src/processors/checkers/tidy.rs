@@ -1,4 +1,4 @@
-//! tidy checker — registered as a {SimpleChecker}.
+//! tidy checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

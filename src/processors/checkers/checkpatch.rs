@@ -1,4 +1,4 @@
-//! checkpatch checker — registered as a {SimpleChecker}.
+//! checkpatch checker — registered as a {`SimpleChecker`}.
 
 use crate::processors::SimpleChecker;
 use crate::config::SimpleCheckerParams;

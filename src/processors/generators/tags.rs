@@ -1488,7 +1488,7 @@ fn path_matches(stored: &str, query: &str) -> bool {
     false
 }
 
-/// Load all tags from the database as a HashSet.
+/// Load all tags from the database as a `HashSet`.
 fn load_all_tags(db_path: &str) -> Result<HashSet<String>> {
     let db = open_tags_db(db_path)?;
     let read_txn = crate::errors::ctx(db.begin_read(), "Failed to begin read transaction")?;

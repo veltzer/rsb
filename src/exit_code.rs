@@ -66,7 +66,7 @@ impl fmt::Display for RsconstructError {
 
 impl std::error::Error for RsconstructError {}
 
-/// Shorthand for a typed ConfigError.
+/// Shorthand for a typed `ConfigError`.
 pub fn config_error(message: impl Into<String>) -> anyhow::Error {
     RsconstructError::new(RsconstructExitCode::ConfigError, message.into()).into()
 }
@@ -74,8 +74,8 @@ pub fn config_error(message: impl Into<String>) -> anyhow::Error {
 /// Classify an anyhow error into an exit code.
 ///
 /// Only typed information is consulted: a [`RsconstructError`] anywhere in
-/// the chain wins, a raw `std::io::Error` in the chain means IoError, and
-/// everything else is a BuildError. There is deliberately no message
+/// the chain wins, a raw `std::io::Error` in the chain means `IoError`, and
+/// everything else is a `BuildError`. There is deliberately no message
 /// pattern matching — error chains embed subprocess stderr, so substring
 /// matching turns arbitrary tool output into wrong exit codes (a linter
 /// printing "unknown field" is not a config error).
@@ -104,7 +104,7 @@ mod tests {
     }
 
     /// The typed error must win even when wrapped in layers of context —
-    /// downcast_ref on anyhow searches the whole chain.
+    /// `downcast_ref` on anyhow searches the whole chain.
     #[test]
     fn classify_typed_error_survives_context_wrapping() {
         let err: anyhow::Error = RsconstructError::new(RsconstructExitCode::ToolError, "tool gone").into();
@@ -112,7 +112,7 @@ mod tests {
         assert_eq!(classify_error(&wrapped), RsconstructExitCode::ToolError);
     }
 
-    /// A raw io::Error anywhere in the chain classifies as IoError — the
+    /// A raw `io::Error` anywhere in the chain classifies as `IoError` — the
     /// only way exit code 5 is reachable.
     #[test]
     fn classify_io_error_in_chain() {
