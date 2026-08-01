@@ -1,0 +1,63 @@
+name: Test
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build
+
+      # pip installs into the system interpreter are rejected on modern
+      # Ubuntu (PEP 668); pip-based tools go into this venv instead.
+      - name: Set up Python venv for pip-installed tools
+        run: |
+          python3 -m venv "$HOME/.venv"
+          echo "$HOME/.venv/bin" >> "$GITHUB_PATH"
+
+      # Registry-driven: install every tool rsconstruct knows about, so a
+      # new processor's tool is covered without touching this workflow.
+      # Skipped: entries with a manual-only install method (checkpatch.pl)
+      # and entries named by project-local paths (node_modules/.bin/...,
+      # gems/bin/...) — their installed-flag can never turn true here.
+      - name: Install all registry tools
+        run: |
+          set -euo pipefail
+          missing="$(./target/debug/rsconstruct tools list --json \
+            | jq -r '.[] | select(.installed | not)
+                     | select(.install_methods[0].method != "manual")
+                     | select(.tool | contains("/") | not)
+                     | .tool')"
+          echo "Tools to install:"
+          echo "$missing"
+          for tool in $missing; do
+            ./target/debug/rsconstruct tools install -y "$tool"
+          done
+
+      # Tools the tests probe by bare name whose registry entries are
+      # project-local paths, so the loop above cannot cover them.
+      - name: Install system markdownlint and mdl
+        run: |
+          set -euo pipefail
+          npm install -g markdownlint-cli
+          sudo gem install mdl
+
+      # The suite hard-fails on any missing tool (tests never skip), so a
+      # gap in the matrix fails the run loudly instead of shrinking it.
+      - name: Run tests
+        run: cargo test

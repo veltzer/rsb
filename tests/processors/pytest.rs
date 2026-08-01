@@ -1,6 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 fn setup_pytest_project() -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -14,10 +14,7 @@ fn setup_pytest_project() -> TempDir {
 
 #[test]
 fn pytest_passing_test() {
-    if !tool_available("pytest") {
-        eprintln!("pytest not found, skipping test");
-        return;
-    }
+    require_tool("pytest");
 
     let temp_dir = setup_pytest_project();
     let project_path = temp_dir.path();
@@ -41,10 +38,7 @@ fn pytest_passing_test() {
 
 #[test]
 fn pytest_incremental_skip() {
-    if !tool_available("pytest") {
-        eprintln!("pytest not found, skipping test");
-        return;
-    }
+    require_tool("pytest");
 
     let temp_dir = setup_pytest_project();
     let project_path = temp_dir.path();
@@ -69,10 +63,7 @@ fn pytest_incremental_skip() {
 
 #[test]
 fn pytest_failing_test() {
-    if !tool_available("pytest") {
-        eprintln!("pytest not found, skipping test");
-        return;
-    }
+    require_tool("pytest");
 
     let temp_dir = setup_pytest_project();
     let project_path = temp_dir.path();

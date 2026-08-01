@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn a2x_valid_file() {
-    if !tool_available("a2x") {
-        eprintln!("a2x not found, skipping test");
-        return;
-    }
+    require_tool("a2x");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

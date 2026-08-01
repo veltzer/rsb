@@ -1,16 +1,13 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 /// Config that builds only the dev profile for faster tests
 const SINGLE_PROFILE_CONFIG: &str = "[processor.cargo]\nprofiles = [\"dev\"]\nsrc_dirs = [\".\"]\n";
 
 #[test]
 fn cargo_valid_project() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -54,10 +51,7 @@ fn cargo_valid_project() {
 
 #[test]
 fn cargo_incremental_skip() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -99,10 +93,7 @@ fn cargo_incremental_skip() {
 
 #[test]
 fn cargo_rebuild_on_source_change() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -179,10 +170,7 @@ fn cargo_no_project_discovered() {
 
 #[test]
 fn cargo_build_failure() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -217,10 +205,7 @@ fn cargo_build_failure() {
 
 #[test]
 fn cargo_check_command() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -264,10 +249,7 @@ fn cargo_check_command() {
 
 #[test]
 fn cargo_multi_profile() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

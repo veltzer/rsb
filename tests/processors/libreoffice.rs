@@ -1,17 +1,11 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn libreoffice_valid_file() {
-    if !tool_available("libreoffice") {
-        eprintln!("libreoffice not found, skipping test");
-        return;
-    }
-    if !tool_available("flock") {
-        eprintln!("flock not found, skipping test");
-        return;
-    }
+    require_tool("libreoffice");
+    require_tool("flock");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

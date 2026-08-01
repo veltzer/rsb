@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn mdbook_valid_project() {
-    if !tool_available("mdbook") {
-        eprintln!("mdbook not found, skipping test");
-        return;
-    }
+    require_tool("mdbook");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -57,10 +54,7 @@ fn mdbook_valid_project() {
 
 #[test]
 fn mdbook_incremental_skip() {
-    if !tool_available("mdbook") {
-        eprintln!("mdbook not found, skipping test");
-        return;
-    }
+    require_tool("mdbook");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

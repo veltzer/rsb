@@ -1054,15 +1054,11 @@ fn include_and_exclude_same_processor_is_error() {
 /// propagate to the ipdfunite product that merges the deck PDFs — otherwise a
 /// stale merged PDF can survive even though its source content changed.
 ///
-/// Gated on marp availability (requires `node` + the marp-cli npm package);
-/// ipdfunite is in-process so always runs when reached. Skipped in CI runners
-/// without marp installed.
+/// Requires marp (`node` + the marp-cli npm package); ipdfunite is
+/// in-process so always runs when reached.
 #[test]
 fn svg_change_rebuilds_marp_and_ipdfunite() {
-    if !crate::common::tool_available("marp") {
-        eprintln!("marp not found, skipping test");
-        return;
-    }
+    crate::common::require_tool("marp");
 
     let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

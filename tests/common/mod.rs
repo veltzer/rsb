@@ -6,14 +6,22 @@ use std::process::Command;
 use tempfile::TempDir;
 use serde::Deserialize;
 
-/// Check if an external tool is available on PATH
-pub fn tool_available(name: &str) -> bool {
-    Command::new(name)
+/// Assert that an external tool is available on PATH.
+/// Panics if the tool is missing — a missing tool must fail the test,
+/// never silently skip it. Only presence is checked (some tools, like
+/// pdfunite, have no --version flag); whether the tool actually works
+/// is the test body's job.
+pub fn require_tool(name: &str) {
+    let available = Command::new(name)
         .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .is_ok_and(|s| s.success())
+        .is_ok();
+    assert!(
+        available,
+        "required tool '{name}' is not installed — install it; missing tools fail tests, they never skip"
+    );
 }
 
 /// Helper to create a test project structure (tera processor only)
@@ -225,10 +233,7 @@ macro_rules! test_checker {
         paste::paste! {
             #[test]
             fn [<$mod_name _valid>]() {
-                if !crate::common::tool_available($tool) {
-                    eprintln!("{} not found, skipping test", $tool);
-                    return;
-                }
+                crate::common::require_tool($tool);
 
                 let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
                 let project_path = temp_dir.path();
@@ -252,10 +257,7 @@ macro_rules! test_checker {
 
             #[test]
             fn [<$mod_name _incremental_skip>]() {
-                if !crate::common::tool_available($tool) {
-                    eprintln!("{} not found, skipping test", $tool);
-                    return;
-                }
+                crate::common::require_tool($tool);
 
                 let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
                 let project_path = temp_dir.path();
@@ -288,10 +290,7 @@ macro_rules! test_checker {
         paste::paste! {
             #[test]
             fn [<$mod_name _no_project_discovered>]() {
-                if !crate::common::tool_available($tool) {
-                    eprintln!("{} not found, skipping test", $tool);
-                    return;
-                }
+                crate::common::require_tool($tool);
 
                 let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
                 let project_path = temp_dir.path();
@@ -320,10 +319,7 @@ macro_rules! test_checker {
         paste::paste! {
             #[test]
             fn [<$mod_name _valid>]() {
-                if !crate::common::tool_available($tool) {
-                    eprintln!("{} not found, skipping test", $tool);
-                    return;
-                }
+                crate::common::require_tool($tool);
 
                 let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
                 let project_path = temp_dir.path();
@@ -344,10 +340,7 @@ macro_rules! test_checker {
 
             #[test]
             fn [<$mod_name _incremental_skip>]() {
-                if !crate::common::tool_available($tool) {
-                    eprintln!("{} not found, skipping test", $tool);
-                    return;
-                }
+                crate::common::require_tool($tool);
 
                 let temp_dir = tempfile::TempDir::new().expect("Failed to create temp dir");
                 let project_path = temp_dir.path();

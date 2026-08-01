@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn mdl_valid_file() {
-    if !tool_available("mdl") {
-        eprintln!("mdl not found, skipping test");
-        return;
-    }
+    require_tool("mdl");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

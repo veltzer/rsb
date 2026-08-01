@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn pip_valid_project() {
-    if !tool_available("pip") {
-        eprintln!("pip not found, skipping test");
-        return;
-    }
+    require_tool("pip");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -43,10 +40,7 @@ fn pip_valid_project() {
 
 #[test]
 fn pip_incremental_skip() {
-    if !tool_available("pip") {
-        eprintln!("pip not found, skipping test");
-        return;
-    }
+    require_tool("pip");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

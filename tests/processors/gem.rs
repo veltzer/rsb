@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn gem_valid_project() {
-    if !tool_available("bundle") {
-        eprintln!("bundle not found, skipping test");
-        return;
-    }
+    require_tool("bundle");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -45,10 +42,7 @@ fn gem_valid_project() {
 
 #[test]
 fn gem_incremental_skip() {
-    if !tool_available("bundle") {
-        eprintln!("bundle not found, skipping test");
-        return;
-    }
+    require_tool("bundle");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

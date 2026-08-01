@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn cppcheck_valid_c_file() {
-    if !tool_available("cppcheck") {
-        eprintln!("cppcheck not found, skipping test");
-        return;
-    }
+    require_tool("cppcheck");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -44,10 +41,7 @@ fn cppcheck_valid_c_file() {
 
 #[test]
 fn cppcheck_incremental_skip() {
-    if !tool_available("cppcheck") {
-        eprintln!("cppcheck not found, skipping test");
-        return;
-    }
+    require_tool("cppcheck");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

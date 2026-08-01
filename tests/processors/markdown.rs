@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn markdown_valid_file() {
-    if !tool_available("markdown") {
-        eprintln!("markdown not found, skipping test");
-        return;
-    }
+    require_tool("markdown");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -42,10 +39,7 @@ fn markdown_valid_file() {
 
 #[test]
 fn markdown_incremental_skip() {
-    if !tool_available("markdown") {
-        eprintln!("markdown not found, skipping test");
-        return;
-    }
+    require_tool("markdown");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

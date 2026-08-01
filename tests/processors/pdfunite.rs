@@ -1,6 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn pdfunite_no_project_discovered() {
@@ -27,10 +27,7 @@ fn pdfunite_no_project_discovered() {
 
 #[test]
 fn pdfunite_discovers_courses() {
-    if !tool_available("pdfunite") {
-        eprintln!("pdfunite not found, skipping test");
-        return;
-    }
+    require_tool("pdfunite");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

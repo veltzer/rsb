@@ -1,5 +1,5 @@
 use std::fs;
-use crate::common::{run_rsconstruct, run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct, run_rsconstruct_with_env, require_tool};
 use tempfile::TempDir;
 
 fn setup_protobuf_project() -> TempDir {
@@ -14,10 +14,7 @@ fn setup_protobuf_project() -> TempDir {
 
 #[test]
 fn protobuf_basic_compile() {
-    if !tool_available("protoc") {
-        eprintln!("protoc not found, skipping test");
-        return;
-    }
+    require_tool("protoc");
 
     let temp_dir = setup_protobuf_project();
     let project_path = temp_dir.path();
@@ -40,10 +37,7 @@ message Hello {
 
 #[test]
 fn protobuf_incremental_build() {
-    if !tool_available("protoc") {
-        eprintln!("protoc not found, skipping test");
-        return;
-    }
+    require_tool("protoc");
 
     let temp_dir = setup_protobuf_project();
     let project_path = temp_dir.path();
@@ -68,10 +62,7 @@ message Test {
 
 #[test]
 fn protobuf_clean() {
-    if !tool_available("protoc") {
-        eprintln!("protoc not found, skipping test");
-        return;
-    }
+    require_tool("protoc");
 
     let temp_dir = setup_protobuf_project();
     let project_path = temp_dir.path();
@@ -96,10 +87,7 @@ message Clean {
 
 #[test]
 fn protobuf_no_files_discovered() {
-    if !tool_available("protoc") {
-        eprintln!("protoc not found, skipping test");
-        return;
-    }
+    require_tool("protoc");
     let temp_dir = setup_protobuf_project();
     let project_path = temp_dir.path();
 

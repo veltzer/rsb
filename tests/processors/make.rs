@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn make_valid_makefile() {
-    if !tool_available("make") {
-        eprintln!("make not found, skipping test");
-        return;
-    }
+    require_tool("make");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -47,10 +44,7 @@ fn make_valid_makefile() {
 
 #[test]
 fn make_incremental_skip() {
-    if !tool_available("make") {
-        eprintln!("make not found, skipping test");
-        return;
-    }
+    require_tool("make");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

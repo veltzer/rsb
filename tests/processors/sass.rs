@@ -1,6 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 fn setup_sass_project() -> TempDir {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -15,10 +15,7 @@ fn setup_sass_project() -> TempDir {
 
 #[test]
 fn sass_basic_compile() {
-    if !tool_available("sass") {
-        eprintln!("sass not found, skipping test");
-        return;
-    }
+    require_tool("sass");
 
     let temp_dir = setup_sass_project();
     let project_path = temp_dir.path();

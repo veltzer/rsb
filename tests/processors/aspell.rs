@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn aspell_valid_file() {
-    if !tool_available("aspell") {
-        eprintln!("aspell not found, skipping test");
-        return;
-    }
+    require_tool("aspell");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -49,10 +46,7 @@ fn aspell_valid_file() {
 
 #[test]
 fn aspell_incremental_skip() {
-    if !tool_available("aspell") {
-        eprintln!("aspell not found, skipping test");
-        return;
-    }
+    require_tool("aspell");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

@@ -1,6 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn marp_ci_cap_sets_max_jobs_when_ci_true() {
@@ -77,10 +77,7 @@ fn marp_ci_cap_respects_user_set_max_jobs() {
 
 #[test]
 fn marp_valid_file() {
-    if !tool_available("marp") {
-        eprintln!("marp not found, skipping test");
-        return;
-    }
+    require_tool("marp");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

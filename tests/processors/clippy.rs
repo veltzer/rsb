@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn clippy_valid_project() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -51,10 +48,7 @@ fn clippy_valid_project() {
 
 #[test]
 fn clippy_incremental_skip() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -124,10 +118,7 @@ fn clippy_no_project_discovered() {
 
 #[test]
 fn clippy_lint_failure() {
-    if !tool_available("cargo") {
-        eprintln!("cargo not found, skipping test");
-        return;
-    }
+    require_tool("cargo");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

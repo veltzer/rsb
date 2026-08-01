@@ -1,18 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
-
-/// Check if markdownlint is available on PATH.
-fn markdownlint_available() -> bool {
-    tool_available("markdownlint")
-}
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn markdownlint_valid_file() {
-    if !markdownlint_available() {
-        eprintln!("markdownlint not found, skipping test");
-        return;
-    }
+    require_tool("markdownlint");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

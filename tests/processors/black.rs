@@ -17,10 +17,7 @@ fn setup_black_project() -> TempDir {
 
 #[test]
 fn black_badly_formatted_fails() {
-    if !crate::common::tool_available("black") {
-        eprintln!("black not found, skipping test");
-        return;
-    }
+    crate::common::require_tool("black");
 
     let temp_dir = setup_black_project();
     let project_path = temp_dir.path();

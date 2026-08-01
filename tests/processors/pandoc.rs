@@ -1,13 +1,10 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{run_rsconstruct_with_env, tool_available};
+use crate::common::{run_rsconstruct_with_env, require_tool};
 
 #[test]
 fn pandoc_valid_file() {
-    if !tool_available("pandoc") {
-        eprintln!("pandoc not found, skipping test");
-        return;
-    }
+    require_tool("pandoc");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -43,10 +40,7 @@ fn pandoc_valid_file() {
 
 #[test]
 fn pandoc_incremental_skip() {
-    if !tool_available("pandoc") {
-        eprintln!("pandoc not found, skipping test");
-        return;
-    }
+    require_tool("pandoc");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -115,10 +109,8 @@ const UNICODE_MD: &str = "---\ntitle: Unicode\n---\n# שלום λ café\n\nΩμ�
 /// Default engine (pdflatex) on unicode content must fail.
 #[test]
 fn pandoc_unicode_fails_with_default_engine() {
-    if !tool_available("pandoc") || !tool_available("pdflatex") {
-        eprintln!("pandoc or pdflatex not found, skipping test");
-        return;
-    }
+    require_tool("pandoc");
+    require_tool("pdflatex");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -147,10 +139,8 @@ fn pandoc_unicode_fails_with_default_engine() {
 /// xelatex on unicode content must succeed.
 #[test]
 fn pandoc_unicode_succeeds_with_xelatex() {
-    if !tool_available("pandoc") || !tool_available("xelatex") {
-        eprintln!("pandoc or xelatex not found, skipping test");
-        return;
-    }
+    require_tool("pandoc");
+    require_tool("xelatex");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -179,10 +169,8 @@ fn pandoc_unicode_succeeds_with_xelatex() {
 /// lualatex on unicode content must also succeed.
 #[test]
 fn pandoc_unicode_succeeds_with_lualatex() {
-    if !tool_available("pandoc") || !tool_available("lualatex") {
-        eprintln!("pandoc or lualatex not found, skipping test");
-        return;
-    }
+    require_tool("pandoc");
+    require_tool("lualatex");
 
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -244,10 +232,8 @@ fn pandoc_rejects_unknown_pdf_engine() {
 /// This tests that our pandoc invocation is deterministic (no embedded timestamps, random IDs, etc.).
 #[test]
 fn pandoc_pdf_deterministic() {
-    if !tool_available("pandoc") || !tool_available("pdflatex") {
-        eprintln!("pandoc or pdflatex not found, skipping test");
-        return;
-    }
+    require_tool("pandoc");
+    require_tool("pdflatex");
 
     let md_content = "---\ntitle: Determinism Test\n---\n# Hello World\n\nThis is a test.\n\n## Outline\n* Chapter one\n* Chapter two\n";
     let config = "[processor.pandoc]\nformats = [\"pdf\"]\nsrc_dirs = [\"\"]\n";
