@@ -38,10 +38,6 @@ impl Processor for GemProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn clean(&self, product: &crate::graph::Product, verbose: bool) -> anyhow::Result<usize> {
         crate::processors::ProcessorBase::clean_output_dir(product, &product.processor, verbose)
     }

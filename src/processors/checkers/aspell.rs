@@ -84,10 +84,6 @@ impl Processor for AspellProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn required_tools(&self) -> Vec<String> {
         vec![self.config.standard.command.clone()]
     }

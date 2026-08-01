@@ -909,19 +909,21 @@ impl ProcessorBase {
 /// Must be Sync + Send for parallel execution support.
 pub trait Processor: Sync + Send {
 
-    /// Access the scan configuration. Required for auto_detect and discover defaults.
+    /// Access the standard config fields shared by every processor.
+    ///
+    /// Required, and the single accessor: there used to be a second,
+    /// `standard_config() -> Option<&StandardConfig>`, which every one of
+    /// its 27 implementations returned the same `&self.config.standard`
+    /// from. The `Option` meant the `discover` default had to `.expect()` —
+    /// a required method wearing a default's clothes, which panicked at
+    /// runtime for any processor that implemented one accessor but not the
+    /// other.
     fn scan_config(&self) -> &crate::config::StandardConfig;
 
-    /// Access the standard config fields. Override to enable defaults for
-    /// config_json, max_jobs, supports_batch, and discover.
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        None
-    }
-
     /// Discover all products this processor can produce.
-    /// Default: standard checker discover using dep_inputs/dep_auto from standard_config.
+    /// Default: standard checker discover using dep_inputs/dep_auto from scan_config.
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
-        let cfg = self.standard_config().expect("discover() requires standard_config() or must be overridden");
+        let cfg = self.scan_config();
         discover_checker_products(graph, cfg, file_index, &cfg.dep_inputs, &cfg.dep_auto, cfg, <crate::config::StandardConfig as crate::config::KnownFields>::checksum_fields(), instance_name)
     }
 
@@ -991,9 +993,12 @@ pub trait Processor: Sync + Send {
     }
 
     /// Return the processor's configuration as JSON for config change detection.
-    /// Default: serialize standard_config if available.
+    ///
+    /// Default: serialize the standard fields. A processor with config
+    /// fields of its own must override this (most do) or its extra fields
+    /// won't appear in the `config changed` notice.
     fn config_json(&self) -> Option<String> {
-        self.standard_config().and_then(|c| serde_json::to_string(c).ok())
+        serde_json::to_string(self.scan_config()).ok()
     }
 }
 
@@ -1699,10 +1704,6 @@ impl Processor for SimpleChecker {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn auto_detect(&self, file_index: &FileIndex) -> bool {
         !file_index.scan(&self.config.standard, true).is_empty()
     }
@@ -1792,10 +1793,6 @@ impl Processor for SimpleGenerator {
         &self.config
     }
 
-    fn standard_config(&self) -> Option<&StandardConfig> {
-        Some(&self.config)
-    }
-
     fn config_json(&self) -> Option<String> {
         ProcessorBase::config_json(&self.config)
     }
@@ -1865,6 +1862,62 @@ mod tests {
                     "Processor '{proc_name}' requires tool '{tool}' which has no runtime category in TOOLS"
                 );
             }
+        }
+    }
+
+    /// `is_native` is declared twice for every `SimpleGenerator`: once in
+    /// `SimpleGeneratorParams` (where it decides whether `config.command`
+    /// counts as a required tool) and once in the plugin registration (where
+    /// it drives `processors list`). Nothing linked them, so the two could
+    /// silently disagree — a processor could be listed as native while still
+    /// demanding an external tool, or vice versa.
+    ///
+    /// `SimpleGenerator` declares `is_native` twice — once in
+    /// `SimpleGeneratorParams` (where it makes `required_tools()` drop
+    /// `config.command`) and once in the plugin registration (where it
+    /// drives `processors list`). Nothing linked them, so flipping one alone
+    /// left a processor listed as native while still demanding a binary, or
+    /// the reverse.
+    ///
+    /// The two are reconciled here through observable behavior: for a
+    /// `SimpleGenerator` the params flag is the *only* thing that decides
+    /// whether the default `command` appears in `required_tools()`, so
+    /// comparing that against the registry flag pins them together.
+    ///
+    /// Scoped to SimpleGenerator deliberately. Hand-written processors have
+    /// legitimate reasons to be native yet name tools (tera renders
+    /// in-process but its template functions can shell out to `git`), and
+    /// non-native ones may run something other than their configured command
+    /// (clippy runs `cargo`).
+    #[test]
+    fn simple_generator_is_native_declarations_agree() {
+        // Each entry: (processor name, the params flag it was constructed
+        // with). Kept next to the assertion rather than derived, because
+        // SimpleGenerator does not know its own name at runtime — which is
+        // the root cause of the duplication in the first place.
+        let simple_generators: &[(&str, bool)] = &[
+            ("yaml2json", true),
+            ("imarkdown2html", true),
+            ("isass", true),
+            ("markdown2html", false),
+            ("sass", false),
+            ("a2x", false),
+            ("chromium", false),
+            ("protobuf", false),
+            ("objdump", false),
+            ("mermaid", false),
+            ("libreoffice", false),
+            ("drawio", false),
+        ];
+
+        for (name, params_native) in simple_generators {
+            let registry_native = crate::registries::is_native(name);
+            assert_eq!(
+                *params_native, registry_native,
+                "Processor '{name}': SimpleGeneratorParams says is_native={params_native} \
+                 but the plugin registration says is_native={registry_native}. These are \
+                 two hand-maintained copies of one fact; update both.",
+            );
         }
     }
 

@@ -132,34 +132,35 @@ fn resolve_var_value(
     }
 }
 
-/// Extract variable names defined in the [vars] section using regex.
-/// This is done before TOML parsing to avoid parse errors on variable references.
+/// Extract the variable names defined in the `[vars]` section.
+///
+/// Parses the TOML rather than scanning lines. An unsubstituted `${var}` is
+/// just string content as far as TOML is concerned, so parsing here is safe
+/// — the older line scanner predates that realization and split each line on
+/// the first `=`, which recorded junk names for any multi-line array whose
+/// items contained one:
+///
+/// ```toml
+/// [vars]
+/// patterns = [
+///     "a=b",     # recorded a bogus variable named `"a`
+/// ]
+/// ```
+///
+/// Junk names made the undefined-variable check too permissive: a genuinely
+/// undefined `${a}` would pass validation because a bogus `a` was "defined".
+///
+/// Returns an empty list when the content does not parse or has no `[vars]`
+/// section. A parse error is not reported here — the caller parses again
+/// immediately after and produces a far better message.
 pub(super) fn extract_var_names(content: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut in_vars_section = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if is_vars_header(trimmed) {
-            in_vars_section = true;
-            continue;
-        }
-        // Check if we hit another section header
-        if in_vars_section && is_section_header(trimmed) {
-            in_vars_section = false;
-            continue;
-        }
-        if in_vars_section {
-            // Match key = value pattern
-            if let Some(eq_pos) = trimmed.find('=') {
-                let key = trimmed[..eq_pos].trim();
-                if !key.is_empty() && !key.starts_with('#') {
-                    names.push(key.to_string());
-                }
-            }
-        }
-    }
-    names
+    let Ok(parsed) = toml::from_str::<toml::Value>(content) else {
+        return Vec::new();
+    };
+    let Some(vars) = parsed.get("vars").and_then(toml::Value::as_table) else {
+        return Vec::new();
+    };
+    vars.keys().cloned().collect()
 }
 
 /// Substitute variables defined in [vars] section throughout the config.

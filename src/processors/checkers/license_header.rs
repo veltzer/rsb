@@ -69,10 +69,6 @@ impl crate::processors::Processor for LicenseHeaderProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn auto_detect(&self, file_index: &crate::file_index::FileIndex) -> bool {
         crate::processors::checker_auto_detect(&self.config.standard, file_index)
     }

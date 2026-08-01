@@ -899,6 +899,21 @@ impl<'de> Deserialize<'de> for ProcessorConfig {
     }
 }
 
+/// What a `[processor.NAME]` section turned out to be.
+///
+/// The shape is inferred from the section's contents, so it can be
+/// genuinely undecidable — which is why this is an enum rather than a bool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SectionShape {
+    /// Direct config fields: `[processor.pylint]` with `args = [...]`.
+    SingleInstance,
+    /// Named sub-instances: `[processor.pylint.core]`, `[processor.pylint.tests]`.
+    MultiInstance,
+    /// Reads as both. Carries the keys that are simultaneously known config
+    /// field names and plausible instance names.
+    Ambiguous { colliding: Vec<String> },
+}
+
 impl ProcessorConfig {
     /// Parse the `[processor]` table from TOML into instances.
     pub(crate) fn from_toml(value: &toml::Value) -> Self {
@@ -954,31 +969,68 @@ impl ProcessorConfig {
     /// or direct config fields (single-instance).
     ///
     /// Heuristic: if ALL values are tables AND none of the keys match known config
-    /// field names for this processor type, it's multi-instance.
+    /// field names for this processor type, it's multi-instance. An ambiguous
+    /// section is treated as single-instance here; `parse_processors` rejects
+    /// it outright, so this only affects callers that have already validated.
     fn is_multi_instance(type_name: &str, table: &toml::map::Map<String, toml::Value>) -> bool {
+        matches!(Self::classify_section(type_name, table), SectionShape::MultiInstance)
+    }
+
+    /// The shape of a `[processor.NAME]` section, and whether it is even
+    /// decidable.
+    ///
+    /// Separated from `is_multi_instance` so the ambiguous case can be
+    /// reported rather than silently resolved. The heuristic reads a
+    /// section's *shape* to guess the user's intent, which means a section
+    /// that looks like both is a genuine ambiguity — and resolving it
+    /// quietly (as returning a bare bool forced) is how a config could
+    /// change meaning under the user without warning.
+    fn classify_section(
+        type_name: &str,
+        table: &toml::map::Map<String, toml::Value>,
+    ) -> SectionShape {
         if table.is_empty() {
-            return false;
+            return SectionShape::SingleInstance;
         }
 
-        let known = Self::known_fields_for(type_name);
-        let known_fields: Vec<&str> = match known {
-            Some(fields) => fields.iter()
-                .chain(SCAN_CONFIG_FIELDS.iter())
-                .chain(STANDARD_EXTRA_FIELDS.iter())
-                .copied()
-                .collect(),
-            None => return false,
+        let Some(known) = Self::known_fields_for(type_name) else {
+            // Unknown type (Lua plugin): no field list to compare against, so
+            // multi-instance is undecidable and the section is taken as one
+            // instance. See `multi_instance_requires_known_fields` in the docs.
+            return SectionShape::SingleInstance;
         };
+        let known_fields: Vec<&str> = known.iter()
+            .chain(SCAN_CONFIG_FIELDS.iter())
+            .chain(STANDARD_EXTRA_FIELDS.iter())
+            .copied()
+            .collect();
 
-        // If ANY key is a known config field, it's single-instance
-        for key in table.keys() {
-            if known_fields.contains(&key.as_str()) {
-                return false;
+        let field_keys: Vec<&str> = table.keys()
+            .filter(|k| known_fields.contains(&k.as_str()))
+            .map(String::as_str)
+            .collect();
+        let all_values_are_tables = table.values().all(toml::Value::is_table);
+
+        match (field_keys.is_empty(), all_values_are_tables) {
+            // Only sub-tables, no known field names: unambiguously instances.
+            (true, true) => SectionShape::MultiInstance,
+            // At least one known field name present.
+            (false, _) => {
+                // A known field whose value is a table, alongside nothing but
+                // tables, is the ambiguous case: it reads as both "a config
+                // field" and "an instance named after a field".
+                if all_values_are_tables {
+                    SectionShape::Ambiguous {
+                        colliding: field_keys.iter().map(|s| (*s).to_string()).collect(),
+                    }
+                } else {
+                    SectionShape::SingleInstance
+                }
             }
+            // Scalar values present and no known fields: malformed, but
+            // validation reports unknown fields far better than we could.
+            (true, false) => SectionShape::SingleInstance,
         }
-
-        // If ALL values are tables, it's multi-instance
-        table.values().all(toml::Value::is_table)
     }
 
     /// Resolve scan defaults for all instances.
@@ -1565,16 +1617,36 @@ fn validate_processor_fields_raw(raw: &toml::Value) -> Vec<String> {
         }
 
         // Check if multi-instance
-        if ProcessorConfig::is_multi_instance(name, table) {
-            for (inst_name, inst_value) in table {
-                if let Some(inst_table) = inst_value.as_table() {
-                    let section = format!("processor.{name}.{inst_name}");
-                    validate_single_processor(name, &section, inst_table, &mut errors);
+        match ProcessorConfig::classify_section(name, table) {
+            SectionShape::MultiInstance => {
+                for (inst_name, inst_value) in table {
+                    if let Some(inst_table) = inst_value.as_table() {
+                        let section = format!("processor.{name}.{inst_name}");
+                        validate_single_processor(name, &section, inst_table, &mut errors);
+                    }
                 }
             }
-        } else {
-            let section = format!("processor.{name}");
-            validate_single_processor(name, &section, table, &mut errors);
+            SectionShape::SingleInstance => {
+                let section = format!("processor.{name}");
+                validate_single_processor(name, &section, table, &mut errors);
+            }
+            // The section reads as both a config-field table and a set of
+            // named instances. Guessing here is what let a config silently
+            // change meaning when a future release added a field whose name
+            // matched an existing user's instance — so it is rejected
+            // instead, naming the exact keys to rename.
+            SectionShape::Ambiguous { colliding } => {
+                errors.push(format!(
+                    "[processor.{name}]: ambiguous section — {} also {} a config field of \
+                     '{name}', so this could be read either as config or as named \
+                     instance{}. Rename the instance{}, or move the config fields to \
+                     [processor.{name}] and keep only instances as sub-tables.",
+                    colliding.iter().map(|c| format!("'{c}'")).collect::<Vec<_>>().join(", "),
+                    if colliding.len() == 1 { "names" } else { "name" },
+                    if colliding.len() == 1 { "" } else { "s" },
+                    if colliding.len() == 1 { "" } else { "s" },
+                ));
+            }
         }
     }
 

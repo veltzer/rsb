@@ -27,10 +27,6 @@ impl Processor for PdfuniteProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn clean(&self, product: &crate::graph::Product, verbose: bool) -> anyhow::Result<usize> {
         crate::processors::ProcessorBase::clean(product, &product.processor, verbose)
     }

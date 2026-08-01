@@ -39,10 +39,6 @@ impl Processor for JekyllProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn config_json(&self) -> Option<String> {
         crate::processors::ProcessorBase::config_json(&self.config)
     }

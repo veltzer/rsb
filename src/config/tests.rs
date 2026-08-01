@@ -165,11 +165,37 @@ fn substitute_variables_ignores_comments() {
 
 // Tests for extract_var_names
 
+/// Order is not part of the contract — the names are only ever used for
+/// membership tests in the undefined-variable check.
+fn sorted_var_names(content: &str) -> Vec<String> {
+    let mut names = extract_var_names(content);
+    names.sort();
+    names
+}
+
 #[test]
 fn extract_var_names_basic() {
     let content = "[vars]\nfoo = \"bar\"\nbaz = [1, 2]\n\n[other]\nkey = \"value\"\n";
-    let names = extract_var_names(content);
-    assert_eq!(names, vec!["foo", "baz"]);
+    assert_eq!(sorted_var_names(content), vec!["baz", "foo"]);
+}
+
+/// A multi-line array whose items contain `=` must not contribute bogus
+/// names. The old line-based scanner split each line on the first `=` and
+/// recorded `"a` as a variable, which made the undefined-variable check
+/// too permissive — a genuinely undefined `${a}` would pass.
+#[test]
+fn extract_var_names_ignores_equals_inside_array_items() {
+    let content = "[vars]\npatterns = [\n  \"a=b\",\n  \"c=d\",\n]\nreal = \"x\"\n";
+    assert_eq!(sorted_var_names(content), vec!["patterns", "real"]);
+}
+
+/// The consequence of the above, end to end: `${a}` is undefined even
+/// though an array item happens to start with `a=`.
+#[test]
+fn equals_in_array_item_does_not_define_a_variable() {
+    let content = "[vars]\npatterns = [\n  \"a=b\",\n]\n\n[processor.tera]\nsrc_dirs = [\"${a}\"]\n";
+    let err = substitute_variables(content).unwrap_err().to_string();
+    assert!(err.contains("Undefined variable"), "expected undefined-variable error, got: {err}");
 }
 
 #[test]
@@ -189,15 +215,13 @@ fn extract_var_names_empty_vars_section() {
 #[test]
 fn extract_var_names_with_comments() {
     let content = "[vars]\n# This is a comment\nfoo = \"bar\"\n# Another comment\nbaz = 42\n";
-    let names = extract_var_names(content);
-    assert_eq!(names, vec!["foo", "baz"]);
+    assert_eq!(sorted_var_names(content), vec!["baz", "foo"]);
 }
 
 #[test]
 fn extract_var_names_with_whitespace() {
     let content = "[vars]\n  foo   =   \"bar\"\n\tbaz\t=\t42\n";
-    let names = extract_var_names(content);
-    assert_eq!(names, vec!["foo", "baz"]);
+    assert_eq!(sorted_var_names(content), vec!["baz", "foo"]);
 }
 
 // Tests for substitute_variables
@@ -575,4 +599,77 @@ fn every_known_field_has_a_description() {
     missing.dedup();
     assert!(missing.is_empty(),
         "known fields with no description (blank cell in `processors defconfig`): {missing:#?}");
+}
+
+// Tests for processor section shape classification (finding 11)
+
+use crate::config::{ProcessorConfig, SectionShape};
+
+fn classify(toml_src: &str) -> SectionShape {
+    let value: toml::Value = toml::from_str(toml_src).unwrap();
+    let table = value.get("processor").unwrap()
+        .get("pylint").unwrap()
+        .as_table().unwrap();
+    ProcessorConfig::classify_section("pylint", table)
+}
+
+#[test]
+fn section_with_config_fields_is_single_instance() {
+    assert_eq!(
+        classify("[processor.pylint]\nargs = [\"--x\"]\n"),
+        SectionShape::SingleInstance,
+    );
+}
+
+#[test]
+fn section_with_only_subtables_is_multi_instance() {
+    assert_eq!(
+        classify("[processor.pylint.core]\nargs = [\"--x\"]\n\n[processor.pylint.tests]\nargs = [\"--y\"]\n"),
+        SectionShape::MultiInstance,
+    );
+}
+
+#[test]
+fn empty_section_is_single_instance() {
+    assert_eq!(classify("[processor.pylint]\n"), SectionShape::SingleInstance);
+}
+
+/// An instance named after a known config field reads as both shapes. This
+/// used to silently resolve to single-instance — which meant adding a config
+/// field in a future release could retroactively change how an existing
+/// user's config parsed. It is now rejected, naming the colliding key.
+#[test]
+fn instance_named_after_a_config_field_is_ambiguous() {
+    let shape = classify(
+        "[processor.pylint.args]\nargs = [\"--x\"]\n\n[processor.pylint.other]\nargs = [\"--y\"]\n"
+    );
+    match shape {
+        SectionShape::Ambiguous { colliding } => {
+            assert_eq!(colliding, vec!["args"]);
+        }
+        other => panic!("expected Ambiguous, got {other:?}"),
+    }
+}
+
+/// Scan fields count as known fields too — they are appended to every
+/// processor's field list during validation, so an instance named
+/// `src_dirs` is just as ambiguous as one named `args`.
+#[test]
+fn instance_named_after_a_scan_field_is_ambiguous() {
+    let shape = classify(
+        "[processor.pylint.src_dirs]\nargs = [\"--x\"]\n\n[processor.pylint.other]\nargs = [\"--y\"]\n"
+    );
+    assert!(matches!(shape, SectionShape::Ambiguous { .. }), "got {shape:?}");
+}
+
+/// A single known field holding a table is config, not an ambiguity —
+/// there is no second sub-table for it to be an instance alongside.
+/// (Both readings exist in principle; the error message tells the user how
+/// to disambiguate, so being conservative here would be pure noise.)
+#[test]
+fn mixed_scalar_and_table_values_are_single_instance() {
+    assert_eq!(
+        classify("[processor.pylint]\nargs = [\"--x\"]\n\n[processor.pylint.core]\nargs = [\"--y\"]\n"),
+        SectionShape::SingleInstance,
+    );
 }

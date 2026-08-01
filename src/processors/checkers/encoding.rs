@@ -60,10 +60,6 @@ impl crate::processors::Processor for EncodingProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn required_tools(&self) -> Vec<String> {
         Vec::new()
     }

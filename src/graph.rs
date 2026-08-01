@@ -341,36 +341,49 @@ impl BuildGraph {
             }
         }
 
-        // Register outputs before moving outputs into the product
-        for output in &outputs {
+        let product = match variant {
+            Some(v) => Product::with_variant(inputs, outputs, processor, id, config_hash, v),
+            None => Product::new(inputs, outputs, processor, id, config_hash),
+        };
+        self.register_product(product);
+
+        Ok(id)
+    }
+
+    /// Register a product into every lookup index and push it onto the
+    /// parallel `products` / `dependents` / `dependencies` vectors.
+    ///
+    /// The one place that knows what "adding a product to the graph" means.
+    /// `add_product_with_variant` and `filter_by_targets` used to each carry
+    /// their own copy of this — two sites that had to evolve in lockstep,
+    /// with `Product.id == index` upheld by hand in both. The product's `id`
+    /// is assigned here from the vector length, so the invariant holds by
+    /// construction rather than by convention.
+    fn register_product(&mut self, mut product: Product) {
+        let id = self.products.len();
+        product.id = id;
+
+        for output in &product.outputs {
             let output_id = self.interner.intern(output);
             self.output_to_product.insert(output_id, id);
         }
 
-        // Register inputs in the input index
-        for input in &inputs {
+        for input in &product.inputs {
             let input_id = self.interner.intern(input);
             self.input_to_products.entry(input_id).or_default().push(id);
         }
 
         // For checker products, populate the dedup index so a future re-declaration
         // with the same (processor, primary_input, variant) returns this id.
-        if outputs.is_empty() && !inputs.is_empty() {
-            let primary_id = self.interner.intern(&inputs[0]);
-            let key = (processor.to_string(), primary_id, variant.map(str::to_string));
+        if product.outputs.is_empty() && !product.inputs.is_empty() {
+            let primary_id = self.interner.intern(&product.inputs[0]);
+            let key = (product.processor.clone(), primary_id, product.variant.clone());
             self.checker_dedup.insert(key, id);
         }
-
-        let product = match variant {
-            Some(v) => Product::with_variant(inputs, outputs, processor, id, config_hash, v),
-            None => Product::new(inputs, outputs, processor, id, config_hash),
-        };
 
         self.products.push(product);
         self.dependents.push(Vec::new());
         self.dependencies.push(Vec::new());
-
-        Ok(id)
     }
 
     /// Add a product with an output directory for creator caching.
@@ -575,25 +588,10 @@ impl BuildGraph {
 
         for product in old_products {
             if keep.contains(&product.id) {
-                let id = self.products.len();
-                for output in &product.outputs {
-                    let output_id = self.interner.intern(output);
-                    self.output_to_product.insert(output_id, id);
-                }
-                for input in &product.inputs {
-                    let input_id = self.interner.intern(input);
-                    self.input_to_products.entry(input_id).or_default().push(id);
-                }
-                if product.outputs.is_empty() && !product.inputs.is_empty() {
-                    let primary_id = self.interner.intern(&product.inputs[0]);
-                    let key = (product.processor.clone(), primary_id, product.variant.clone());
-                    self.checker_dedup.insert(key, id);
-                }
-                let mut p = product;
-                p.id = id;
-                self.products.push(p);
-                self.dependents.push(Vec::new());
-                self.dependencies.push(Vec::new());
+                // Same registration path as add_product — including the id
+                // reassignment, which register_product derives from the
+                // vector length rather than trusting the caller.
+                self.register_product(product);
             }
         }
 
@@ -1244,6 +1242,54 @@ mod tests {
         let cons_pos = order.iter().position(|&id| id == new_consumer).unwrap();
         assert!(prod_pos < cons_pos,
             "producer (pos {prod_pos}) must run before consumer (pos {cons_pos})");
+    }
+
+    /// `filter_by_targets` rebuilds the graph from scratch, and used to carry
+    /// its own copy of `add_product`'s index registration — two sites that had
+    /// to evolve in lockstep. Both now go through `register_product`, so a
+    /// filtered graph must be indistinguishable from one built directly:
+    /// every lookup index, the `id == index` invariant, and per-product state
+    /// like `output_dirs` all survive.
+    #[test]
+    fn filtering_preserves_every_index_and_product_field() {
+        let mut g = BuildGraph::new();
+        g.add_product(vec!["drop.txt".into()], vec![], "check", None).unwrap();
+        g.add_product_with_output_dir(
+            vec!["keep.rs".into()],
+            vec!["keep.bin".into()],
+            "cargo",
+            Some("cfg".into()),
+            PathBuf::from("target/debug"),
+        ).unwrap();
+        // A checker on the kept input, to exercise the dedup index.
+        g.add_product(vec!["keep.rs".into()], vec![], "clippy", None).unwrap();
+        g.resolve_dependencies();
+
+        g.filter_by_targets(&["keep.rs".to_string()]).unwrap();
+        assert_eq!(g.products().len(), 2, "only the two keep.rs products survive");
+
+        // id == index holds by construction after the rebuild.
+        for (i, p) in g.products().iter().enumerate() {
+            assert_eq!(p.id, i, "product {i} has id {} after filtering", p.id);
+        }
+
+        // Output ownership index survived and points at the right product.
+        let owner = g.path_owner(Path::new("keep.bin")).expect("output must still be owned");
+        assert_eq!(g.get_product(owner).unwrap().processor, "cargo");
+
+        // Per-product state that lives outside the constructor args survived
+        // the move through the rebuild.
+        let cargo = g.products().iter().find(|p| p.processor == "cargo").unwrap();
+        assert_eq!(cargo.output_dirs.len(), 1);
+        assert_eq!(cargo.output_dirs[0].as_ref(), &PathBuf::from("target/debug"));
+        assert!(cargo.cache_key.digest().is_some(), "config hash must survive");
+
+        // The checker dedup index was rebuilt: re-declaring the same checker
+        // returns the existing id instead of adding a duplicate.
+        let before = g.products().len();
+        let dup = g.add_product(vec!["keep.rs".into()], vec![], "clippy", None).unwrap();
+        assert_eq!(g.products().len(), before, "re-declared checker must dedup");
+        assert_eq!(g.get_product(dup).unwrap().processor, "clippy");
     }
 
     /// Targeting only a consumer must transitively keep its producer —

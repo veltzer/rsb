@@ -69,10 +69,6 @@ impl crate::processors::Processor for TermsProcessor {
         &self.config.standard
     }
 
-    fn standard_config(&self) -> Option<&crate::config::StandardConfig> {
-        Some(&self.config.standard)
-    }
-
     fn auto_detect(&self, file_index: &FileIndex) -> bool {
         Path::new(&self.config.dir_terms_unambiguous).is_dir()
             && !file_index.scan(&self.config.standard, true).is_empty()
