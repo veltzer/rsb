@@ -478,7 +478,28 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
 
 /// Information about an external tool: its name, runtime category, and install methods.
 pub struct ToolInfo {
-    /// Tool binary name
+    /// Bare binary name, as found on `$PATH` — never a path.
+    ///
+    /// This is the detection key: it goes straight to `which::which` (see
+    /// `builder/tools.rs` and `tool_lock.rs`), so it decides whether a tool
+    /// reports `installed` or `missing`, and which binary gets version-locked.
+    ///
+    /// `which` switches behaviour on the presence of a separator, so a name
+    /// containing `/` is NOT looked up on `$PATH` — it is resolved relative to
+    /// the *current working directory*. A vendored-looking entry such as
+    /// `gems/bin/mdl` therefore only resolves when rsconstruct happens to be
+    /// invoked from the one directory with that subtree beneath it, and reports
+    /// `missing` everywhere else — including for a user who has the tool
+    /// installed and on `$PATH` at, say, `~/install/gems/bin/mdl`. Two such
+    /// entries were removed for exactly this reason; keep names bare.
+    ///
+    /// In both modes `which` also requires the executable bit, so a present but
+    /// non-executable file reads as `missing`.
+    ///
+    /// To pin a project-local binary, set the per-processor `command` config
+    /// field (`config/processor_configs.rs`) instead — that is the value that
+    /// actually gets executed. This field stays a bare name so detection works
+    /// from any cwd.
     pub name: &'static str,
     /// Runtime category ("python", "node", "ruby", "rust", "perl", "jvm", "system")
     pub runtime: &'static str,

@@ -192,6 +192,44 @@ locked tool version hash is appended to the product's config hash. This
 ensures that upgrading a tool (e.g., `ruff` 0.4 → 0.5) triggers rebuilds
 even if source files haven't changed.
 
+## Tool detection
+
+The `TOOLS` registry in `src/processors/tools.rs` lists every external tool
+rsconstruct knows about. Each entry's `name` is the **detection key**: it is
+passed directly to `which::which` by `builder/tools.rs` and `tool_lock.rs`, so
+it decides whether `rsconstruct tools list` reports `installed` or `missing`,
+and which binary `rsconstruct tools lock` records a version for.
+
+**Registry names must be bare binary names, never paths.** `which` switches
+behaviour on the presence of a path separator:
+
+| Name form | Resolution | Depends on cwd? |
+|---|---|---|
+| `mdl` | searched on `$PATH` | no |
+| `gems/bin/mdl` | relative to the current working directory | **yes** |
+| `./gems/bin/mdl` | relative to the current working directory | **yes** |
+
+A path-shaped entry therefore resolves only when rsconstruct is invoked from
+the one directory that has that subtree beneath it, and reports `missing`
+everywhere else — including for a user who has the tool installed and on
+`$PATH` at, say, `~/install/gems/bin/mdl`. The registry once carried
+`gems/bin/mdl` and `node_modules/.bin/markdownlint` alongside correct bare
+`mdl` / `markdownlint` entries; both path forms were removed.
+
+In both modes `which` also requires the executable bit — a file that exists but
+is not executable reads as `missing`.
+
+To pin a project-local binary, set the per-processor `command` config field
+(`src/config/processor_configs.rs`), which is the value actually executed:
+
+```toml
+[markdownlint]
+command = "node_modules/.bin/markdownlint"
+```
+
+The registry `name` stays bare so detection works from any working directory;
+`command` is where a vendored path belongs.
+
 ### Phase 5: Dependency resolution
 
 `resolve_dependencies()` scans the graph for products whose inputs match

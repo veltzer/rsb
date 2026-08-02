@@ -195,6 +195,41 @@ fn tools_list_uses_only_implemented_install_methods() {
     }
 }
 
+/// Registry names are detection keys handed straight to `which::which`, which
+/// only searches `$PATH` for names with no path separator. A name containing
+/// `/` is resolved relative to the current working directory instead, so it
+/// reports `missing` unless rsconstruct happens to run from the one directory
+/// with that subtree beneath it — including for users who have the tool
+/// installed and on `$PATH`. The registry once carried `gems/bin/mdl` and
+/// `node_modules/.bin/markdownlint` for exactly this bug. Vendored paths belong
+/// in the per-processor `command` config field, not here.
+#[test]
+fn tools_list_names_are_bare_binaries_not_paths() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    let output = run_rsconstruct_with_env(
+        project_path,
+        &["--json", "tools", "list"],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(output.status.success(), "tools list --json failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("tools list --json should emit valid JSON");
+    let tools = parsed.as_array().expect("tools list --json should be an array");
+    assert!(!tools.is_empty(), "registry should not be empty");
+
+    for tool in tools {
+        let name = tool["tool"].as_str().expect("tool should have a 'tool' name string");
+        assert!(
+            !name.contains('/'),
+            "tool '{name}' is a path, not a bare binary name; which() would resolve it \
+             relative to the cwd and report it missing from anywhere else. Use the bare \
+             binary name here and put the vendored path in the processor's `command` config.",
+        );
+    }
+}
+
 /// `tools install --all` must be able to install every registry entry.
 /// A manual-only entry makes `--all` a hard error, which would break CI
 /// provisioning, so the registry must not contain one.
