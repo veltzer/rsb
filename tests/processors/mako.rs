@@ -8,7 +8,7 @@ fn setup_mako_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("templates.mako")).expect("Failed to create templates.mako dir");
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.mako]\n"
+        "[processor.mako]\nsrc_dirs = [\"templates.mako\"]\n"
     ).expect("Failed to write rsconstruct.toml");
     temp_dir
 }

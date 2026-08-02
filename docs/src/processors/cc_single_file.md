@@ -207,7 +207,7 @@ cflags = []               # C compiler flags
 cxxflags = []             # C++ compiler flags
 ldflags = []              # Linker flags
 include_paths = []        # Additional -I paths (relative to project root)
-src_dirs = ["src"]          # Source directory (default: "src")
+src_dirs = ["src"]          # Source directory (required; no default)
 output_suffix = ".elf"    # Suffix for output executables (default: ".elf")
 dep_inputs = []         # Additional files that trigger rebuilds when changed
 include_scanner = "native" # Method for scanning header dependencies (default: "native")
@@ -263,7 +263,7 @@ Each source file is compiled once per compiler profile, allowing you to:
 | `cxxflags` | string[] | `[]` | Flags passed to the C++ compiler |
 | `ldflags` | string[] | `[]` | Flags passed to the linker |
 | `include_paths` | string[] | `[]` | Additional `-I` include paths (shared) |
-| `src_dirs` | string[] | `["src"]` | Directory to scan for source files |
+| `src_dirs` | string[] | `[]` | Directories to scan for source files. No default — an unset `src_dirs` scans nothing. |
 | `output_suffix` | string | `".elf"` | Suffix appended to output executables |
 | `dep_inputs` | string[] | `[]` | Extra files whose changes trigger rebuilds |
 | `include_scanner` | string | `"native"` | Method for scanning header dependencies |

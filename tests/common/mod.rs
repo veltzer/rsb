@@ -32,10 +32,12 @@ pub fn setup_test_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("tera.templates")).expect("Failed to create tera.templates dir");
     fs::create_dir_all(temp_dir.path().join("config")).expect("Failed to create config dir");
 
-    // Only enable the tera processor so config/*.py files aren't picked up by linters
+    // Only enable the tera processor so config/*.py files aren't picked up by linters.
+    // src_dirs is explicit because no processor defaults to scanning anywhere —
+    // a bare [processor.tera] matches no files at all.
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.tera]\n"
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
     ).expect("Failed to write rsconstruct.toml");
 
     temp_dir
@@ -98,7 +100,7 @@ pub fn setup_cc_project(project_path: &Path) {
     fs::create_dir_all(project_path.join("src")).unwrap();
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.cc_single_file]\n[analyzer.icpp]\n"
+        "[processor.cc_single_file]\nsrc_dirs = [\"src\"]\n[analyzer.icpp]\n"
     ).unwrap();
 }
 

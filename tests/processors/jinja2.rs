@@ -8,7 +8,7 @@ fn setup_jinja2_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("templates.jinja2")).expect("Failed to create templates.jinja2 dir");
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.jinja2]\n"
+        "[processor.jinja2]\nsrc_dirs = [\"templates.jinja2\"]\n"
     ).expect("Failed to write rsconstruct.toml");
     temp_dir
 }

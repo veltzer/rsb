@@ -56,6 +56,7 @@ fn skip_missing_src_dirs_defers_tool_check_to_processors_with_products() {
         "skip_missing_src_dirs = true\n",
         "\n",
         "[processor.tera]\n",
+        "src_dirs = [\"tera.templates\"]\n",
         "\n",
         "[processor.script.ghost_check]\n",
         "command = \"scripts/does_not_exist.py\"\n",
@@ -93,7 +94,7 @@ fn missing_tool_still_fails_without_skip_flag() {
 
 #[test]
 fn local_overlay_disables_processor() {
-    let temp_dir = setup_project_with_config("[processor.tera]\n");
+    let temp_dir = setup_project_with_config("[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n");
     let project = temp_dir.path();
     write_file(project, "tera.templates/gen.txt.tera", "generated");
     fs::write(
@@ -113,7 +114,7 @@ fn local_overlay_disables_processor() {
 
 #[test]
 fn local_overlay_adds_sections() {
-    let temp_dir = setup_project_with_config("[processor.tera]\n");
+    let temp_dir = setup_project_with_config("[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n");
     let project = temp_dir.path();
     write_file(project, "tera.templates/gen.txt.tera", "generated");
     // The overlay adds a global [build] flag and a whole new processor whose

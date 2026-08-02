@@ -7,7 +7,7 @@ fn setup_sass_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("sass")).expect("Failed to create sass dir");
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.sass]\n",
+        "[processor.sass]\nsrc_dirs = [\"sass\"]\n",
     )
     .expect("Failed to write rsconstruct.toml");
     temp_dir
@@ -40,22 +40,23 @@ fn sass_basic_compile() {
     assert!(content.contains("red"), "CSS should contain the color value");
 }
 
-// sass's default `src_dirs = ["sass"]` must exist on disk too — a
-// processor configured with [processor.sass] but no `sass/` directory
-// is a misconfiguration and must fail loudly.
+// A declared src_dirs entry must exist on disk — naming a directory that
+// isn't there is a misconfiguration and must fail loudly. (sass has no
+// default src_dirs: no processor does, so the directory is always named
+// explicitly and is always checked.)
 #[test]
-fn sass_default_src_dir_must_exist() {
+fn sass_declared_src_dir_must_exist() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
 
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.sass]\n",
+        "[processor.sass]\nsrc_dirs = [\"sass\"]\n",
     )
     .unwrap();
 
     let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
-    assert!(!output.status.success(), "Build must fail when default src_dir doesn't exist");
+    assert!(!output.status.success(), "Build must fail when a declared src_dir doesn't exist");
 
     let combined = format!(
         "{}{}",

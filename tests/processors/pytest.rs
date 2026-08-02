@@ -7,7 +7,7 @@ fn setup_pytest_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("tests")).expect("Failed to create tests dir");
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.pytest]\n"
+        "[processor.pytest]\nsrc_dirs = [\"tests\"]\n"
     ).expect("Failed to write rsconstruct.toml");
     temp_dir
 }

@@ -8,7 +8,7 @@ fn marp_ci_cap_sets_max_jobs_when_ci_true() {
     let project_path = temp_dir.path();
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.marp]\n",
+        "[processor.marp]\nsrc_dirs = [\"marp\"]\n",
     ).unwrap();
 
     let output = run_rsconstruct_with_env(
@@ -34,7 +34,7 @@ fn marp_ci_cap_absent_when_ci_unset() {
     let project_path = temp_dir.path();
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.marp]\n",
+        "[processor.marp]\nsrc_dirs = [\"marp\"]\n",
     ).unwrap();
 
     // CI=false should behave like unset (the hook only fires on CI=="true").
@@ -84,7 +84,7 @@ fn marp_valid_file() {
 
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.marp]\nformats = [\"html\"]\n",
+        "[processor.marp]\nsrc_dirs = [\"marp\"]\nformats = [\"html\"]\n",
     )
     .unwrap();
 

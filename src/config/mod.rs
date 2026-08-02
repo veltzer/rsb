@@ -70,6 +70,18 @@ pub trait KnownFields {
 /// format it mirrors.
 #[allow(clippy::struct_field_names)]
 pub struct ScanDefaultsData {
+    /// Always `&[]` — every processor defaults to scanning nothing.
+    ///
+    /// No processor guesses where its files live. A default like `["src"]` or
+    /// `["tests"]` is a guess that silently matches nothing in a project with
+    /// a different layout, or worse, silently matches the wrong directory;
+    /// `&[]` makes the processor build nothing until the user says where to
+    /// look, which is visible and unambiguous. Scanning the whole tree remains
+    /// available as an explicit `src_dirs = [""]`.
+    ///
+    /// Do not reintroduce a non-empty default here. `src_extensions` is the
+    /// field that carries a processor's identity (which file types it handles);
+    /// `src_dirs` is the user's to state.
     pub src_dirs: &'static [&'static str],
     pub src_extensions: &'static [&'static str],
     pub src_exclude_dirs: &'static [&'static str],
@@ -579,10 +591,10 @@ pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
         "black" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "doctest" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "pytest" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "cc_single_file" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
+        "cc_single_file" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
         "cc" => ScanDefaultsData { src_dirs: &[], src_extensions: &["cc.yaml"], src_exclude_dirs: &[] },
-        "cppcheck" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
-        "clang_tidy" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
+        "cppcheck" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
+        "clang_tidy" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
         "zspell" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "shellcheck" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".sh", ".bash"], src_exclude_dirs: &[] },
         "luacheck" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".lua"], src_exclude_dirs: &[] },
@@ -605,20 +617,20 @@ pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
         "mdl" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "markdownlint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "aspell" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "marp" => ScanDefaultsData { src_dirs: &["marp"], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "pandoc" => ScanDefaultsData { src_dirs: &["pandoc"], src_extensions: &[".md"], src_exclude_dirs: &[] },
+        "marp" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
+        "pandoc" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "markdown2html" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "pdflatex" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".tex"], src_exclude_dirs: &[] },
         "a2x" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".txt"], src_exclude_dirs: &[] },
         "ascii" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "terms" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "chromium" => ScanDefaultsData { src_dirs: &["out/marp"], src_extensions: &[".html"], src_exclude_dirs: &[] },
-        "mako" => ScanDefaultsData { src_dirs: &["templates.mako"], src_extensions: &[".mako"], src_exclude_dirs: &[] },
-        "jinja2" => ScanDefaultsData { src_dirs: &["templates.jinja2"], src_extensions: &[".j2"], src_exclude_dirs: &[] },
+        "chromium" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".html"], src_exclude_dirs: &[] },
+        "mako" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".mako"], src_exclude_dirs: &[] },
+        "jinja2" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".j2"], src_exclude_dirs: &[] },
         "mermaid" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".mmd"], src_exclude_dirs: &[] },
         "drawio" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".drawio"], src_exclude_dirs: &[] },
         "libreoffice" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".odp"], src_exclude_dirs: &[] },
-        "protobuf" => ScanDefaultsData { src_dirs: &["proto"], src_extensions: &[".proto"], src_exclude_dirs: &[] },
+        "protobuf" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".proto"], src_exclude_dirs: &[] },
         "pdfunite" => ScanDefaultsData { src_dirs: &[], src_extensions: &["course.yaml"], src_exclude_dirs: &[] },
         "ipdfunite" => ScanDefaultsData { src_dirs: &[], src_extensions: &["course.yaml"], src_exclude_dirs: &[] },
         "script" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
@@ -626,9 +638,9 @@ pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
         "generator" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
         "explicit" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
         "linux_module" => ScanDefaultsData { src_dirs: &[], src_extensions: &["linux-module.yaml"], src_exclude_dirs: &[] },
-        "cpplint" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".cc", ".h", ".hh"], src_exclude_dirs: &[] },
-        "checkpatch" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".h"], src_exclude_dirs: &[] },
-        "objdump" => ScanDefaultsData { src_dirs: &["out/cc_single_file"], src_extensions: &[".elf"], src_exclude_dirs: &[] },
+        "cpplint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc", ".h", ".hh"], src_exclude_dirs: &[] },
+        "checkpatch" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".h"], src_exclude_dirs: &[] },
+        "objdump" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".elf"], src_exclude_dirs: &[] },
         "prettier" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".css", ".scss", ".less", ".html", ".json", ".md", ".yaml", ".yml"], src_exclude_dirs: &[] },
         "eslint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"], src_exclude_dirs: &[] },
         "jshint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js", ".jsx", ".mjs", ".cjs"], src_exclude_dirs: &[] },
@@ -648,20 +660,20 @@ pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
         "cmake" => ScanDefaultsData { src_dirs: &[], src_extensions: &["CMakeLists.txt"], src_exclude_dirs: &[] },
         "hadolint" => ScanDefaultsData { src_dirs: &[], src_extensions: &["Dockerfile"], src_exclude_dirs: &[] },
         "jekyll" => ScanDefaultsData { src_dirs: &[], src_extensions: &["_config.yml"], src_exclude_dirs: &[] },
-        "sass" => ScanDefaultsData { src_dirs: &["sass"], src_extensions: &[".scss", ".sass"], src_exclude_dirs: &[] },
+        "sass" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".scss", ".sass"], src_exclude_dirs: &[] },
         "ijq" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
         "ijsonlint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
         "iyamllint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
         "iyamlschema" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
         "itaplo" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".toml"], src_exclude_dirs: &[] },
         "imarkdown2html" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "isass" => ScanDefaultsData { src_dirs: &["sass"], src_extensions: &[".scss", ".sass"], src_exclude_dirs: &[] },
+        "isass" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".scss", ".sass"], src_exclude_dirs: &[] },
         "yaml2json" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
-        "rust_single_file" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".rs"], src_exclude_dirs: &[] },
+        "rust_single_file" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".rs"], src_exclude_dirs: &[] },
         "slidev" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "encoding" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".bash", ".lua", ".pl", ".pm", ".php", ".md", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".htm", ".css", ".scss", ".sass", ".tex", ".txt"], src_exclude_dirs: &[] },
         "duplicate_files" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".md", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css"], src_exclude_dirs: &[] },
-        "marp_images" => ScanDefaultsData { src_dirs: &["marp"], src_extensions: &[".md"], src_exclude_dirs: &[] },
+        "marp_images" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
         "license_header" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".bash"], src_exclude_dirs: &[] },
         _ => return None,
     })

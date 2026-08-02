@@ -7,7 +7,7 @@ fn setup_protobuf_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("proto")).expect("Failed to create proto dir");
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.protobuf]\n"
+        "[processor.protobuf]\nsrc_dirs = [\"proto\"]\n"
     ).expect("Failed to write rsconstruct.toml");
     temp_dir
 }

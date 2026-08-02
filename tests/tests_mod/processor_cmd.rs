@@ -170,7 +170,7 @@ fn per_processor_enabled_true_is_default() {
     // Enable tera in the enabled list without setting per-processor enabled
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.tera]\n"
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
     ).unwrap();
 
     // Build should produce one product (tera defaults to enabled = true)
@@ -271,7 +271,7 @@ fn removing_processor_section_disables_it() {
     // First build with tera declared — should produce 1 product
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.tera]\n"
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
     ).unwrap();
 
     let result = run_rsconstruct_json_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);

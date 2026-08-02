@@ -7,7 +7,7 @@ fn setup_rust_project() -> TempDir {
     fs::create_dir_all(temp_dir.path().join("src")).expect("Failed to create src dir");
     fs::write(
         temp_dir.path().join("rsconstruct.toml"),
-        "[processor.rust_single_file]\n"
+        "[processor.rust_single_file]\nsrc_dirs = [\"src\"]\n"
     ).expect("Failed to write rsconstruct.toml");
     temp_dir
 }

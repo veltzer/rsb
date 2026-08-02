@@ -200,7 +200,7 @@ fn cc_single_file_config_change_triggers_rebuild() {
     // Change cflags in rsconstruct.toml
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.cc_single_file]\ncflags = [\"-O2\"]\n"
+        "[processor.cc_single_file]\nsrc_dirs = [\"src\"]\ncflags = [\"-O2\"]\n"
     ).unwrap();
 
     // Third build — should rebuild because config changed

@@ -174,7 +174,7 @@ fn dep_inputs_triggers_rebuild() {
     // Configure tera processor with dep_inputs pointing to the config file
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.tera]\ndep_inputs = [\"config/settings.py\"]\n"
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\ndep_inputs = [\"config/settings.py\"]\n"
     ).unwrap();
 
     // First build
@@ -236,7 +236,7 @@ fn dep_inputs_nonexistent_file_fails() {
     // Configure with a nonexistent extra_input — should cause an error
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.tera]\ndep_inputs = [\"nonexistent_file.txt\"]\n"
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\ndep_inputs = [\"nonexistent_file.txt\"]\n"
     ).unwrap();
 
     let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
@@ -294,7 +294,7 @@ fn setup_glob_project(template_body: &str) -> TempDir {
     fs::create_dir_all(project_path.join("tera.templates")).unwrap();
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[processor.tera]\n[analyzer.tera]\n",
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n[analyzer.tera]\n",
     ).unwrap();
     fs::write(
         project_path.join("tera.templates/report.txt.tera"),
@@ -782,7 +782,7 @@ fn glob_in_included_snippet_is_tracked() {
     fs::create_dir_all(p.join("data")).unwrap();
     fs::write(
         p.join("rsconstruct.toml"),
-        "[processor.tera]\n[analyzer.tera]\n",
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n[analyzer.tera]\n",
     ).unwrap();
     fs::write(
         p.join("tera.templates/report.txt.tera"),
@@ -998,7 +998,7 @@ fn analyzer_tracks_load_python_without_dep_inputs() {
     // the analyzer's own dependency discovery — no dep_inputs anywhere.
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[analyzer.tera]\n\n[processor.tera]\n"
+        "[analyzer.tera]\n\n[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
     ).unwrap();
 
     fs::write(
@@ -1043,7 +1043,7 @@ fn analyzer_tracks_version_str_default_path() {
     // the analyzer's own dependency discovery — no dep_inputs anywhere.
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[analyzer.tera]\n\n[processor.tera]\n"
+        "[analyzer.tera]\n\n[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
     ).unwrap();
 
     // version_str() with no arguments reads config/version.py; the analyzer
@@ -1090,7 +1090,7 @@ fn analyzer_tracks_version_str_explicit_lua_path() {
     // the analyzer's own dependency discovery — no dep_inputs anywhere.
     fs::write(
         project_path.join("rsconstruct.toml"),
-        "[analyzer.tera]\n\n[processor.tera]\n"
+        "[analyzer.tera]\n\n[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
     ).unwrap();
 
     fs::write(
