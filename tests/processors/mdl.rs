@@ -35,34 +35,41 @@ fn mdl_valid_file() {
     );
 }
 
-// Reproduces the user-reported bug:
-//   [processor.mdl]
-//   src_dirs = ["config", "script"]
-// where `script/` doesn't exist on disk. Must fail with the missing-dir
-// error rather than silently scanning nothing.
+/// A missing entry is skipped without disturbing the entries beside it:
+///   [processor.mdl]
+///   src_dirs = ["config", "script"]
+/// where `script/` doesn't exist on disk — `config/` must still be scanned.
+/// This is the shared-config case: one config listing directories that only
+/// some repos materialize.
 #[test]
-fn mdl_nonexistent_src_dir_fails() {
+fn mdl_missing_src_dir_skips_without_affecting_others() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
 
-    // `config/` exists but `script/` does not — must fail.
+    // `config/` exists but `script/` does not.
     fs::create_dir(project_path.join("config")).unwrap();
+    fs::write(project_path.join("config/doc.md"), "# doc\n").unwrap();
     fs::write(
         project_path.join("rsconstruct.toml"),
         "[processor.mdl]\nsrc_dirs = [\"config\", \"script\"]\n",
     )
     .unwrap();
 
-    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
-    assert!(!output.status.success(), "Build must fail when any src_dirs entry doesn't exist");
+    let output = run_rsconstruct_with_env(project_path, &["build", "--dry-run"], &[("NO_COLOR", "1")]);
+    assert!(
+        output.status.success(),
+        "Build must succeed: the missing 'script' entry scans nothing. {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
+    // The surviving entry still matched its file.
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        combined.contains("script") && combined.contains("does not exist"),
-        "Error must name the missing 'script' directory: {}", combined
+        combined.contains("config/doc.md"),
+        "the existing 'config' dir must still be scanned: {combined}"
     );
 }

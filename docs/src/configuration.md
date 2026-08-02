@@ -12,7 +12,6 @@ parallel = 1          # Number of parallel jobs (1 = sequential, 0 = auto-detect
                       # Also settable via RSCONSTRUCT_THREADS env var (CLI -j takes precedence)
 batch_size = 0        # Max files per batch for batch-capable processors (0 = no limit)
 output_dir = "out"    # Global output directory prefix for generator processors
-skip_missing_src_dirs = false  # true: missing src_dirs entries skip instead of fail
 
 # Declare processors by adding [processor.NAME] sections.
 # Only declared processors run — no processors are enabled by default.
@@ -165,11 +164,11 @@ Rules and caveats:
 - `rsconstruct processors config <iname>` shows the merged values.
 - In watch mode, both files are watched for changes.
 
-Combined with [`skip_missing_src_dirs`](#build), this supports the
-shared-config pattern: one identical `rsconstruct.toml` distributed across
-many repos (each processor only activates where its directories exist), plus a
-small optional `rsconstruct.local.toml` per repo for what's genuinely
-repo-specific.
+This supports the shared-config pattern: one identical `rsconstruct.toml`
+distributed across many repos — a `src_dirs` entry that doesn't exist in a
+given repo simply scans nothing there, so each processor only activates where
+its directories exist — plus a small optional `rsconstruct.local.toml` per repo
+for what's genuinely repo-specific.
 
 ## Section details
 
@@ -180,7 +179,6 @@ repo-specific.
 | `parallel` | integer | `1` | Number of parallel jobs. `1` = sequential, `0` = auto-detect CPU cores. Can also be set via the `RSCONSTRUCT_THREADS` environment variable (CLI `-j` takes precedence). |
 | `batch_size` | integer | `0` | Maximum files per batch for batch-capable processors. `0` = no limit (all files in one batch). To disable batching, pass `--batch-size -1` on the CLI or set `batch = false` on individual processors. |
 | `output_dir` | string | `"out"` | Global output directory prefix. Processor `output_dir` defaults that start with `out/` are remapped to use this prefix (e.g., setting `"build"` changes `out/marp` to `build/marp`). Individual processors can still override their `output_dir` explicitly. |
-| `skip_missing_src_dirs` | boolean | `false` | When `true`, a `src_dirs` entry that doesn't exist on disk deactivates the processor's scan of that directory instead of failing the build. Lets one shared config file serve repos with different layouts: a processor whose directories are all absent simply matches no files. Skipped entries are listed when running with `--phases`. Leave `false` so a missing directory is caught as a typo. |
 | `max_discovery_passes` | integer | `10` | Maximum fixed-point discovery passes. Discovery repeats while processors keep adding products from each other's declared outputs; a config still adding products at the cap fails the build (naming the processors involved) instead of silently truncating the graph. |
 | `hash_tool_versions` | boolean | `true` | Mix the identity of each processor's external tools into its products' cache keys, so upgrading a tool invalidates what that tool produced. Tools are identified by a content hash of the resolved binary (no `--version` subprocess; the mtime cache makes repeat builds a stat), or by the pinned `version_output` when [`rsconstruct tools lock`](commands.md#rsconstruct-tools) has written a `.tools.versions` file. Set to `false` to leave tool identity out of cache keys entirely. |
 
@@ -200,7 +198,7 @@ Common fields available to all processors:
 | `dep_auto` | array of strings | varies | Config files auto-detected as inputs (e.g., `.pylintrc`). |
 | `batch` | boolean | `true` | Whether to batch multiple files into a single tool invocation. Note: in fail-fast mode (default), chunk size is 1 regardless of this setting — batch mode only groups files with `--keep-going` or `--batch-size`. For external tools, a batch failure marks all products in the chunk as failed. Internal processors (`i`-prefixed) return per-file results, so partial failure is handled correctly. |
 | `max_jobs` | integer | none | Maximum concurrent jobs for this processor. When set, limits how many instances of this processor run in parallel, regardless of the global `-j` setting. Useful for heavyweight processors (e.g., `marp` spawns Chromium). Omit to use the global parallelism. |
-| `src_dirs` | array of strings | `[]` | Directories to scan for source files. **Every processor defaults to `[]`, which scans nothing** — no processor guesses a directory, so one declared without `src_dirs` matches no files and simply builds nothing. A default like `["src"]` would be a guess that silently matches the wrong directory in a project laid out differently; naming the directory is the user's call. To scan the whole project deliberately, use `src_dirs = [""]` — an empty string means the project root and walks everything beneath it, including `node_modules/`, `.venv/` and `target/` unless excluded. `src_files` is an alternative to `src_dirs` for listing exact paths. **Every entry must exist on disk** (or be the declared output target of an upstream processor) — a missing directory fails the build with `src_dirs entry 'X' does not exist or is not a directory`, unless `[build] skip_missing_src_dirs = true` is set, in which case the missing entry is skipped and the processor simply matches no files there. Use `rsconstruct processors defconfig <name>` to see a processor's defaults. |
+| `src_dirs` | array of strings | `[]` | Directories to scan for source files. **Every processor defaults to `[]`, which scans nothing** — no processor guesses a directory, so one declared without `src_dirs` matches no files and simply builds nothing. A default like `["src"]` would be a guess that silently matches the wrong directory in a project laid out differently; naming the directory is the user's call. To scan the whole project deliberately, use `src_dirs = [""]` — an empty string means the project root and walks everything beneath it, including `node_modules/`, `.venv/` and `target/` unless excluded. `src_files` is an alternative to `src_dirs` for listing exact paths. An entry that doesn't exist on disk (and isn't the declared output target of an upstream processor) is **skipped** — it scans nothing rather than failing the build, which is what lets one shared config list every directory the family of repos might have. Skipped entries are listed when running with `--phases`. Use `rsconstruct processors defconfig <name>` to see a processor's defaults. |
 | `src_extensions` | array of strings | varies | File extensions to match. |
 | `src_exclude_dirs` | array of strings | varies | Directory path segments to exclude from scanning. |
 | `src_exclude_files` | array of strings | `[]` | File names to exclude. |

@@ -188,8 +188,11 @@ fn disabled_processor_skips_tool_preflight() {
     fs::create_dir_all(project_path.join("src")).unwrap();
     fs::write(project_path.join("src/a.txt"), "hello\n").unwrap();
 
+    // src_extensions must match src/a.txt: the tool check runs against
+    // processors that actually produced products, so a processor matching
+    // nothing would never reach it.
     let config = |enabled: &str| format!(
-        "[processor.script]\ncommand = \"definitely-not-a-real-tool-xyz\"\nsrc_dirs = [\"src\"]\nenabled = {enabled}\n"
+        "[processor.script]\ncommand = \"definitely-not-a-real-tool-xyz\"\nsrc_dirs = [\"src\"]\nsrc_extensions = [\".txt\"]\nenabled = {enabled}\n"
     );
 
     // Control: enabled instance with a missing tool must fail pre-flight

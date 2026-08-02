@@ -598,11 +598,18 @@ impl Builder {
             }
         }
 
-        // After the fixed-point loop has settled, every src_dirs entry must
-        // be backed by something — either a real directory on disk or virtual
-        // files injected by an upstream processor's declared outputs. A dir
-        // that is neither is a typo and must fail. Skip when src_files is set
-        // (file-list mode bypasses src_dirs).
+        // After the fixed-point loop has settled, report any src_dirs entry
+        // not backed by something — either a real directory on disk or virtual
+        // files injected by an upstream processor's declared outputs.
+        //
+        // A missing directory is skipped, not an error: src_dirs scans only
+        // what it names, so naming a directory that isn't there already means
+        // "scan nothing" by another route. This is what makes one shared
+        // rsconstruct.toml work across many repos — it can list every
+        // directory the family of repos might have, and each repo activates
+        // the subset it actually materializes. Reported under --phases only.
+        //
+        // Skip when src_files is set (file-list mode bypasses src_dirs).
         let mut missing: Vec<String> = Vec::new();
         for name in active {
             let name = name.as_ref();
@@ -627,17 +634,9 @@ impl Builder {
                 }
             }
         }
-        if !missing.is_empty() {
-            if self.config.build.skip_missing_src_dirs {
-                if debug {
-                    for entry in &missing {
-                        eprintln!("{}", color::dim(&format!(
-                            "    skip_missing_src_dirs: {entry} (skipped)"
-                        )));
-                    }
-                }
-            } else {
-                anyhow::bail!("Invalid config:\n{}", missing.join("\n"));
+        if debug {
+            for entry in &missing {
+                eprintln!("{}", color::dim(&format!("    {entry} (skipped)")));
             }
         }
         Ok(())

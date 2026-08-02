@@ -325,13 +325,6 @@ pub struct BuildConfig {
     /// ~2MB; the default leaves headroom for env vars and the tool path.
     #[serde(default = "default_max_arg_len")]
     pub max_arg_len: usize,
-    /// When true, a `src_dirs` entry that doesn't exist on disk deactivates
-    /// the processor's scan of that directory instead of failing the build.
-    /// Lets one shared config file serve repos with different layouts: a
-    /// processor whose directories are all absent simply matches no files.
-    /// Default: false — a missing directory is treated as a typo and fails.
-    #[serde(default)]
-    pub skip_missing_src_dirs: bool,
     /// Maximum fixed-point discovery passes. Discovery repeats while
     /// processors keep adding products from each other's declared outputs;
     /// a config still adding products at the cap fails the build instead of
@@ -382,7 +375,6 @@ impl Default for BuildConfig {
             batch_size: 0, // Default: batching enabled, no size limit
             output_dir: "out".into(),
             max_arg_len: default_max_arg_len(),
-            skip_missing_src_dirs: false,
             max_discovery_passes: default_max_discovery_passes(),
             hash_tool_versions: default_hash_tool_versions(),
         }

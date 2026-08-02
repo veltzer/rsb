@@ -72,35 +72,6 @@ fn pandoc_incremental_skip() {
     );
 }
 
-// A declared src_dirs entry must exist on disk — naming a directory that
-// isn't there is a misconfiguration and must fail loudly. (pandoc has no
-// default src_dirs: no processor does, so the directory is always named
-// explicitly and is always checked.)
-#[test]
-fn pandoc_declared_src_dir_must_exist() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let project_path = temp_dir.path();
-
-    fs::write(
-        project_path.join("rsconstruct.toml"),
-        "[processor.pandoc]\nsrc_dirs = [\"pandoc\"]\n",
-    )
-    .unwrap();
-
-    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
-    assert!(!output.status.success(), "Build must fail when a declared src_dir doesn't exist");
-
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        combined.contains("pandoc") && combined.contains("does not exist"),
-        "Error must name the missing 'pandoc' directory: {}", combined
-    );
-}
-
 /// Markdown containing characters outside the latin-1 range. pdflatex (the
 /// pandoc default PDF engine) cannot typeset these without manual package
 /// setup; xelatex and lualatex handle them natively. These tests pin both

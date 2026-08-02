@@ -254,26 +254,22 @@ impl Builder {
         )?;
         let processor_filter = expanded_filter.as_deref();
 
-        // Pre-flight: verify all required tools are available for declared processors.
-        // Disabled instances (`enabled = false`) are exempt — disabling a
-        // processor exists precisely to keep its stanza while its tool is absent.
-        let deferred_tool_check = self.config.build.skip_missing_src_dirs;
-        if !deferred_tool_check {
-            check_required_tools(&processors, processor_filter, None)?;
-        }
-
         // Check for config changes and display diffs
         self.detect_config_changes(&processors, opts.show_all_config_changes);
 
         // Build the dependency graph (may stop early based on stop_after)
         let (mut graph, mut phase_timings) = self.build_graph_with_processors_and_phase(ctx, &processors, opts.stop_after, processor_filter, opts.verbose)?;
 
-        if deferred_tool_check {
-            let with_products: std::collections::HashSet<&str> = graph.products().iter()
-                .map(|p| p.processor.as_str())
-                .collect();
-            check_required_tools(&processors, processor_filter, Some(&with_products))?;
-        }
+        // Verify required tools — after graph construction, so only processors
+        // that actually produced products are checked. A declared processor
+        // matching no files in this repo needs no tool installed, which is what
+        // lets one shared rsconstruct.toml serve repos with different layouts.
+        // Disabled instances (`enabled = false`) are exempt — disabling a
+        // processor exists precisely to keep its stanza while its tool is absent.
+        let with_products: std::collections::HashSet<&str> = graph.products().iter()
+            .map(|p| p.processor.as_str())
+            .collect();
+        check_required_tools(&processors, processor_filter, Some(&with_products))?;
 
         // Filter by target patterns if specified
         if let Some(ref targets) = opts.targets {
