@@ -20,35 +20,33 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
+      # Language runtimes come from the standard setup actions. Each installs
+      # into the runner's toolcache, which the runner user owns — so
+      # `tools install --all` below can `pip install` / `npm install -g` /
+      # `gem install` with no venv, no GEM_HOME, no npm prefix, and no sudo.
+      #
+      # These replaced three hand-rolled shell steps that worked around the
+      # *distro* runtimes: PEP 668 blocks pip on Ubuntu's system python, and
+      # the system gem/npm directories are root-owned. None of that applies to
+      # a toolcache runtime, so the workarounds were solving a problem the
+      # platform already solves.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
       - name: Build
         run: cargo build
-
-      # These three steps configure package-manager *destinations* only. They
-      # deliberately install no tools: naming a tool here would duplicate the
-      # registry, and a tool named in a workflow is a tool that silently
-      # diverges from what rsconstruct actually needs. Every tool comes from
-      # the single `tools install --all` step below.
-      #
-      # pip installs into the system interpreter are rejected on modern
-      # Ubuntu (PEP 668); pip-based tools go into this venv instead.
-      - name: Set up Python venv as the pip destination
-        run: |
-          python3 -m venv "$HOME/.venv"
-          echo "$HOME/.venv/bin" >> "$GITHUB_PATH"
-
-      # The runner's system gem directory is root-owned; give gem installs
-      # a user-writable home.
-      - name: Set up user gem home as the gem destination
-        run: |
-          echo "GEM_HOME=$HOME/.gem" >> "$GITHUB_ENV"
-          echo "$HOME/.gem/bin" >> "$GITHUB_PATH"
-
-      # Some npm packages (jslint) symlink man pages into root-owned
-      # /usr/local/share; route npm -g installs to a user-writable prefix.
-      - name: Set up user npm prefix as the npm destination
-        run: |
-          npm config set prefix "$HOME/.npm-global"
-          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
 
       # The whole tool matrix, in one registry-driven command. rsconstruct is
       # the only thing this workflow installs by name (via `cargo build`
