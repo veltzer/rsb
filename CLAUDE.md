@@ -5,9 +5,9 @@ A fast, incremental build tool written in Rust with tera support, Python linting
 Detailed documentation is in `docs/src/`. Key references:
 - Commands: `docs/src/commands.md`
 - Configuration: `docs/src/configuration.md`
-- Architecture (subprocess execution, path handling, caching): `docs/src/architecture.md`
-- Processor contract: `docs/src/processor-contract.md`
-- Coding standards: `docs/src/coding-standards.md`
+- Architecture (subprocess execution, path handling, caching): `docs/src/internal/architecture.md`
+- Processor contract: `docs/src/internal/processor-contract.md`
+- Coding standards: `docs/src/internal/coding-standards.md`
 - Per-processor docs: `docs/src/processors/`
 
 ## Philosophy

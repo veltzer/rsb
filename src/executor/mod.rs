@@ -11,7 +11,7 @@ use std::sync::Arc;
 use indicatif::ProgressBar;
 use parking_lot::Mutex;
 
-use crate::cli::DisplayOptions;
+use crate::display::DisplayOptions;
 use crate::errors;
 use crate::color;
 use crate::graph::BuildGraph;

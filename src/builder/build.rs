@@ -123,9 +123,88 @@ fn check_required_tools(
     Ok(())
 }
 
+/// Resolve `-p`/`-x` into the single allow-list the rest of the build uses.
+///
+/// Pure CLI semantics — alias expansion, unknown-name and conflict reporting,
+/// and the `-x`-only case where an include list is synthesized from
+/// "everything minus the excludes". Extracted from `Builder::build`, which
+/// mixed this argument-massaging in with orchestration; as a free function it
+/// is directly testable without standing up a `Builder`.
+///
+/// Returns `None` when neither filter is given, meaning "run everything".
+fn resolve_processor_filter(
+    include: Option<&[String]>,
+    exclude: Option<&[String]>,
+    processors: &ProcessorMap,
+) -> Result<Option<Vec<String>>, anyhow::Error> {
+    let include_expanded = include.map(|f| expand_aliases(f, processors));
+    let exclude_expanded = exclude.map(|f| expand_aliases(f, processors));
+
+    // Validate unknown names in either filter, pooling both error reports.
+    let mut unknown: Vec<String> = Vec::new();
+    for filter in [&include_expanded, &exclude_expanded].iter().copied().flatten() {
+        for name in filter {
+            if !processors.contains_key(name) {
+                unknown.push(name.clone());
+            }
+        }
+    }
+    if !unknown.is_empty() {
+        let mut available: Vec<&String> = processors.keys().collect();
+        available.sort();
+        return Err(crate::exit_code::RsconstructError::new(
+            crate::exit_code::RsconstructExitCode::ConfigError,
+            format!("Unknown processor(s): {unknown:?}. Available: {available:?}"),
+        ).into());
+    }
+
+    // Reject overlap between -p and -x: contradictory intent should fail
+    // loudly rather than silently picking one side.
+    if let (Some(inc), Some(exc)) = (&include_expanded, &exclude_expanded) {
+        let conflicts: Vec<&String> = exc.iter().filter(|e| inc.contains(e)).collect();
+        if !conflicts.is_empty() {
+            return Err(crate::exit_code::RsconstructError::new(
+                crate::exit_code::RsconstructExitCode::ConfigError,
+                format!("Processor(s) {conflicts:?} appear in both -p and -x"),
+            ).into());
+        }
+    }
+
+    // When -x is the only filter, synthesize an include list from "all
+    // processors minus excludes" so downstream code can treat it as a
+    // regular allow-list.
+    Ok(match (include_expanded, exclude_expanded) {
+        (Some(inc), Some(exc)) => Some(inc.into_iter().filter(|n| !exc.contains(n)).collect()),
+        (Some(inc), None) => Some(inc),
+        (None, Some(exc)) => Some(
+            processors.keys().filter(|n| !exc.contains(n)).cloned().collect()
+        ),
+        (None, None) => None,
+    })
+}
+
+/// Everything discovery produced, ready to classify and execute.
+///
+/// This is the intermediate that finding 7 said did not exist: previously
+/// nothing sat between "run the whole build" and "execute one product", so
+/// the planning half could not be reused or inspected without going through
+/// `Builder::build`'s CLI-shaped surface. `plan_build` produces one of these;
+/// `build` consumes it.
+struct BuildPlan {
+    processors: ProcessorMap,
+    graph: crate::graph::BuildGraph,
+    phase_timings: Vec<(String, Duration)>,
+}
+
 impl Builder {
-    /// Execute an incremental build using the dependency graph
-    pub fn build(&mut self, ctx: &crate::build_context::BuildContext, opts: &BuildOptions, init_timings: Vec<(String, Duration)>) -> Result<(), anyhow::Error> {
+    /// Apply CLI overrides that mutate config or context before anything is
+    /// created from them.
+    ///
+    /// Separated from `build` because these are CLI *semantics*, not build
+    /// steps: they translate flags into the config/context state the rest of
+    /// the pipeline reads, and they must all happen before `create_processors`
+    /// observes the config.
+    fn apply_cli_overrides(&mut self, ctx: &crate::build_context::BuildContext, opts: &BuildOptions) {
         // CLI override for zspell and aspell auto_add_words
         if opts.auto_add_words {
             for inst in &mut self.config.processor.instances {
@@ -145,73 +224,39 @@ impl Builder {
         // Apply the configured argv-length threshold (build.max_arg_len) so
         // run_checker can read it via ctx.max_arg_len().
         ctx.set_max_arg_len(self.config.build.max_arg_len);
+    }
 
-        // Create processors
+    /// Discover → filter → validate: everything between "we have a config" and
+    /// "we have a graph ready to classify".
+    ///
+    /// Returns the processor map (needed later for execution), the graph, and
+    /// the phase timings collected so far. The processor filter is consumed
+    /// entirely within this phase — it selects what gets discovered, and the
+    /// resulting graph already reflects it.
+    ///
+    /// The tool preflight lives here because *when* it runs depends on how the
+    /// graph came out: in shared-config mode it is deferred until after
+    /// discovery so a processor with no work in this repo doesn't demand its
+    /// tool be installed.
+    fn plan_build(
+        &self,
+        ctx: &crate::build_context::BuildContext,
+        opts: &BuildOptions,
+    ) -> Result<BuildPlan, anyhow::Error> {
         let t = Instant::now();
         let processors = self.create_processors()?;
         let create_processors_dur = t.elapsed();
 
-        // Expand @-prefixed shortcuts in both filters, then compute the final
-        // set of processors to run:
-        //   - if -p is given: start from that set (else all processors)
-        //   - if -x is given: remove those from the set
-        //   - conflict (same name in both) → error
-        //   - unknown names in either filter → error
-        let include_expanded = opts.processor_filter.as_ref()
-            .map(|f| expand_aliases(f, &processors));
-        let exclude_expanded = opts.exclude_filter.as_ref()
-            .map(|f| expand_aliases(f, &processors));
-
-        // Validate unknown names in either filter, pooling both error reports.
-        let mut unknown: Vec<String> = Vec::new();
-        for filter in [&include_expanded, &exclude_expanded].iter().copied().flatten() {
-            for name in filter {
-                if !processors.contains_key(name) {
-                    unknown.push(name.clone());
-                }
-            }
-        }
-        if !unknown.is_empty() {
-            let mut available: Vec<&String> = processors.keys().collect();
-            available.sort();
-            return Err(crate::exit_code::RsconstructError::new(
-                crate::exit_code::RsconstructExitCode::ConfigError,
-                format!("Unknown processor(s): {unknown:?}. Available: {available:?}"),
-            ).into());
-        }
-
-        // Reject overlap between -p and -x: contradictory intent should fail
-        // loudly rather than silently picking one side.
-        if let (Some(inc), Some(exc)) = (&include_expanded, &exclude_expanded) {
-            let conflicts: Vec<&String> = exc.iter().filter(|e| inc.contains(e)).collect();
-            if !conflicts.is_empty() {
-                return Err(crate::exit_code::RsconstructError::new(
-                    crate::exit_code::RsconstructExitCode::ConfigError,
-                    format!("Processor(s) {conflicts:?} appear in both -p and -x"),
-                ).into());
-            }
-        }
-
-        // Build the final filter. When -x is the only filter, synthesize an
-        // include list from "all processors minus excludes" so downstream code
-        // can treat it as a regular allow-list.
-        let expanded_filter: Option<Vec<String>> = match (include_expanded, exclude_expanded) {
-            (Some(inc), Some(exc)) => Some(inc.into_iter().filter(|n| !exc.contains(n)).collect()),
-            (Some(inc), None) => Some(inc),
-            (None, Some(exc)) => Some(
-                processors.keys().filter(|n| !exc.contains(n)).cloned().collect()
-            ),
-            (None, None) => None,
-        };
+        let expanded_filter = resolve_processor_filter(
+            opts.processor_filter.as_deref(),
+            opts.exclude_filter.as_deref(),
+            &processors,
+        )?;
         let processor_filter = expanded_filter.as_deref();
 
         // Pre-flight: verify all required tools are available for declared processors.
         // Disabled instances (`enabled = false`) are exempt — disabling a
         // processor exists precisely to keep its stanza while its tool is absent.
-        // In shared-config mode (skip_missing_src_dirs), the check is deferred
-        // until after the graph is built and restricted to processors that
-        // actually discovered products — a processor with no work in this
-        // repo doesn't need its tool installed.
         let deferred_tool_check = self.config.build.skip_missing_src_dirs;
         if !deferred_tool_check {
             check_required_tools(&processors, processor_filter, None)?;
@@ -235,8 +280,22 @@ impl Builder {
             graph.filter_by_targets(targets)?;
         }
 
-        // Prepend create_processors and init timings
         phase_timings.insert(0, ("create_processors".to_string(), create_processors_dur));
+        Ok(BuildPlan { processors, graph, phase_timings })
+    }
+
+    /// Execute an incremental build using the dependency graph.
+    ///
+    /// Three phases: [`apply_cli_overrides`](Self::apply_cli_overrides)
+    /// translates flags into config/context state, [`plan_build`](Self::plan_build)
+    /// produces a [`BuildPlan`], and the body below classifies and executes it.
+    pub fn build(&mut self, ctx: &crate::build_context::BuildContext, opts: &BuildOptions, init_timings: Vec<(String, Duration)>) -> Result<(), anyhow::Error> {
+        self.apply_cli_overrides(ctx, opts);
+
+        let BuildPlan { processors, graph, mut phase_timings } = self.plan_build(ctx, opts)?;
+
+        // Prepend init timings ahead of create_processors, which plan_build
+        // already inserted at the front.
         for (i, timing) in init_timings.into_iter().enumerate() {
             phase_timings.insert(i, timing);
         }
@@ -657,4 +716,76 @@ fn write_trace_file(path: &str, stats: &BuildStats) -> Result<()> {
         println!("Wrote trace to {}", color::bold(path));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::create_all_default_processors;
+
+    /// No filters means "run everything", which downstream code distinguishes
+    /// from an empty allow-list ("run nothing").
+    #[test]
+    fn no_filters_means_no_restriction() {
+        let procs = create_all_default_processors().expect("default processors");
+        let filter = resolve_processor_filter(None, None, &procs).expect("no filters is valid");
+        assert!(filter.is_none(), "expected None (run everything), got {filter:?}");
+    }
+
+    /// `-x` alone has to be turned into an allow-list, because everything
+    /// downstream consumes an include list rather than an exclude list.
+    #[test]
+    fn exclude_only_synthesizes_an_include_list() {
+        let procs = create_all_default_processors().expect("default processors");
+        let exclude = vec!["ruff".to_string()];
+        let filter = resolve_processor_filter(None, Some(&exclude), &procs)
+            .expect("exclude-only is valid")
+            .expect("exclude-only must synthesize a list");
+        assert!(!filter.contains(&"ruff".to_string()), "excluded processor must not survive");
+        assert!(filter.len() > 1, "expected everything-but-ruff, got {} entries", filter.len());
+        assert_eq!(filter.len(), procs.len() - 1, "exactly one processor should be removed");
+    }
+
+    /// `-p` wins the intersection: an include list is narrowed by excludes.
+    #[test]
+    fn include_is_narrowed_by_exclude() {
+        let procs = create_all_default_processors().expect("default processors");
+        let include = vec!["ruff".to_string(), "mypy".to_string()];
+        let exclude = vec!["black".to_string()];
+        let filter = resolve_processor_filter(Some(&include), Some(&exclude), &procs)
+            .expect("disjoint include/exclude is valid")
+            .expect("include must produce a list");
+        // expand_aliases sorts and dedups, so compare as a set.
+        let mut got = filter;
+        got.sort();
+        assert_eq!(got, vec!["mypy".to_string(), "ruff".to_string()]);
+    }
+
+    /// A name in both -p and -x is contradictory intent and must fail rather
+    /// than silently resolving to one side.
+    #[test]
+    fn conflicting_include_and_exclude_errors() {
+        let procs = create_all_default_processors().expect("default processors");
+        let both = vec!["ruff".to_string()];
+        let err = resolve_processor_filter(Some(&both), Some(&both), &procs)
+            .expect_err("same name in -p and -x must be rejected");
+        let msg = format!("{err}");
+        assert!(msg.contains("both -p and -x"), "unexpected message: {msg}");
+    }
+
+    /// An unknown name is a typo, not an empty selection — report it, and
+    /// report it from whichever flag it appeared in.
+    #[test]
+    fn unknown_names_error_from_either_filter() {
+        let procs = create_all_default_processors().expect("default processors");
+        let bogus = vec!["definitely-not-a-processor".to_string()];
+
+        let err = resolve_processor_filter(Some(&bogus), None, &procs)
+            .expect_err("unknown -p name must be rejected");
+        assert!(format!("{err}").contains("definitely-not-a-processor"));
+
+        let err = resolve_processor_filter(None, Some(&bogus), &procs)
+            .expect_err("unknown -x name must be rejected");
+        assert!(format!("{err}").contains("definitely-not-a-processor"));
+    }
 }

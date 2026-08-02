@@ -3,6 +3,12 @@ use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use clap_complete::{generate, Shell};
 use std::str::FromStr;
 
+// The product-display types moved to `crate::display` so the core data model
+// (`graph.rs`) can use them without importing the CLI layer. Re-exported here
+// because they are still clap flag values and every `cli::DisplayOptions`
+// caller reads naturally.
+pub use crate::display::{DisplayOptions, InputDisplay, OutputDisplay, PathFormat};
+
 #[derive(Parser)]
 #[command(name = "rsconstruct")]
 #[command(version = concat!(env!("CARGO_PKG_VERSION")))]
@@ -125,68 +131,6 @@ pub enum BuildPhase {
     Build,
 }
 
-/// What to show for output files in build messages
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
-pub enum OutputDisplay {
-    /// Don't show output files
-    #[default]
-    None,
-    /// Show only the filename (e.g., "main.elf")
-    Basename,
-    /// Show full relative path (e.g., "`out/cc_single_file/main.elf`")
-    Path,
-}
-
-/// What to show for input files in build messages
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
-pub enum InputDisplay {
-    /// Don't show input files
-    None,
-    /// Show only the primary source file (first input)
-    #[default]
-    Source,
-    /// Show all input files including headers/dependencies
-    All,
-}
-
-/// Path format for displayed files
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
-pub enum PathFormat {
-    /// Show only the filename (e.g., "main.c")
-    Basename,
-    /// Show full relative path (e.g., "src/main.c")
-    #[default]
-    Path,
-}
-
-/// Display options for product output in build messages
-#[derive(Debug, Clone, Copy)]
-pub struct DisplayOptions {
-    pub output: OutputDisplay,
-    pub input: InputDisplay,
-    pub path_format: PathFormat,
-}
-
-impl Default for DisplayOptions {
-    fn default() -> Self {
-        Self {
-            output: OutputDisplay::None,
-            input: InputDisplay::Source,
-            path_format: PathFormat::Path,
-        }
-    }
-}
-
-impl DisplayOptions {
-    /// Minimal display: just input source basename
-    pub const fn minimal() -> Self {
-        Self {
-            output: OutputDisplay::None,
-            input: InputDisplay::Source,
-            path_format: PathFormat::Basename,
-        }
-    }
-}
 
 // Subcommand variants are kept in alphabetical order by their display name (kebab-case
 // of the variant). Clap renders subcommands in declaration order, so this list IS the

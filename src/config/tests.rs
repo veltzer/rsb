@@ -163,6 +163,80 @@ fn substitute_variables_ignores_comments() {
     assert!(result.contains("key = \"value\""));
 }
 
+/// Provenance reports user-set fields as `rsconstruct.toml:<line>`, and it
+/// walks the *substituted* text. If substitution changed the line count,
+/// every reported line number after the substitution point would be wrong.
+/// This pins the whole-pipeline invariant across the value shapes most likely
+/// to break it: a multi-element array, a table, and strings containing real
+/// newlines and tabs.
+#[test]
+fn line_preservation_invariant_holds() {
+    let content = concat!(
+        "[vars]\n",
+        "dirs = [\"a\", \"b\", \"c\"]\n",
+        "multiline = \"one\\ntwo\\nthree\"\n",
+        "tbl = { x = 1, y = 2 }\n",
+        "\n",
+        "[processor.ruff]\n",
+        "src_dirs = \"${dirs}\"\n",
+        "note = \"${multiline}\"\n",
+        "opts = \"${tbl}\"\n",
+    );
+    let before = content.lines().count();
+    let result = substitute_variables(content).unwrap();
+    assert_eq!(
+        result.lines().count(), before,
+        "substitution changed the line count, which silently corrupts every \
+         provenance line number below the change:\n{result}"
+    );
+    // And the substituted values must still be on their original lines.
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[6].contains("[\"a\", \"b\", \"c\"]"), "line 7 was: {}", lines[6]);
+    assert!(!lines[7].contains('\n'), "embedded newline leaked into the output");
+    assert!(lines[7].contains("\\n"), "newlines must be escaped, line 8 was: {}", lines[7]);
+}
+
+/// The blanking half of the same invariant, isolated: `remove_vars_section`
+/// must blank the `[vars]` lines rather than delete them.
+#[test]
+fn remove_vars_section_preserves_line_count() {
+    let content = "[vars]\na = \"1\"\nb = \"2\"\n\n[processor.ruff]\nsrc_dirs = [\"src\"]\n";
+    let before = content.lines().count();
+    let result = remove_vars_section(content);
+    assert_eq!(result.lines().count(), before, "vars removal must not shift lines");
+    assert!(!result.contains("[vars]"), "the section header must be gone");
+    // The surviving section must still be at its original line index.
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines[4], "[processor.ruff]", "line 5 moved: {lines:?}");
+}
+
+/// `value_to_toml_inline` is the function that would break the invariant
+/// first, so assert its no-newline contract directly over every value shape.
+#[test]
+fn value_to_toml_inline_never_emits_newlines() {
+    let cases = vec![
+        toml::Value::String("has\nnewline\rand\ttab".to_string()),
+        toml::Value::Array(vec![
+            toml::Value::String("a\nb".to_string()),
+            toml::Value::Integer(2),
+        ]),
+        toml::Value::Table({
+            let mut t = toml::map::Map::new();
+            t.insert("k".to_string(), toml::Value::String("v\nw".to_string()));
+            t
+        }),
+        toml::Value::Boolean(true),
+        toml::Value::Integer(42),
+    ];
+    for case in cases {
+        let out = value_to_toml_inline(&case);
+        assert!(
+            !out.contains('\n') && !out.contains('\r'),
+            "value_to_toml_inline emitted a line break for {case:?}: {out:?}"
+        );
+    }
+}
+
 // Tests for extract_var_names
 
 /// Order is not part of the contract — the names are only ever used for
@@ -671,5 +745,47 @@ fn mixed_scalar_and_table_values_are_single_instance() {
     assert_eq!(
         classify("[processor.pylint]\nargs = [\"--x\"]\n\n[processor.pylint.core]\nargs = [\"--y\"]\n"),
         SectionShape::SingleInstance,
+    );
+}
+
+/// Every processor NAME appearing in an `expected_field_type` arm must be a
+/// real registered plugin.
+///
+/// `every_expected_type_arm_is_a_live_field` catches an arm whose *field* is
+/// gone, but it enumerates fields from the plugin table and so cannot see an
+/// arm keyed to a processor that no longer exists at all — that arm is simply
+/// never reached, and nothing points at it. The table is a `match` rather than
+/// data (finding 1's `FieldSpec` note), so the names are recovered from the
+/// source text: that is the only way to enumerate the left-hand side of a
+/// match without restructuring it into a table.
+#[test]
+fn every_expected_type_arm_names_a_real_processor() {
+    let src = include_str!("mod.rs");
+    let body = src
+        .split_once("fn expected_field_type(")
+        .expect("expected_field_type must exist")
+        .1;
+    // The processor-specific arms are the tuple-patterned ones: ("a" | "b", "field") => ...
+    let known: std::collections::HashSet<&str> = all_plugins().map(|p| p.name).collect();
+
+    let mut unknown: Vec<String> = Vec::new();
+    for line in body.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("(\"") else { continue };
+        // Left-hand side up to the comma that separates processor from field.
+        let Some((procs, _)) = rest.split_once("\", \"") else { continue };
+        for name in procs.split(" | ") {
+            let name = name.trim().trim_matches('"');
+            if !name.is_empty() && !known.contains(name) {
+                unknown.push(name.to_string());
+            }
+        }
+    }
+    unknown.sort();
+    unknown.dedup();
+    assert!(
+        unknown.is_empty(),
+        "expected_field_type has arms keyed to processors that are not registered \
+         (renamed or removed?): {unknown:#?}"
     );
 }

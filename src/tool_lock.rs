@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -158,21 +158,33 @@ pub fn read_lock_file() -> Result<Option<ToolLockFile>> {
 ///
 /// Prefers the locked `version_output` when a lock file pins the tool: that
 /// is the user's declared identity for it, and it stays stable across
-/// reinstalls of the same version. Otherwise falls back to a content hash of
-/// the resolved binary, which needs no `--version` subprocess (the mtime
-/// cache makes repeat builds a stat) and is strictly stronger — it also
-/// catches a rebuilt binary that reports an unchanged version.
+/// reinstalls of the same version. Otherwise identifies the resolved binary
+/// by `(path, size, mtime)` — no `--version` subprocess and, critically, no
+/// read of the file's bytes.
+///
+/// Content-hashing the binary was the obvious choice and measured terribly:
+/// tool binaries are big (pandoc is ~200 MB here) and there are dozens of
+/// them, which made this 45% of a cold build. `(path, size, mtime)` is the
+/// same identity assumption the mtime cache already makes for every input
+/// file in the project, so keying tools this way is not a weaker standard
+/// than the rest of the build — and it is strictly stronger than a
+/// `--version` string, which misses a rebuilt binary reporting an unchanged
+/// version. Reinstalling a tool changes its mtime, which is the case that
+/// has to invalidate.
 ///
 /// Returns None for a tool that is not on PATH: a missing tool is the tool
 /// preflight's problem, not the cache key's, and failing here would break
 /// builds whose products don't need that processor at all.
-fn tool_identity(ctx: &BuildContext, tool: &str, lock: Option<&ToolLockFile>) -> Option<String> {
+fn tool_identity(_ctx: &BuildContext, tool: &str, lock: Option<&ToolLockFile>) -> Option<String> {
     if let Some(locked) = lock.and_then(|l| l.tools.get(tool)) {
         return Some(format!("{}={}", tool, locked.version_output));
     }
     let path = which::which(tool).ok()?;
-    let (checksum, _) = crate::checksum::checksum_fast(ctx, &path).ok()?;
-    Some(format!("{tool}@{checksum}"))
+    let meta = fs::metadata(&path).ok()?;
+    let mtime = meta.modified().ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    Some(format!("{tool}@{}:{}:{mtime}", path.display(), meta.len()))
 }
 
 /// Compute a tool version hash per processor.
@@ -197,28 +209,48 @@ pub fn processor_tool_hashes(
     let lock = read_lock_file()?;
 
     let mut result = std::collections::HashMap::new();
-    // One tool is typically required by several processors; resolving and
-    // hashing it once per processor would multiply the work for nothing.
-    let mut identity_cache: BTreeMap<String, Option<String>> = BTreeMap::new();
 
     let mut names: Vec<&String> = processors.keys().collect();
     names.sort();
 
-    for name in names {
+    // Collect the distinct tool set first. One tool is typically required by
+    // several processors; resolving and hashing it once per processor would
+    // multiply the work for nothing.
+    let mut wanted: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for name in &names {
         if !enabled(name) {
             continue;
         }
-        let tools = processors[name].required_tools();
+        let tools = processors[*name].required_tools();
         if tools.is_empty() {
             continue;
         }
+        wanted.insert((*name).clone(), tools);
+    }
+    let distinct: Vec<String> = {
+        let mut d: BTreeSet<String> = BTreeSet::new();
+        for tools in wanted.values() {
+            d.extend(tools.iter().cloned());
+        }
+        d.into_iter().collect()
+    };
+
+    // Resolve each distinct tool once. This is a `which` plus a stat per
+    // tool, so it stays serial deliberately: an earlier attempt to thread
+    // this measured *slower* on a cold page cache (~2.4s vs ~1.5s), because
+    // the threads contended on one large sequential read. Making the identity
+    // cheap beat making it concurrent — see `tool_identity`.
+    let identity_cache: BTreeMap<String, Option<String>> = distinct
+        .iter()
+        .map(|t| (t.clone(), tool_identity(ctx, t, lock.as_ref())))
+        .collect();
+
+    for name in names {
+        let Some(tools) = wanted.get(name) else { continue };
 
         let mut version_parts: Vec<String> = Vec::new();
-        for tool in &tools {
-            let identity = identity_cache
-                .entry(tool.clone())
-                .or_insert_with(|| tool_identity(ctx, tool, lock.as_ref()));
-            if let Some(identity) = identity {
+        for tool in tools {
+            if let Some(Some(identity)) = identity_cache.get(tool) {
                 version_parts.push(identity.clone());
             }
         }

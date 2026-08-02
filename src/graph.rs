@@ -1,13 +1,11 @@
 use anyhow::{Context, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::cache_key::{CacheKey, Component as KeyComponent};
-use crate::cli::{DisplayOptions, InputDisplay, OutputDisplay, PathFormat};
+use crate::display::{DisplayOptions, InputDisplay, OutputDisplay, PathFormat};
 use crate::errors;
-use crate::processors::names as proc_names;
 
 /// A single build product with concrete inputs and outputs.
 /// All paths are relative to project root.
@@ -219,7 +217,11 @@ impl PathInterner {
 /// Build graph with dependency resolution
 #[derive(Default)]
 pub struct BuildGraph {
-    products: Vec<Product>,
+    /// `pub(crate)` for `graph_render`, which reads the graph to draw it.
+    /// The renderers used to live in this file and touched these directly;
+    /// widening to crate visibility is what let them move out without
+    /// inventing an accessor per field for a read-only consumer.
+    pub(crate) products: Vec<Product>,
     /// In-memory path interner backing the PathId-keyed maps below.
     /// Never persisted. See docs/src/internal/path-interning.md.
     interner: PathInterner,
@@ -236,7 +238,7 @@ pub struct BuildGraph {
     /// Adjacency list: product id -> list of product ids that depend on it
     dependents: Vec<Vec<usize>>,
     /// Reverse: product id -> list of product ids it depends on
-    dependencies: Vec<Vec<usize>>,
+    pub(crate) dependencies: Vec<Vec<usize>>,
 }
 
 impl BuildGraph {
@@ -307,7 +309,30 @@ impl BuildGraph {
             && let Some(primary_id) = self.interner.get(&inputs[0]) {
                 let key = (processor.to_string(), primary_id, variant.map(str::to_string));
                 if let Some(&existing_id) = self.checker_dedup.get(&key) {
-                    self.try_update_inputs(existing_id, inputs);
+                    // A non-superset re-declaration is a real disagreement about
+                    // what this product consumes, and it used to be swallowed:
+                    // `try_update_inputs`'s `false` was discarded, so the second
+                    // declaration's inputs were silently dropped and the checker
+                    // ran against the first set. The generator path a few lines
+                    // below hard-errors on the equivalent conflict; matching that
+                    // here removes the weaker of two identity schemes.
+                    let attempted = inputs.clone();
+                    if !self.try_update_inputs(existing_id, inputs) {
+                        let existing = self.products.get(existing_id)
+                            .expect(crate::errors::INVALID_PRODUCT_ID);
+                        return Err(crate::exit_code::RsconstructError::new(
+                            crate::exit_code::RsconstructExitCode::GraphError,
+                            format!(
+                                "Input conflict: [{}] declared product for {} twice with \
+                                 incompatible inputs ({:?} then {:?}). A re-declaration may \
+                                 only add inputs, not change them.",
+                                processor,
+                                existing.primary_input().display(),
+                                existing.inputs,
+                                attempted,
+                            ),
+                        ).into());
+                    }
                     return Ok(existing_id);
                 }
             }
@@ -483,12 +508,54 @@ impl BuildGraph {
         &self.products
     }
 
-    /// Remove products that don't match the predicate. Used by selective
-    /// cleaning to limit which processors' outputs are cleaned.
-    /// Does NOT rebuild indexes — only suitable for read-only iteration
-    /// (e.g. `executor.clean()`) after filtering.
+    /// Remove products that don't match the predicate.
+    ///
+    /// Rebuilds every index and re-links dependencies, so the graph is fully
+    /// consistent afterwards — `id == index`, the lookup maps, and the
+    /// adjacency lists all hold. This used to be a bare `Vec::retain` guarded
+    /// only by a doc-comment saying the result was "only suitable for
+    /// read-only iteration": every product after the first removed one had an
+    /// `id` that no longer matched its index, so any subsequent `get_product`,
+    /// `path_owner`, or dependency lookup silently returned the wrong product.
+    /// Both callers happened to only iterate, so nothing was broken — but a
+    /// comment was the only thing standing between the next caller and silent
+    /// corruption, which is exactly the "identity by convention" this finding
+    /// is about.
     pub fn retain_products(&mut self, f: impl Fn(&Product) -> bool) {
-        self.products.retain(f);
+        let keep: HashSet<usize> = self.products.iter()
+            .filter(|p| f(p))
+            .map(|p| p.id)
+            .collect();
+        self.rebuild_retaining(&keep);
+    }
+
+    /// Rebuild the graph from scratch keeping only the products whose ids are
+    /// in `keep`, reassigning ids and re-linking dependencies.
+    ///
+    /// The single place that knows how to drop products without corrupting
+    /// the graph — shared by `retain_products` and `filter_by_targets`, which
+    /// previously each open-coded it (and only one of them did it correctly).
+    fn rebuild_retaining(&mut self, keep: &HashSet<usize>) {
+        let old_products = std::mem::take(&mut self.products);
+        self.interner.clear();
+        self.output_to_product.clear();
+        self.input_to_products.clear();
+        self.checker_dedup.clear();
+        self.dependents.clear();
+        self.dependencies.clear();
+
+        for product in old_products {
+            if keep.contains(&product.id) {
+                // Same registration path as add_product — including the id
+                // reassignment, which register_product derives from the
+                // vector length rather than trusting the caller.
+                self.register_product(product);
+            }
+        }
+
+        // The rebuild assigned new ids and cleared all edges; re-link the
+        // surviving products so execution order and failure propagation hold.
+        self.resolve_dependencies();
     }
 
     /// Return the id of the product that declares `path` as one of its outputs,
@@ -574,28 +641,9 @@ impl BuildGraph {
             }
         }
 
-        // Remove products that don't match (clear their inputs/outputs so they become no-ops)
-        // We can't actually remove elements because IDs are indices, so we rebuild the graph
-        let old_products = std::mem::take(&mut self.products);
-        self.interner.clear();
-        self.output_to_product.clear();
-        self.input_to_products.clear();
-        self.checker_dedup.clear();
-        self.dependents.clear();
-        self.dependencies.clear();
-
-        for product in old_products {
-            if keep.contains(&product.id) {
-                // Same registration path as add_product — including the id
-                // reassignment, which register_product derives from the
-                // vector length rather than trusting the caller.
-                self.register_product(product);
-            }
-        }
-
-        // The rebuild assigned new ids and cleared all edges; re-link the
-        // surviving products so execution order and failure propagation hold.
-        self.resolve_dependencies();
+        // Ids are indices, so products can't simply be removed — the graph is
+        // rebuilt from the survivors.
+        self.rebuild_retaining(&keep);
         Ok(())
     }
 
@@ -666,298 +714,6 @@ impl BuildGraph {
     }
 }
 
-impl BuildGraph {
-    /// Generate a safe node ID from a path
-    fn path_node_id(path: &Path) -> String {
-        let s = path.display().to_string();
-        // Make safe for DOT/Mermaid: replace special chars
-        format!("f_{}", s.replace(['.', '-', '/', ' '], "_"))
-    }
-
-    /// Generate a node ID for a processor
-    fn processor_node_id(product: &Product) -> String {
-        format!("proc_{}", product.id)
-    }
-
-    /// Get file label (just the filename)
-    fn file_label(path: &Path) -> String {
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string()
-    }
-
-    /// Format graph as DOT (Graphviz)
-    pub fn to_dot(&self) -> String {
-        let mut buf = String::new();
-        let _ = writeln!(buf, "digraph build_graph {{");
-        let _ = writeln!(buf, "    rankdir=LR;");
-
-        // Collect all unique input and output files
-        let mut input_files: HashSet<PathBuf> = HashSet::new();
-        let mut output_files: HashSet<PathBuf> = HashSet::new();
-
-        for product in &self.products {
-            for input in &product.inputs {
-                input_files.insert(input.clone());
-            }
-            for output in &product.outputs {
-                output_files.insert(output.clone());
-            }
-        }
-
-        // Add file nodes (inputs that are not outputs = source files)
-        let _ = writeln!(buf, "\n    // Source files");
-        for file in &input_files {
-            if !output_files.contains(file) {
-                let node_id = Self::path_node_id(file);
-                let label = Self::file_label(file);
-                let _ = writeln!(buf, "    {node_id} [label=\"{label}\" shape=note style=filled fillcolor=white];");
-            }
-        }
-
-        let _ = writeln!(buf, "\n    // Generated files");
-        for file in &output_files {
-            let node_id = Self::path_node_id(file);
-            let label = Self::file_label(file);
-            let color = if input_files.contains(file) { "lightgreen" } else { "lightyellow" };
-            let _ = writeln!(buf, "    {node_id} [label=\"{label}\" shape=note style=filled fillcolor={color}];");
-        }
-
-        let _ = writeln!(buf, "\n    // Processors");
-        for product in &self.products {
-            let node_id = Self::processor_node_id(product);
-            let color = match product.processor.as_str() {
-                proc_names::TERA => "lightblue",
-                proc_names::CC_SINGLE_FILE => "lightsalmon",
-                _ => "lightgray",
-            };
-            let _ = writeln!(buf, "    {} [label=\"{}\" shape=box style=filled fillcolor={}];",
-                node_id, product.processor, color);
-        }
-
-        let _ = writeln!(buf, "\n    // Edges");
-        for product in &self.products {
-            let proc_id = Self::processor_node_id(product);
-
-            // Input files -> processor
-            for input in &product.inputs {
-                let input_id = Self::path_node_id(input);
-                let _ = writeln!(buf, "    {input_id} -> {proc_id};");
-            }
-
-            // Processor -> output files
-            for output in &product.outputs {
-                let output_id = Self::path_node_id(output);
-                let _ = writeln!(buf, "    {proc_id} -> {output_id};");
-            }
-        }
-
-        let _ = write!(buf, "}}");
-        buf
-    }
-
-    /// Format graph as Mermaid
-    /// Only shows primary source files (first input per product), not headers,
-    /// to keep the diagram manageable for large projects.
-    pub fn to_mermaid(&self) -> String {
-        let mut buf = String::new();
-        let _ = writeln!(buf, "graph LR");
-
-        // Collect primary source files (first input only) and output files
-        let mut source_files: HashSet<PathBuf> = HashSet::new();
-        let mut output_files: HashSet<PathBuf> = HashSet::new();
-
-        for product in &self.products {
-            if let Some(first_input) = product.inputs.first() {
-                source_files.insert(first_input.clone());
-            }
-            for output in &product.outputs {
-                output_files.insert(output.clone());
-            }
-        }
-
-        let _ = writeln!(buf, "\n    %% Source files");
-        for file in &source_files {
-            if !output_files.contains(file) {
-                let node_id = Self::path_node_id(file);
-                let label = Self::file_label(file);
-                let _ = writeln!(buf, "    {node_id}[/\"{label}\"/]");
-            }
-        }
-
-        let _ = writeln!(buf, "\n    %% Generated files");
-        for file in &output_files {
-            let node_id = Self::path_node_id(file);
-            let label = Self::file_label(file);
-            let _ = writeln!(buf, "    {node_id}[/\"{label}\"/]");
-        }
-
-        let _ = writeln!(buf, "\n    %% Processors");
-        for product in &self.products {
-            let node_id = Self::processor_node_id(product);
-            let _ = writeln!(buf, "    {}[\"{}\" ]", node_id, product.processor);
-        }
-
-        let _ = writeln!(buf, "\n    %% Edges");
-        for product in &self.products {
-            let proc_id = Self::processor_node_id(product);
-
-            // Only connect primary source file (first input), skip headers
-            if let Some(first_input) = product.inputs.first() {
-                let input_id = Self::path_node_id(first_input);
-                let _ = writeln!(buf, "    {input_id} --> {proc_id}");
-            }
-
-            for output in &product.outputs {
-                let output_id = Self::path_node_id(output);
-                let _ = writeln!(buf, "    {proc_id} --> {output_id}");
-            }
-        }
-
-        // Add styling
-        let tera_procs: Vec<_> = self.products.iter()
-            .filter(|p| p.processor == proc_names::TERA)
-            .map(Self::processor_node_id)
-            .collect();
-        let cc_procs: Vec<_> = self.products.iter()
-            .filter(|p| p.processor == proc_names::CC_SINGLE_FILE)
-            .map(Self::processor_node_id)
-            .collect();
-
-        for proc_id in &tera_procs {
-            let _ = writeln!(buf, "\n    style {proc_id} fill:#add8e6");
-        }
-        for proc_id in &cc_procs {
-            let _ = writeln!(buf, "\n    style {proc_id} fill:#ffa07a");
-        }
-
-        buf.truncate(buf.trim_end().len());
-        buf
-    }
-
-    /// Format graph as JSON
-    pub fn to_json(&self) -> String {
-        let nodes: Vec<serde_json::Value> = self.products.iter()
-            .map(|product| {
-                let inputs: Vec<String> = product.inputs.iter()
-                    .map(|p| p.display().to_string())
-                    .collect();
-                let outputs: Vec<String> = product.outputs.iter()
-                    .map(|p| p.display().to_string())
-                    .collect();
-                serde_json::json!({
-                    "id": product.id,
-                    "processor": product.processor,
-                    "inputs": inputs,
-                    "outputs": outputs,
-                    "depends_on": self.dependencies.get(product.id).expect(errors::INVALID_PRODUCT_ID),
-                })
-            })
-            .collect();
-
-        let root = serde_json::json!({ "products": nodes });
-        serde_json::to_string_pretty(&root).expect(errors::JSON_SERIALIZE)
-    }
-
-    /// Format graph as plain text
-    pub fn to_text(&self) -> String {
-        let mut buf = String::new();
-        let _ = writeln!(buf, "Build Dependency Graph");
-        let _ = writeln!(buf, "======================");
-
-        // Get topological order
-        let Ok(order) = self.topological_sort() else {
-            let _ = writeln!(buf, "Error: Cycle detected in graph");
-            buf.truncate(buf.trim_end().len());
-            return buf;
-        };
-
-        for id in order {
-            let product = self.products.get(id).expect(errors::INVALID_PRODUCT_ID);
-            let inputs: Vec<_> = product.inputs.iter()
-                .filter_map(|p| p.file_name())
-                .filter_map(|n| n.to_str())
-                .collect();
-            let outputs: Vec<_> = product.outputs.iter()
-                .filter_map(|p| p.file_name())
-                .filter_map(|n| n.to_str())
-                .collect();
-
-            let _ = writeln!(buf, "[{}] {} -> {}",
-                product.processor,
-                inputs.join(", "),
-                outputs.join(", "));
-
-            // Show dependencies
-            let deps = self.dependencies.get(product.id).expect(errors::INVALID_PRODUCT_ID);
-            if !deps.is_empty() {
-                let dep_names: Vec<_> = deps.iter()
-                    .map(|&d| {
-                        let dep = self.products.get(d).expect(errors::INVALID_PRODUCT_ID);
-                        let out: Vec<_> = dep.outputs.iter()
-                            .filter_map(|p| p.file_name())
-                            .filter_map(|n| n.to_str())
-                            .collect();
-                        out.join(", ")
-                    })
-                    .collect();
-                let _ = writeln!(buf, "    depends on: {}", dep_names.join(", "));
-            }
-        }
-
-        if self.products.is_empty() {
-            let _ = writeln!(buf, "(empty graph)");
-        }
-
-        buf.truncate(buf.trim_end().len());
-        buf
-    }
-
-    /// Generate SVG by piping DOT through the `dot` command.
-    pub fn to_svg(&self, ctx: &crate::build_context::BuildContext) -> Result<String> {
-        crate::processors::dot_to_svg(ctx, &self.to_dot())
-    }
-
-    /// Generate a self-contained HTML file with Mermaid diagram
-    pub fn to_html(&self) -> String {
-        let mermaid_content = self.to_mermaid();
-        format!(r#"<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>RSConstruct Build Graph</title>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            margin: 40px;
-            background: #f5f5f5;
-        }}
-        h1 {{
-            color: #333;
-        }}
-        .mermaid {{
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-    </style>
-</head>
-<body>
-    <h1>RSConstruct Build Graph</h1>
-    <div class="mermaid">
-{mermaid_content}
-    </div>
-    <script>
-        mermaid.initialize({{ startOnLoad: true, theme: 'default', maxTextSize: 500000 }});
-    </script>
-</body>
-</html>
-"#)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1204,7 +960,39 @@ mod tests {
 
     /// `filter_by_targets` rebuilds the graph with new ids; the edges between
     /// surviving products must be re-resolved so a producer still runs
-    /// before its consumer under `build -t <pattern>`.
+    /// `retain_products` must leave the graph fully consistent, not just
+    /// iterable. It used to be a bare `Vec::retain`, which left every
+    /// surviving product's `id` pointing at the wrong index as soon as an
+    /// earlier product was dropped — so `get_product(p.id)` returned a
+    /// different product than `p`, and the lookup indexes still referenced
+    /// removed ids.
+    #[test]
+    fn retain_products_rebuilds_indexes() {
+        let mut g = BuildGraph::new();
+        g.add_product(vec!["a.py".into()], vec![], "ruff", None).unwrap();
+        g.add_product(vec!["b.md".into()], vec!["b.html".into()], "pandoc", None).unwrap();
+        g.add_product(vec!["c.py".into()], vec![], "ruff", None).unwrap();
+
+        // Drop the FIRST product, so every survivor's id must shift.
+        g.retain_products(|p| p.processor != "ruff" || p.primary_input() != Path::new("a.py"));
+
+        assert_eq!(g.products().len(), 2);
+        for (idx, product) in g.products().iter().enumerate() {
+            assert_eq!(product.id, idx, "id must equal index after retain");
+            let fetched = g.get_product(product.id).expect("id must resolve");
+            assert_eq!(fetched.inputs, product.inputs, "get_product(id) must return that product");
+            // Dependency adjacency must be sized for the new id space.
+            assert!(g.get_dependencies(product.id).is_empty() || product.id < g.products().len());
+        }
+        // Output ownership must point at the survivor's new id, not the old one.
+        let owner = g.path_owner(Path::new("b.html")).expect("output owner must survive");
+        assert_eq!(g.products()[owner].primary_input(), Path::new("b.md"));
+        // The dropped product's output must no longer be owned.
+        assert!(g.path_owner(Path::new("a.py")).is_none());
+    }
+
+    /// Target filtering must keep a kept consumer's upstream producer, so the
+    /// producer still builds before its consumer under `build -t <pattern>`.
     #[test]
     fn filter_by_targets_preserves_dependencies() {
         let mut g = BuildGraph::new();
@@ -1354,6 +1142,33 @@ mod tests {
         assert_eq!(id1, id2);
         assert_eq!(g.products().len(), 1);
         assert_eq!(g.get_product(id1).unwrap().inputs.len(), 2);
+    }
+
+    /// A checker re-declaring the same product with inputs that are NOT a
+    /// superset is a genuine disagreement and must hard-error, exactly as the
+    /// generator path does for conflicting outputs. It used to be silently
+    /// ignored — `try_update_inputs`'s `false` was discarded, so the second
+    /// declaration's inputs vanished and the checker ran on the first set.
+    #[test]
+    fn checker_dedup_non_superset_is_an_error() {
+        let mut g = BuildGraph::new();
+        g.add_product(
+            vec!["a.py".into(), "b.py".into()],
+            vec![],
+            "ruff",
+            None,
+        ).unwrap();
+        // Same processor + primary input, but drops b.py and adds c.py —
+        // not a superset, so the two declarations genuinely disagree.
+        let err = g.add_product(
+            vec!["a.py".into(), "c.py".into()],
+            vec![],
+            "ruff",
+            None,
+        ).expect_err("non-superset checker re-declaration must be rejected");
+        let msg = format!("{err}");
+        assert!(msg.contains("Input conflict"), "unexpected message: {msg}");
+        assert!(msg.contains("ruff"), "message should name the processor: {msg}");
     }
 
     /// When a no-output product is re-declared with inputs that are NOT a

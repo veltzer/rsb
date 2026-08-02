@@ -1,5 +1,6 @@
 mod add_config;
 mod build;
+pub mod cache_cmd;
 mod clean;
 mod fix;
 pub mod analyzers;

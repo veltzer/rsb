@@ -1,3 +1,25 @@
+//! Variable substitution for `[vars]`.
+//!
+//! # Line-preservation invariant
+//!
+//! Substitution runs on the raw TOML text *before* `provenance` walks the
+//! document for byte spans, and provenance reports user-set fields as
+//! `rsconstruct.toml:<line>`. Those line numbers are only correct if
+//! substitution never changes how many lines the file has. Two functions
+//! here uphold that, and neither can be changed casually:
+//!
+//! - [`value_to_toml_inline`] must emit **no newlines**: a multi-line array
+//!   or a string containing `\n` would push every later line down, so every
+//!   provenance line number after the substitution point would point at the
+//!   wrong line. Strings escape `\n`/`\r`; arrays and tables join inline.
+//! - [`remove_vars_section`] **blanks** the `[vars]` lines instead of
+//!   deleting them, for the same reason — removing them would shift every
+//!   line below the section.
+//!
+//! This was previously stated only in scattered comments with nothing
+//! enforcing it; `line_preservation_invariant_holds` and
+//! `remove_vars_section_preserves_line_count` now pin both halves.
+
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::sync::OnceLock;
@@ -6,6 +28,8 @@ use crate::errors;
 
 /// Convert a `toml::Value` to its inline TOML string representation.
 /// This is used for variable substitution to insert values into the config.
+///
+/// **Must never emit a newline** — see the module-level invariant.
 pub(super) fn value_to_toml_inline(value: &toml::Value) -> String {
     match value {
         toml::Value::String(s) => format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n").replace('\r', "\\r").replace('\t', "\\t")),
