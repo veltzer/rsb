@@ -20,6 +20,9 @@ jobs:
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
 
+      - name: Build
+        run: cargo build
+
       # Language runtimes come from the standard setup actions. Each installs
       # into the runner's toolcache, which the runner user owns — so
       # `tools install --all` below can `pip install` / `npm install -g` /
@@ -45,12 +48,9 @@ jobs:
         with:
           ruby-version: '3.3'
 
-      - name: Build
-        run: cargo build
-
       # The whole tool matrix, in one registry-driven command. rsconstruct is
-      # the only thing this workflow installs by name (via `cargo build`
-      # above); every external tool comes from its own registry, so adding a
+      # the only thing this workflow installs by name (via the `cargo build`
+      # step); every external tool comes from its own registry, so adding a
       # processor never requires touching this file.
       #
       # Nothing is skipped and nothing is filtered here — `--all` treats a
