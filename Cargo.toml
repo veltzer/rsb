@@ -38,7 +38,12 @@ serde_yaml = "0.9.34"
 grass = { version = "0.13.4", default-features = false }
 pulldown-cmark = { version = "0.13.3", default-features = false, features = ["html"] }
 jsonschema = { version = "0.45.1", default-features = false, features = ["resolve-file"] }
-tabled = { version = "0.20.0", features = ["ansi"] }
+# `default-features = false` drops tabled's `derive` feature, which is the
+# only thing pulling in proc-macro-error2 — a crate that re-exports the
+# private `proc_macro` extern, which future Rust rejects (rust#127909). We
+# build tables through `Builder` and never use `#[derive(Tabled)]`, so the
+# derive macro was dead weight. `std` is required for `Builder`/`Table`.
+tabled = { version = "0.21.0", default-features = false, features = ["ansi", "std"] }
 ureq = "3"
 strum = { version = "0.28.0", features = ["derive"] }
 inventory = "0.3.24"

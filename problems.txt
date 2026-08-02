@@ -1,3 +1,5 @@
 why src_dir must not be empty? Do we have a reason for this?
 Why does the test cicd install software not through rsconstruct? Why don't we have a subcommand in rsconstruct tools to install all tools needed?
 Scan all tests and find tests that could be asserted at compile time.
+
+Look at test.yml: are there really no preready playbooks that prepare the python npm and ruby environments? Why do we need to do it ourselves instead of using these macros?
