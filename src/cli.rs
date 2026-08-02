@@ -544,9 +544,10 @@ pub enum ToolsAction {
         /// method is a hard error.
         #[arg(short, long, conflicts_with = "name")]
         all: bool,
-        /// Skip confirmation prompt
+        /// Prompt for confirmation before installing (default: install
+        /// without asking, so CI and scripts work with no extra flags)
         #[arg(short, long)]
-        yes: bool,
+        interactive: bool,
         /// Don't wrap apt/dnf/pacman calls with `eatmydata` (faster but
         /// safer; the wrap is on by default when eatmydata is installed)
         #[arg(long)]
@@ -554,9 +555,10 @@ pub enum ToolsAction {
     },
     /// Install declared dependencies from the [dependencies] config section (uses config if available)
     InstallDeps {
-        /// Skip confirmation prompt
+        /// Prompt for confirmation before installing (default: install
+        /// without asking, so CI and scripts work with no extra flags)
         #[arg(short, long)]
-        yes: bool,
+        interactive: bool,
         /// Don't wrap apt/dnf/pacman calls with `eatmydata` (faster but
         /// safer; the wrap is on by default when eatmydata is installed)
         #[arg(long)]

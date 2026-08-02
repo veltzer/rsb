@@ -413,10 +413,10 @@ rsconstruct tools lock              # Lock tool versions to .tools.versions
 rsconstruct tools install           # Install missing external tools for enabled processors
 rsconstruct tools install ruff      # Install a specific tool by name
 rsconstruct tools install --all     # Install every tool in the registry, ignoring the config (no config needed)
-rsconstruct tools install -y        # Skip confirmation prompt
+rsconstruct tools install -i        # Ask for confirmation first (default: install without asking)
 rsconstruct tools install --no-eatmydata        # Don't wrap apt/dnf/pacman with eatmydata
 rsconstruct tools install-deps      # Install declared [dependencies] in fixed order: system → pip → npm → gem
-rsconstruct tools install-deps -y   # Skip confirmation prompt
+rsconstruct tools install-deps -i   # Ask for confirmation first (default: install without asking)
 rsconstruct tools install-deps --no-eatmydata   # Don't wrap apt/dnf/pacman with eatmydata
 rsconstruct tools stats             # Show tool availability and language runtime breakdown
 rsconstruct tools stats --json      # Show tool stats in JSON format

@@ -117,7 +117,7 @@ fn run_tools_command(
     let show_all = matches!(&action, ToolsAction::ListConfigured { all: true, .. });
     let show_methods = matches!(&action,
         ToolsAction::ListConfigured { methods: true, .. } | ToolsAction::List { methods: true });
-    let install_yes = matches!(&action, ToolsAction::Install { yes: true, .. });
+    let install_interactive = matches!(&action, ToolsAction::Install { interactive: true, .. });
     let install_no_eatmydata = matches!(&action, ToolsAction::Install { no_eatmydata: true, .. });
     // eatmydata speeds up apt/dnf/pacman by no-op'ing fsync; the trade-off
     // is loss-on-power-cut. Off by default; the post-config phase hook
@@ -440,12 +440,6 @@ fn run_tools_command(
                 // independent of any config. Mirrors `tools list`, which is the
                 // registry-wide counterpart of `tools list-configured`.
                 //
-                // A registry entry named by a project-local path
-                // (node_modules/.bin/markdownlint, gems/bin/mdl) is still
-                // installed: `which` can never find such a name, but its npm/gem
-                // package does put a binary on PATH, which is what a
-                // registry-wide install is asked to provide.
-                //
                 // Nothing is skipped. A tool with no automatable method is a
                 // hard error, not a warning to scroll past: --all claiming
                 // success while a tool is absent is exactly the silent-gap
@@ -453,8 +447,7 @@ fn run_tools_command(
                 let mut missing = Vec::new();
                 let mut manual_only: Vec<&crate::processors::ToolInfo> = Vec::new();
                 for info in crate::processors::TOOLS {
-                    let path_named = info.name.contains('/');
-                    if !path_named && which::which(info.name).is_ok() {
+                    if which::which(info.name).is_ok() {
                         continue;
                     }
                     // Prefer any automatable method over a manual one. clojure
@@ -584,7 +577,11 @@ fn run_tools_command(
             }
             println!();
 
-            if !install_yes {
+            // Non-interactive by default: CI and scripts are the common
+            // callers and neither can answer a prompt. `-i` opts into the
+            // confirmation, and declining it is a normal outcome, not an
+            // error — the user saw the command list and said no.
+            if install_interactive {
                 print!("Proceed? [y/N] ");
                 std::io::stdout().flush()
                     .context("Failed to flush stdout before install prompt")?;
@@ -617,7 +614,7 @@ fn run_tools_command(
             }
             println!("{}", color::green("All tools installed successfully."));
         }
-        ToolsAction::InstallDeps { yes, no_eatmydata } => {
+        ToolsAction::InstallDeps { interactive, no_eatmydata } => {
             let config = builder
                 .map(|b| &b.config.dependencies)
                 .ok_or_else(|| anyhow::anyhow!("install-deps requires a project with rsconstruct.toml"))?;
@@ -729,7 +726,8 @@ fn run_tools_command(
             }
             println!();
 
-            if !yes {
+            // Non-interactive by default; see the note in Install above.
+            if interactive {
                 use std::io::Write;
                 print!("Proceed? [y/N] ");
                 std::io::stdout().flush()

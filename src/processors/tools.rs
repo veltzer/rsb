@@ -510,7 +510,6 @@ pub static TOOLS: &[ToolInfo] = &[
     // Node tools
     ToolInfo { name: "marp", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "@marp-team/marp-cli" }] },
     ToolInfo { name: "mmdc", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "@mermaid-js/mermaid-cli" }] },
-    ToolInfo { name: "node_modules/.bin/markdownlint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "markdownlint-cli" }] },
     ToolInfo { name: "markdownlint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "markdownlint-cli" }] },
     ToolInfo { name: "prettier", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "prettier" }] },
     ToolInfo { name: "eslint", runtime: "node", install_methods: &[InstallMethod { method: "npm", package: "eslint" }] },
@@ -519,7 +518,6 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "npm", runtime: "node", install_methods: &[InstallMethod { method: "apt", package: "npm" }] },
     ToolInfo { name: "node", runtime: "node", install_methods: &[InstallMethod { method: "apt", package: "nodejs" }] },
     // Ruby tools
-    ToolInfo { name: "gems/bin/mdl", runtime: "ruby", install_methods: &[InstallMethod { method: "gem", package: "mdl" }] },
     ToolInfo { name: "mdl", runtime: "ruby", install_methods: &[InstallMethod { method: "gem", package: "mdl" }] },
     ToolInfo { name: "bundle", runtime: "ruby", install_methods: &[InstallMethod { method: "gem", package: "bundler" }] },
     ToolInfo { name: "ruby", runtime: "ruby", install_methods: &[InstallMethod { method: "apt", package: "ruby" }] },

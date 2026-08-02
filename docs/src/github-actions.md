@@ -30,7 +30,7 @@ jobs:
         run: cargo install rsconstruct
 
       - name: Install tools
-        run: rsconstruct tools install --yes
+        run: rsconstruct tools install
 
       - name: Build
         run: rsconstruct build -q -j0

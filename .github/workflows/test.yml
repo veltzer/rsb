@@ -59,7 +59,7 @@ jobs:
       # step instead of quietly shrinking the matrix and surfacing later as a
       # confusing test failure.
       - name: Install all registry tools
-        run: ./target/debug/rsconstruct tools install -y --all
+        run: ./target/debug/rsconstruct tools install --all
 
       # The suite hard-fails on any missing tool (tests never skip), so a
       # gap in the matrix fails the run loudly instead of shrinking it.
