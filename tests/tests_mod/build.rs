@@ -1,4 +1,5 @@
 use std::fs;
+use tempfile::TempDir;
 #[allow(unused_imports)]
 use std::path::Path;
 use crate::common::{setup_test_project, run_rsconstruct, run_rsconstruct_with_env, run_rsconstruct_json, run_rsconstruct_json_with_env};
@@ -1184,5 +1185,40 @@ fn json_mode_stdout_is_pure_json() {
             assert!(serde_json::from_str::<serde_json::Value>(line).is_ok(),
                 "non-JSON line on stdout in JSON mode ({args:?}): {line:?}");
         }
+    }
+}
+
+/// No processor scans the project tree by default. An omitted or empty
+/// `src_dirs` matches nothing, so a processor declared without it builds
+/// nothing rather than sweeping node_modules/, .venv/ and vendored code.
+/// Scanning everything stays available, but only as a deliberate opt-in via
+/// the empty string, which means the project root.
+#[test]
+fn src_dirs_never_defaults_to_scanning_the_tree() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+    fs::create_dir_all(project_path.join("sub")).unwrap();
+    fs::write(project_path.join("a.py"), "x = 1\n").unwrap();
+    fs::write(project_path.join("sub/b.py"), "y = 2\n").unwrap();
+
+    // (config, expect_any_products) — ruff defaults to src_dirs = [].
+    let cases: [(&str, bool); 4] = [
+        ("[processor.ruff]\n", false),
+        ("[processor.ruff]\nsrc_dirs = []\n", false),
+        ("[processor.ruff]\nsrc_dirs = [\"sub\"]\n", true),
+        ("[processor.ruff]\nsrc_dirs = [\"\"]\n", true),
+    ];
+
+    for (config, expect_products) in cases {
+        fs::write(project_path.join("rsconstruct.toml"), config).unwrap();
+        let output = run_rsconstruct(project_path, &["build"]);
+        assert!(output.status.success(),
+            "build should succeed for config {config:?}: {}", String::from_utf8_lossy(&output.stderr));
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let built_nothing = stdout.contains("Nothing to build");
+        assert_eq!(!built_nothing, expect_products,
+            "config {config:?} should {} have matched files, got:\n{stdout}",
+            if expect_products { "" } else { "not" });
     }
 }

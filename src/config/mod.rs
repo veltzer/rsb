@@ -561,11 +561,6 @@ impl ProcessorConfig {
         find_registry_entry(type_name).map(|e| (e.field_descriptions)())
     }
 
-    /// Return the default `src_dirs` for a builtin processor type, or None for Lua plugins.
-    pub(crate) fn default_src_dirs_for(type_name: &str) -> Option<&'static [&'static str]> {
-        scan_defaults_for(type_name).map(|d| d.src_dirs)
-    }
-
     /// Return the default config for a processor type as pretty JSON, or None if unknown.
     pub(crate) fn defconfig_json(type_name: &str) -> Option<String> {
         let entry = find_registry_entry(type_name)?;
@@ -576,14 +571,14 @@ impl ProcessorConfig {
 /// Return scan defaults for a builtin processor type.
 pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
     Some(match type_name {
-        "tera" => ScanDefaultsData { src_dirs: &["tera.templates"], src_extensions: &[".tera"], src_exclude_dirs: &[] },
+        "tera" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".tera"], src_exclude_dirs: &[] },
         "ruff" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "pylint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "mypy" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "pyrefly" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "black" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "doctest" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "pytest" => ScanDefaultsData { src_dirs: &["tests"], src_extensions: &[".py"], src_exclude_dirs: &[] },
+        "pytest" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
         "cc_single_file" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
         "cc" => ScanDefaultsData { src_dirs: &[], src_extensions: &["cc.yaml"], src_exclude_dirs: &[] },
         "cppcheck" => ScanDefaultsData { src_dirs: &["src"], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
@@ -1545,39 +1540,6 @@ fn validate_single_processor(
                 }
                 _ => {} // present and non-empty: OK
             }
-        }
-    }
-
-    // Require src_dirs for processors whose default would scan the project root.
-    // This prevents accidentally scanning everything when the user forgets to set src_dirs.
-    // Exempt processors that don't use src_dirs for file discovery,
-    // and processors that specify src_files (files are explicitly listed).
-    const SCAN_DIRS_EXEMPT: &[&str] = &["explicit", "pdfunite", "ipdfunite"];
-    let has_match_paths = table.get("src_files")
-        .and_then(|v| v.as_array())
-        .is_some_and(|arr| !arr.is_empty());
-    if ProcessorConfig::default_src_dirs_for(type_name).is_some_and(<[&str]>::is_empty)
-    && !SCAN_DIRS_EXEMPT.contains(&type_name)
-    && !has_match_paths {
-        match table.get("src_dirs") {
-            None => {
-                errors.push(format!(
-                    "[{section_label}]: 'src_dirs' must be specified (this processor defaults to scanning the project root)",
-                ));
-            }
-            Some(toml::Value::Array(arr)) if arr.is_empty() => {
-                errors.push(format!(
-                    "[{section_label}]: 'src_dirs' must not be empty; specify actual directories to scan",
-                ));
-            }
-            Some(toml::Value::Array(arr))
-                if arr.iter().any(|v| v.as_str().is_some_and(str::is_empty)) =>
-            {
-                errors.push(format!(
-                    "[{section_label}]: 'src_dirs' must not contain empty strings; specify actual directories to scan",
-                ));
-            }
-            _ => {} // present and non-empty: OK
         }
     }
 

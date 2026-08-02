@@ -177,8 +177,19 @@ impl FileIndex {
 
         let mut results = Vec::new();
         let src_dirs = scan.src_dirs();
-        // When src_dirs is empty but src_files is set, scan from project root
-        // so that query() can match the explicit file paths
+        // Empty src_dirs means scan NOTHING — never "scan the project root".
+        // No processor defaults to sweeping the tree: a processor that cannot
+        // name where its files live must be told, because guessing means
+        // walking node_modules/, .venv/, target/ and vendored code, and
+        // linting files the user never intended to own.
+        //
+        // Scanning the whole project is still available, just never by
+        // accident: src_dirs = [""] normalizes to the project root below and
+        // walks everything. That is a deliberate, visible opt-in.
+        //
+        // src_files is the other way to reach the root: those are explicit
+        // path allowlists, so query() needs a root to match them against.
+        // That is scoped matching of named files, not open-ended discovery.
         let effective_dirs: Vec<&str> = if src_dirs.is_empty() && !include_path_refs.is_empty() {
             vec![""]
         } else {
