@@ -12,6 +12,20 @@ pub enum RsconstructExitCode {
     Interrupted = 130,
 }
 
+/// The exit codes are a public contract: CI scripts branch on these numbers,
+/// so a renumbering is a breaking change for every caller. `code()` is `const`,
+/// so the check costs nothing at runtime and fails the build rather than a
+/// test run — the value is wrong before anything executes.
+const _: () = {
+    assert!(RsconstructExitCode::Success.code() == 0);
+    assert!(RsconstructExitCode::BuildError.code() == 1);
+    assert!(RsconstructExitCode::ConfigError.code() == 2);
+    assert!(RsconstructExitCode::ToolError.code() == 3);
+    assert!(RsconstructExitCode::GraphError.code() == 4);
+    assert!(RsconstructExitCode::IoError.code() == 5);
+    assert!(RsconstructExitCode::Interrupted.code() == 130);
+};
+
 impl RsconstructExitCode {
     pub const fn code(self) -> u8 {
         self as u8
@@ -138,14 +152,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn exit_codes_have_correct_values() {
-        assert_eq!(RsconstructExitCode::Success.code(), 0);
-        assert_eq!(RsconstructExitCode::BuildError.code(), 1);
-        assert_eq!(RsconstructExitCode::ConfigError.code(), 2);
-        assert_eq!(RsconstructExitCode::ToolError.code(), 3);
-        assert_eq!(RsconstructExitCode::GraphError.code(), 4);
-        assert_eq!(RsconstructExitCode::IoError.code(), 5);
-        assert_eq!(RsconstructExitCode::Interrupted.code(), 130);
-    }
+    // The numeric values are asserted at compile time (see the `const _`
+    // block at the top of this file), so there is no runtime test for them.
 }

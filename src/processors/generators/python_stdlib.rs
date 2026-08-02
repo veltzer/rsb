@@ -63,16 +63,41 @@ const STDLIB_MODULES: &[&str] = &[
     "zipapp", "zipfile", "zipimport", "zlib", "zoneinfo",
 ];
 
+/// `is_stdlib` binary-searches the table above, which silently returns wrong
+/// answers if it is ever out of order — an unsorted entry would make a real
+/// stdlib module look like a third-party dependency. Checking at compile time
+/// means a mis-ordered edit cannot be built, let alone shipped.
+///
+/// `str` comparison is not available in const context, so this compares bytes
+/// directly; that matches `binary_search`'s ordering, which is bytewise for
+/// `&str`.
+const _: () = {
+    /// Returns true when `a < b` bytewise.
+    const fn lt(a: &str, b: &str) -> bool {
+        let (a, b) = (a.as_bytes(), b.as_bytes());
+        let mut i = 0;
+        while i < a.len() && i < b.len() {
+            if a[i] != b[i] {
+                return a[i] < b[i];
+            }
+            i += 1;
+        }
+        a.len() < b.len()
+    }
+
+    let mut i = 1;
+    while i < STDLIB_MODULES.len() {
+        assert!(lt(STDLIB_MODULES[i - 1], STDLIB_MODULES[i]), "STDLIB_MODULES must stay sorted");
+        i += 1;
+    }
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn stdlib_list_is_sorted() {
-        for pair in STDLIB_MODULES.windows(2) {
-            assert!(pair[0] < pair[1], "STDLIB_MODULES not sorted: {} >= {}", pair[0], pair[1]);
-        }
-    }
+    // Sortedness is asserted at compile time (see the `const _` block above),
+    // so there is no runtime test for it.
 
     #[test]
     fn common_stdlib_names() {

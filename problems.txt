@@ -1,1 +1,0 @@
-Scan all tests and find tests that could be asserted at compile time.
