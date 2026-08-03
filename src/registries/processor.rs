@@ -97,13 +97,18 @@ pub fn can_fix(name: &str) -> bool {
     find_plugin(name).is_some_and(|p| p.can_fix)
 }
 
-/// Look up a processor's implementation version by name.
+/// Look up a processor's implementation version by instance name.
 /// Returns `None` for processor names not in the builtin registry (e.g. Lua plugins).
 /// Used by `Product::descriptor_key` to mix the processor's version into every
 /// cache key, so bumping a processor's `version` invalidates exactly that
 /// processor's cached outputs.
+///
+/// Must route through `find_plugin`: products carry *instance* names
+/// ("pylint.core"), and a hand-rolled lookup that misses the suffix strip
+/// silently keys every multi-instance processor at v0, so version bumps
+/// never invalidate their cached results.
 pub fn processor_version(name: &str) -> Option<u32> {
-    all_plugins().find(|p| p.name == name).map(|p| p.version)
+    find_plugin(name).map(|p| p.version)
 }
 
 /// Build a clap value parser that accepts any registered processor type name (pname).
@@ -190,3 +195,30 @@ pub fn typed_known_fields<C: KnownFields>() -> &'static [&'static str] { C::know
 pub fn typed_checksum_fields<C: KnownFields>() -> &'static [&'static str] { C::checksum_fields() }
 pub fn typed_must_fields<C: KnownFields>() -> &'static [&'static str] { C::must_fields() }
 pub fn typed_field_descriptions<C: KnownFields>() -> &'static [(&'static str, &'static str)] { C::field_descriptions() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every registry accessor must answer identically for a type name and
+    /// for an instance name of that type. Products carry instance names
+    /// ("pylint.core"), so an accessor that skips the suffix strip silently
+    /// misbehaves only for multi-instance configs — `processor_version` did
+    /// exactly that, keying every multi-instance processor's cache at v0 so
+    /// version bumps never invalidated their cached results.
+    #[test]
+    fn accessors_resolve_instance_names_like_type_names() {
+        for plugin in all_plugins() {
+            let instance = format!("{}.someinst", plugin.name);
+            assert_eq!(processor_version(&instance), Some(plugin.version),
+                "processor_version must strip the instance suffix for '{instance}'");
+            assert_eq!(processor_version(plugin.name), Some(plugin.version));
+            assert_eq!(is_native(&instance), is_native(plugin.name),
+                "is_native must strip the instance suffix for '{instance}'");
+            assert_eq!(can_fix(&instance), can_fix(plugin.name),
+                "can_fix must strip the instance suffix for '{instance}'");
+            assert_eq!(description_of(&instance), description_of(plugin.name),
+                "description_of must strip the instance suffix for '{instance}'");
+        }
+    }
+}
