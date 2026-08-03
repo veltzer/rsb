@@ -101,8 +101,10 @@ mod progress;
 pub(crate) mod word_manager;
 mod runtime_flags;
 mod remote_cache;
+mod stats;
 mod tables;
 mod tool_lock;
+mod tools;
 mod watcher;
 mod webcache;
 

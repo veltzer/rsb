@@ -1,9 +1,8 @@
 //! External tool registry and installation engine.
 //!
-//! Split out of `processors/mod.rs`, which had accreted four unrelated
-//! concerns (subprocess infra, this install engine, the tool table, and the
-//! actual processor contract). Nothing here depends on the `Processor` trait:
-//! this is the data and the mechanics of "what tools exist and how do we
+//! Lives at the crate root because nothing here depends on the `Processor`
+//! trait, and every file under `src/processors/` must be a real processor.
+//! This is the data and the mechanics of "what tools exist and how do we
 //! install them", which `builder/tools.rs` orchestrates on top of.
 
 

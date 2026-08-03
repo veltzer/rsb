@@ -72,7 +72,7 @@ impl Builder {
                 if let Some(version) = tool_version(ctx, &tool) {
                     record(format!("{tool} available"), "ok", "tool", Some(version), None, &mut ok_count, &mut fail_count, &mut warn_count);
                 } else {
-                    let install_hint = crate::processors::tool_install_command(&tool);
+                    let install_hint = crate::tools::tool_install_command(&tool);
                     record(format!("{tool} not found"), "fail", "tool", None, install_hint, &mut ok_count, &mut fail_count, &mut warn_count);
                 }
             }

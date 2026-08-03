@@ -108,7 +108,7 @@ assertion that a processor only runs tools its `required_tools()` names.
 Hand-rolled spawns silently opt out of all four, which is why they are held
 to exactly two exceptions:
 
-- **Tool installation** (`processors::run`, the binary installer) inherits
+- **Tool installation** (`tools::run`, the binary installer) inherits
   the terminal so `sudo` can prompt for a password and apt/dnf can render
   progress. Capturing would hang on the prompt.
 - **Opening a viewer** (`Builder::open_file`) launches a detached process
@@ -194,7 +194,7 @@ even if source files haven't changed.
 
 ## Tool detection
 
-The `TOOLS` registry in `src/processors/tools.rs` lists every external tool
+The `TOOLS` registry in `src/tools.rs` lists every external tool
 rsconstruct knows about. Each entry's `name` is the **detection key**: it is
 passed directly to `which::which` by `builder/tools.rs` and `tool_lock.rs`, so
 it decides whether `rsconstruct tools list` reports `installed` or `missing`,
@@ -307,7 +307,7 @@ src/processors/
 
 ### Conventions
 
-- **Every file in `src/processors/` is a real processor** — no utility-only files at the top level. Shared helpers live in `mod.rs` or `generators/mod.rs`.
+- **Every file in `src/processors/` is a real single processor** — no utility-only files anywhere in the tree. Shared helpers live in `mod.rs` or `generators/mod.rs`; processor-specific data tables (e.g. the requirements generator's stdlib list) live in the processor's own file. The tool registry (`src/tools.rs`) and build statistics (`src/stats.rs`) live at the crate root for this reason.
 - **Checkers** use `SimpleChecker` (data-driven, no boilerplate) or implement `Processor` directly for checkers with custom discovery logic (e.g., `clippy`, `script`).
 - **Generators** use `SimpleGenerator` (data-driven with a custom `execute_fn`) or `GeneratorProcessor` for the generic pass-through generator.
 - **Creators** use `CreatorProcessor` for the generic case, or their own struct for creators with special discovery (cargo profiles, npm siblings, etc.).

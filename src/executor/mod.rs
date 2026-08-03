@@ -16,7 +16,8 @@ use crate::errors;
 use crate::color;
 use crate::graph::BuildGraph;
 use crate::object_store::{ExplainAction, ObjectStore};
-use crate::processors::{FailedProduct, ProcessStats, ProcessorMap};
+use crate::processors::ProcessorMap;
+use crate::stats::{FailedProduct, ProcessStats};
 
 /// Result of the per-item skip/restore pre-check.
 enum PreCheckResult {

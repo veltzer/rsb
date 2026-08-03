@@ -35,9 +35,9 @@ The Python analyzer already resolves bucket 1 via
 ### Stdlib detection
 
 Python 3.10+ ships `sys.stdlib_module_names` — a frozenset of every stdlib
-top-level module name. We bake this list into a static table
-(`src/processors/generators/python_stdlib.rs`) rather than probing `python3`
-at build time. Reasons:
+top-level module name. We bake this list into a static table inside the
+processor (`src/processors/generators/requirements.rs`) rather than probing
+`python3` at build time. Reasons:
 
 - The list is stable across 3.10+ with a handful of additions per minor
   release.
@@ -132,12 +132,13 @@ cross-processor channel, we share a pure function.
 
 ### Files
 
-- `src/processors/generators/requirements.rs` — the processor, ~150 lines.
-- `src/processors/generators/python_stdlib.rs` — the stdlib names table
-  (static `&[&str]`) and a `is_stdlib(module: &str) -> bool` helper.
-- `src/processors/generators/distribution_map.rs` — the curated
-  import→distribution mapping, a `resolve_distribution(import: &str) ->
-  &str` helper that falls through to identity.
+- `src/processors/generators/requirements.rs` — the processor, plus its two
+  data tables: the stdlib names table (static `&[&str]`) with an
+  `is_stdlib(module: &str) -> bool` helper, and the curated
+  import→distribution mapping with a `resolve_distribution(import: &str) ->
+  &str` helper that falls through to identity. Every file under
+  `src/processors/` must be a real processor, so the tables live in the
+  processor's own file.
 - `src/config/processor_configs.rs` — add `RequirementsConfig`.
 - `src/processors/mod.rs` — add `pub const REQUIREMENTS = "requirements"`
   to `names` module.

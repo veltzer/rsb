@@ -156,7 +156,7 @@ fn tools_stats_json() {
 }
 
 /// Every install method named in the registry must be one that `install`
-/// actually implements. A method string with no arm in `processors::run`
+/// actually implements. A method string with no arm in `tools::run`
 /// (there used to be a bogus "system") is not a config error the user can
 /// see — it surfaces only when someone tries to install that tool, as an
 /// "unknown install method" failure at the worst possible moment.
@@ -172,7 +172,7 @@ fn tools_list_uses_only_implemented_install_methods() {
     );
     assert!(output.status.success(), "tools list --json failed: {}", String::from_utf8_lossy(&output.stderr));
 
-    // Kept in sync with the `match method` arms in processors::run().
+    // Kept in sync with the `match method` arms in tools::run().
     const IMPLEMENTED: &[&str] = &[
         "apt", "dnf", "pacman", "brew", "snap", "pip", "npm", "cargo", "gem", "binary", "manual",
     ];
@@ -189,7 +189,7 @@ fn tools_list_uses_only_implemented_install_methods() {
             let method = m["method"].as_str().expect("install method should have a 'method' string");
             assert!(
                 IMPLEMENTED.contains(&method),
-                "tool '{name}' declares install method '{method}', which processors::run() does not implement",
+                "tool '{name}' declares install method '{method}', which tools::run() does not implement",
             );
         }
     }

@@ -1,6 +1,6 @@
 use crate::color;
 use crate::json_output::{emit_product_complete, ProductStatus};
-use crate::processors::{FailedProduct, ProcessStats};
+use crate::stats::{FailedProduct, ProcessStats};
 
 use super::{Executor, HandlerContext, RestoreOutcome, SharedState};
 

@@ -13,7 +13,7 @@ use crate::errors;
 use crate::graph::{BuildGraph, Product};
 use crate::json_output;
 use crate::object_store::ObjectStore;
-use crate::processors::{BuildStats, ProductTiming};
+use crate::stats::{BuildStats, ProductTiming};
 use crate::progress;
 
 use super::{Classification, Executor, HandlerContext, LevelWork, PreCheckResult, RestoreOutcome, SharedState, WorkItem};

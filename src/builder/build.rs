@@ -7,7 +7,8 @@ use crate::color;
 use crate::tables;
 use crate::errors;
 use crate::executor::{Executor, ExecutorOptions};
-use crate::processors::{BuildStats, ProcessorMap, ProcessorType};
+use crate::processors::{ProcessorMap, ProcessorType};
+use crate::stats::BuildStats;
 use super::{Builder, GraphSnapshot, ProductStatusLabels, StatusPrintOptions, phases_debug, print_graph_stats};
 
 /// Expand `@`-prefixed shortcuts in the processor filter.
@@ -109,7 +110,7 @@ fn check_required_tools(
         missing.sort_by(|a, b| a.0.cmp(&b.0));
         let mut msg = String::from("Missing required tools:\n");
         for (tool, procs) in &missing {
-            let install_hint = crate::processors::tool_install_command(tool)
+            let install_hint = crate::tools::tool_install_command(tool)
                 .map(|cmd| format!("  install: {cmd}"))
                 .unwrap_or_default();
             let _ = writeln!(msg, "  {} (needed by: {}){}", tool, procs.join(", "), install_hint);

@@ -22,8 +22,6 @@ mod imarkdown2html;
 mod isass;
 mod yaml2json;
 
-mod python_distribution_map;
-mod python_stdlib;
 mod requirements;
 pub mod tags;
 pub mod tera;

@@ -59,9 +59,9 @@ fn package_probe_succeeds(
 }
 
 /// Return the language runtime category for a tool.
-/// Delegates to the central `TOOLS` registry in `processors/mod.rs`.
+/// Delegates to the central `TOOLS` registry in `src/tools.rs`.
 fn tool_runtime(tool: &str) -> &'static str {
-    crate::processors::tool_runtime(tool).unwrap_or_else(|| {
+    crate::tools::tool_runtime(tool).unwrap_or_else(|| {
         debug_assert!(false, "tool_runtime: unrecognized tool '{tool}'");
         "system"
     })
@@ -154,7 +154,7 @@ fn run_tools_command(
             // independent of which processors are configured. Mirrors
             // `processors list`, which shows all built-in processors.
             if crate::json_output::is_json_mode() {
-                let entries: Vec<json_output::ToolListEntry> = crate::processors::TOOLS.iter()
+                let entries: Vec<json_output::ToolListEntry> = crate::tools::TOOLS.iter()
                     .map(|info| json_output::ToolListEntry {
                         tool: info.name.to_string(),
                         installed: which::which(info.name).is_ok(),
@@ -172,7 +172,7 @@ fn run_tools_command(
                 return Ok(());
             }
 
-            let mut tools: Vec<&crate::processors::ToolInfo> = crate::processors::TOOLS.iter().collect();
+            let mut tools: Vec<&crate::tools::ToolInfo> = crate::tools::TOOLS.iter().collect();
             tools.sort_by_key(|t| t.name);
 
             // The install command is noise for the common "what tools exist?"
@@ -197,7 +197,7 @@ fn run_tools_command(
                             .collect();
                         if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
                     } else {
-                        info.install_methods.first().map_or_else(|| "?".to_string(), super::super::processors::InstallMethod::command)
+                        info.install_methods.first().map_or_else(|| "?".to_string(), crate::tools::InstallMethod::command)
                     };
                     row.push(install_str);
                 }
@@ -209,7 +209,7 @@ fn run_tools_command(
             if crate::json_output::is_json_mode() {
                 let entries: Vec<json_output::ToolListEntry> = tool_map.iter()
                     .map(|(tool, procs)| {
-                        let info = crate::processors::tool_info(tool);
+                        let info = crate::tools::tool_info(tool);
                         let install_methods = info
                             .map(|i| i.install_methods.iter().map(|m| {
                                 json_output::ToolInstallMethodEntry {
@@ -237,7 +237,7 @@ fn run_tools_command(
                 } else {
                     color::red("missing")
                 };
-                let info = crate::processors::tool_info(tool);
+                let info = crate::tools::tool_info(tool);
                 let runtime = info.map_or("unknown", |i| i.runtime);
                 let install_str = if show_methods {
                     let methods: Vec<String> = info
@@ -247,7 +247,7 @@ fn run_tools_command(
                         .unwrap_or_default();
                     if methods.is_empty() { "?".to_string() } else { methods.join(" | ") }
                 } else {
-                    info.and_then(|i| i.install_methods.first()).map_or_else(|| "?".to_string(), super::super::processors::InstallMethod::command)
+                    info.and_then(|i| i.install_methods.first()).map_or_else(|| "?".to_string(), crate::tools::InstallMethod::command)
                 };
                 println!("{} [{}] [{}] ({}) — {}",
                     tool, installed, runtime, procs.join(", "), color::dim(&install_str));
@@ -344,7 +344,7 @@ fn run_tools_command(
             for (tool, procs) in &tool_map {
                 let installed = which::which(tool).is_ok();
                 let runtime = tool_runtime(tool).to_string();
-                let install_command = crate::processors::tool_install_command(tool);
+                let install_command = crate::tools::tool_install_command(tool);
                 tool_stats.push(json_output::ToolStat {
                     name: tool.clone(),
                     installed,
@@ -435,7 +435,7 @@ fn run_tools_command(
         }
         ToolsAction::Install { name, all, .. } => {
             // Collect missing tools with their install info
-            let missing_tools: Vec<(&str, &crate::processors::InstallMethod)> = if all {
+            let missing_tools: Vec<(&str, &crate::tools::InstallMethod)> = if all {
                 // Registry-wide: every tool rsconstruct knows how to install,
                 // independent of any config. Mirrors `tools list`, which is the
                 // registry-wide counterpart of `tools list-configured`.
@@ -445,8 +445,8 @@ fn run_tools_command(
                 // success while a tool is absent is exactly the silent-gap
                 // failure the strict-by-default rule exists to prevent.
                 let mut missing = Vec::new();
-                let mut manual_only: Vec<&crate::processors::ToolInfo> = Vec::new();
-                for info in crate::processors::TOOLS {
+                let mut manual_only: Vec<&crate::tools::ToolInfo> = Vec::new();
+                for info in crate::tools::TOOLS {
                     if which::which(info.name).is_ok() {
                         continue;
                     }
@@ -486,7 +486,7 @@ fn run_tools_command(
                 missing
             } else if let Some(ref name) = name {
                 // Install a specific tool
-                if let Some(info) = crate::processors::tool_info(name) {
+                if let Some(info) = crate::tools::tool_info(name) {
                     if let Some(method) = info.install_methods.first() {
                         vec![(info.name, method)]
                     } else {
@@ -528,7 +528,7 @@ fn run_tools_command(
                     if which::which(tool_name).is_ok() {
                         continue;
                     }
-                    match crate::processors::tool_info(tool_name) {
+                    match crate::tools::tool_info(tool_name) {
                         Some(info) if !info.install_methods.is_empty() => {
                             missing.push((info.name, &info.install_methods[0]));
                         }
@@ -563,7 +563,7 @@ fn run_tools_command(
             println!();
 
             let method_order = &["pip", "apt", "brew", "npm", "cargo", "gem", "snap", "binary", "manual"];
-            let ctx = crate::processors::InstallCtx {
+            let ctx = crate::tools::InstallCtx {
                 verbose,
                 use_eatmydata: install_use_eatmydata,
             };
@@ -571,7 +571,7 @@ fn run_tools_command(
             for method in method_order {
                 let Some(packages) = by_method.get(method) else { continue };
                 println!("  {} {}", color::bold(&format!("[{method}]")), packages.join(", "));
-                for argv in crate::processors::describe(method, packages) {
+                for argv in crate::tools::describe(method, packages) {
                     println!("       {}", color::dim(&argv.join(" ")));
                 }
             }
@@ -597,7 +597,7 @@ fn run_tools_command(
 
             for method in method_order {
                 let Some(packages) = by_method.get(method) else { continue };
-                match crate::processors::run(method, packages, &ctx) {
+                match crate::tools::run(method, packages, &ctx) {
                     Ok(()) => println!("{} [{}] {}", color::green("OK"), method, packages.join(", ")),
                     Err(e) => {
                         println!("{} [{}] {}: {}", color::red("FAILED"), method, packages.join(", "), e);
@@ -720,7 +720,7 @@ fn run_tools_command(
             println!("{}:", color::bold("Dependencies to install"));
             for (method, packages) in &groups {
                 let pkgs_ref: Vec<&str> = packages.iter().map(String::as_str).collect();
-                let preview = crate::processors::describe(method, &pkgs_ref);
+                let preview = crate::tools::describe(method, &pkgs_ref);
                 let line = preview.first().map(|a| a.join(" ")).unwrap_or_default();
                 println!("  {} {}", color::bold(&format!("[{method}]")), color::dim(&line));
             }
@@ -741,11 +741,11 @@ fn run_tools_command(
                 }
             }
 
-            let ctx = crate::processors::InstallCtx { verbose, use_eatmydata };
+            let ctx = crate::tools::InstallCtx { verbose, use_eatmydata };
             let mut any_failed = false;
             for (method, packages) in &groups {
                 let pkgs_ref: Vec<&str> = packages.iter().map(String::as_str).collect();
-                match crate::processors::run(method, &pkgs_ref, &ctx) {
+                match crate::tools::run(method, &pkgs_ref, &ctx) {
                     Ok(()) => println!("{} [{}] {}", color::green("✓"), method, packages.join(", ")),
                     Err(e) => {
                         println!("{} [{}] {}: {}", color::red("✗"), method, packages.join(", "), e);
@@ -850,7 +850,7 @@ fn tools_graph_json(tool_map: &BTreeMap<String, Vec<String>>) -> Result<String> 
     let entries: Vec<crate::json_output::ToolListEntry> = tool_map
         .iter()
         .map(|(tool, procs)| {
-            let info = crate::processors::tool_info(tool);
+            let info = crate::tools::tool_info(tool);
             let install_methods = info
                 .map(|i| i.install_methods.iter().map(|m| {
                     crate::json_output::ToolInstallMethodEntry {

@@ -3,19 +3,6 @@ mod explicit;
 pub mod generators;
 mod creators;
 pub mod lua;
-pub mod stats;
-pub mod tools;
-
-pub use stats::{BuildStats, FailedProduct, ProcessStats, ProductTiming};
-
-// The tool registry and install engine live in `tools`, but they were part of
-// this module's surface for long enough that every caller says
-// `processors::TOOLS` / `processors::run(...)`. Re-exported rather than
-// churning ~40 call sites for a move that changes no behavior.
-pub use tools::{
-    InstallCtx, InstallMethod, ToolInfo, TOOLS,
-    describe, run, tool_info, tool_install_command, tool_runtime,
-};
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -905,39 +892,37 @@ impl ProcessorBase {
 /// - **Checkers**: Validate inputs without producing outputs (use default `clean()`)
 /// - **Creators**: Produce a mass of output files in a directory without enumerating them
 ///
+/// The processor type, name, and description live in the plugin
+/// registration (`inventory::submit!` of a `ProcessorPlugin`), not on this
+/// trait — metadata must be available without instantiating a processor.
+///
 /// # Implementing a Checker
 ///
 /// Checkers are simpler - just implement the required methods and use defaults for the rest:
 ///
 /// ```ignore
 /// impl Processor for MyChecker {
-///     fn description(&self) -> &str { "Check files with mytool" }
-///     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
-///         discover_checker_products(graph, ..., instance_name)  // empty outputs
+///     fn scan_config(&self) -> &StandardConfig { &self.config.standard }
+///     fn execute(&self, ctx: &BuildContext, product: &Product) -> Result<()> {
+///         run_mytool(ctx, product.primary_input())
 ///     }
-///     fn execute(&self, product: &Product) -> Result<()> {
-///         run_mytool(product.primary_input())
-///     }
-///     fn auto_detect(&self, file_index: &FileIndex) -> bool { ... }
 /// }
 /// ```
 ///
 /// # Implementing a Generator
 ///
-/// Generators must override `processor_type()` and `clean()`:
+/// Generators must also declare outputs in `discover()` and override `clean()`:
 ///
 /// ```ignore
 /// impl Processor for MyGenerator {
-///     fn description(&self) -> &str { "Generate files" }
-///     fn processor_type(&self) -> ProcessorType { ProcessorType::Generator }
+///     fn scan_config(&self) -> &StandardConfig { &self.config.standard }
 ///     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
 ///         graph.add_product(inputs, outputs, instance_name, ...)?;  // non-empty outputs
 ///     }
-///     fn execute(&self, product: &Product) -> Result<()> { ... }
+///     fn execute(&self, ctx: &BuildContext, product: &Product) -> Result<()> { ... }
 ///     fn clean(&self, product: &Product, verbose: bool) -> Result<usize> {
 ///         clean_outputs(product, &product.processor, verbose)
 ///     }
-///     fn auto_detect(&self, file_index: &FileIndex) -> bool { ... }
 /// }
 /// ```
 ///
@@ -1272,11 +1257,11 @@ mod tests {
                     continue;
                 }
                 assert!(
-                    tool_install_command(&tool).is_some(),
+                    crate::tools::tool_install_command(&tool).is_some(),
                     "Processor '{proc_name}' requires tool '{tool}' which has no install command in TOOLS"
                 );
                 assert!(
-                    tool_runtime(&tool).is_some(),
+                    crate::tools::tool_runtime(&tool).is_some(),
                     "Processor '{proc_name}' requires tool '{tool}' which has no runtime category in TOOLS"
                 );
             }

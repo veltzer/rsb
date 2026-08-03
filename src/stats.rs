@@ -1,9 +1,8 @@
 //! Build statistics and timing summaries.
 //!
-//! Split out of `processors/mod.rs`, which had accreted four unrelated
-//! concerns. Nothing here touches the `Processor` trait: these are the
-//! counters the executor accumulates and the summary lines it prints at the
-//! end of a build.
+//! Lives at the crate root because nothing here touches the `Processor`
+//! trait: these are the counters the executor accumulates and the summary
+//! lines it prints at the end of a build.
 
 use std::time::Duration;
 
