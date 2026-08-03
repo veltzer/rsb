@@ -39,13 +39,15 @@ Build produces:
 All paths in the manifest are relative to the `cc.yaml` file's location.
 
 ```yaml
-# Global settings (all optional)
-cc: gcc               # C compiler (default: gcc)
-cxx: g++              # C++ compiler (default: g++)
-cflags: [-Wall]       # Global C flags
-cxxflags: [-Wall]     # Global C++ flags
-ldflags: []           # Global linker flags
-include_dirs: [include]  # Global -I paths (relative to cc.yaml location)
+# Global settings (all optional). A field left unset inherits its value
+# from [processor.cc] in rsconstruct.toml; a field set explicitly — even
+# to an empty list — overrides the config default for this manifest.
+cc: gcc               # C compiler (unset: inherit config, default gcc)
+cxx: g++              # C++ compiler (unset: inherit config, default g++)
+cflags: [-Wall]       # Global C flags (unset: inherit config)
+cxxflags: [-Wall]     # Global C++ flags (unset: inherit config)
+ldflags: []           # Global linker flags (unset: inherit config)
+include_dirs: [include]  # Global -I paths (relative to cc.yaml location; unset: inherit config)
 
 # Library definitions
 libraries:
@@ -136,8 +138,11 @@ dep_inputs = []         # Extra files that trigger rebuilds
 cache_output_dir = true   # Cache entire output directory (default: true)
 ```
 
-Note: The `cc.yaml` manifest settings override the `rsconstruct.toml` defaults for
-compiler and flags.
+The compiler and flag fields are project-wide **defaults** for every
+`cc.yaml`: a manifest that leaves a field unset inherits the config value,
+and a manifest that sets it explicitly (even to an empty list) overrides it
+for that directory. Compilers overridden per manifest are picked up by tool
+checking during discovery.
 
 ### Configuration Reference
 

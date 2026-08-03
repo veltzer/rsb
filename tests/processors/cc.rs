@@ -285,3 +285,116 @@ programs:
         String::from_utf8_lossy(&output.stderr));
     assert!(project_path.join("out/cc/bin/app").exists(), "Program should link");
 }
+
+/// `[processor.cc]` flags are project-wide defaults for every cc.yaml.
+///
+/// Regression test: the config-level `cflags`/`cxxflags`/`ldflags`/
+/// `include_dirs` fields used to be fully dead — declared, documented, part
+/// of the config hash, and read by nothing. The source below only compiles
+/// when the config-level define reaches the compiler.
+#[test]
+fn cc_config_flags_are_manifest_defaults() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.cc]\nsrc_dirs = [\".\"]\ncflags = [\"-DNEED_FLAG=0\"]\n",
+    ).unwrap();
+    fs::write(project_path.join("cc.yaml"), r#"
+programs:
+  - name: app
+    sources: [src/main.c]
+"#).unwrap();
+    fs::write(
+        project_path.join("src/main.c"),
+        "int main(void) { return NEED_FLAG; }\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(output.status.success(),
+        "config-level cflags must reach the compiler: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+}
+
+/// A cc.yaml that sets a field explicitly overrides the config default —
+/// including setting it to empty.
+#[test]
+fn cc_manifest_overrides_config_flags() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    // The config default is an invalid flag: the build can only succeed if
+    // the manifest's explicit empty cflags wins over the config value.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.cc]\nsrc_dirs = [\".\"]\ncflags = [\"--definitely-not-a-flag\"]\n",
+    ).unwrap();
+    fs::write(project_path.join("cc.yaml"), r#"
+cflags: []
+programs:
+  - name: app
+    sources: [src/main.c]
+"#).unwrap();
+    fs::write(
+        project_path.join("src/main.c"),
+        "int main(void) { return 0; }\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(output.status.success(),
+        "manifest cflags must override the config default: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+}
+
+/// A compiler overridden per cc.yaml must be part of the processor's
+/// declared tools.
+///
+/// Regression test: `required_tools()` used to return only the config-level
+/// compilers, so a manifest override tripped the debug-build declared-tools
+/// assertion ("executed undeclared tool") and made `tools check` verify the
+/// wrong binary. Test binaries run the debug build, so this test fails by
+/// panic if the override is not declared.
+#[test]
+fn cc_manifest_compiler_is_declared() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    // A distinctly-named compiler wrapper on PATH.
+    let bin_dir = project_path.join("toolbin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let wrapper = bin_dir.join("mycustomcc");
+    fs::write(&wrapper, "#!/bin/sh\nexec gcc \"$@\"\n").unwrap();
+    crate::common::make_executable(&wrapper);
+
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.cc]\nsrc_dirs = [\".\"]\n",
+    ).unwrap();
+    fs::write(project_path.join("cc.yaml"), r#"
+cc: mycustomcc
+programs:
+  - name: app
+    sources: [src/main.c]
+"#).unwrap();
+    fs::write(
+        project_path.join("src/main.c"),
+        "int main(void) { return 0; }\n",
+    ).unwrap();
+
+    let path_env = format!("{}:{}", bin_dir.display(), std::env::var("PATH").unwrap_or_default());
+    let output = run_rsconstruct_with_env(
+        project_path, &["build"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(output.status.success(),
+        "manifest-overridden compiler must be declared (debug builds assert on undeclared tools): stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+    assert!(project_path.join("out/cc/bin/app").exists(), "Program should link");
+}

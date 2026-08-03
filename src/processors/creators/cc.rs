@@ -10,12 +10,18 @@ use crate::processors::{Processor, run_command, check_command_output, anchor_dis
 
 pub struct CcProcessor {
     config: CcConfig,
+    /// Compilers the discovered cc.yaml manifests actually resolve to.
+    /// Filled during `discover` so `required_tools()` names the real
+    /// compilers by execution time (the debug declared-tools assertion
+    /// checks against it), not just the config defaults.
+    manifest_compilers: std::sync::Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl CcProcessor {
     pub const fn new(config: CcConfig) -> Self {
         Self {
             config,
+            manifest_compilers: std::sync::Mutex::new(std::collections::BTreeSet::new()),
         }
     }
 
@@ -45,11 +51,13 @@ impl CcProcessor {
         }
     }
 
-    /// Parse a cc.yaml file.
-    fn parse_manifest(yaml_path: &Path) -> Result<CcManifest> {
+    /// Parse a cc.yaml file, inheriting unset fields from the
+    /// `[processor.cc]` config (project-wide defaults, per-directory
+    /// overrides).
+    fn parse_manifest(&self, yaml_path: &Path) -> Result<CcManifest> {
         let content = fs::read_to_string(yaml_path)
             .with_context(|| format!("Failed to read {}", yaml_path.display()))?;
-        let manifest: CcManifest = serde_yml::from_str(&content)
+        let manifest = CcManifest::parse(&content, &self.config)
             .with_context(|| format!("Failed to parse {}", yaml_path.display()))?;
         Ok(manifest)
     }
@@ -196,7 +204,7 @@ impl CcProcessor {
     /// All commands run from the project root. Manifest paths are resolved
     /// to project-root-relative paths using the cc.yaml's parent directory.
     fn execute_build(&self, ctx: &crate::build_context::BuildContext, yaml_path: &Path) -> Result<()> {
-        let manifest = Self::parse_manifest(yaml_path)?;
+        let manifest = self.parse_manifest(yaml_path)?;
         let anchor_dir = crate::processors::parent_dir_or_empty(yaml_path);
         let output_dir = Self::output_dir_for(yaml_path);
         let obj_dir = output_dir.join("obj");
@@ -292,7 +300,17 @@ impl Processor for CcProcessor {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        vec![self.config.cc.clone(), self.config.cxx.clone(), "ar".to_string()]
+        // The config values are project-wide defaults; each cc.yaml may
+        // override the compiler per directory. Discovery records what the
+        // manifests actually resolve to, so by execution time this names
+        // the real compilers, not just the defaults.
+        let mut tools: Vec<String> = vec![self.config.cc.clone(), self.config.cxx.clone(), "ar".to_string()];
+        for compiler in self.manifest_compilers.lock().unwrap().iter() {
+            if !tools.contains(compiler) {
+                tools.push(compiler.clone());
+            }
+        }
+        tools
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
@@ -303,12 +321,20 @@ impl Processor for CcProcessor {
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for yaml_path in files {
-            let manifest = match Self::parse_manifest(&yaml_path) {
+            let manifest = match self.parse_manifest(&yaml_path) {
                 Ok(m) => m,
                 Err(e) => {
                     anyhow::bail!("Failed to parse {}: {}", yaml_path.display(), e);
                 }
             };
+
+            // Record the compilers this manifest resolves to, so
+            // required_tools() covers per-manifest overrides.
+            {
+                let mut compilers = self.manifest_compilers.lock().unwrap();
+                compilers.insert(manifest.cc.clone());
+                compilers.insert(manifest.cxx.clone());
+            }
 
             // Source paths in the manifest are relative to the cc.yaml directory.
             // Resolve to project-root-relative paths for the build graph.

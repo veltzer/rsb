@@ -555,26 +555,57 @@ pub struct CcProgramDef {
     pub ldflags: Vec<String>,
 }
 
-/// Parsed contents of a cc.yaml file.
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(deny_unknown_fields)]
+/// Parsed contents of a cc.yaml file, resolved against the `[processor.cc]`
+/// config: the six inheritable fields (`cc`, `cxx`, `cflags`, `cxxflags`,
+/// `ldflags`, `include_dirs`) default to the config's values, so
+/// `rsconstruct.toml` sets project-wide defaults and each cc.yaml overrides
+/// per directory. Construct via [`CcManifest::parse`] — the raw serde shape
+/// lives in `CcManifestRaw` so "field absent" (inherit) is distinguishable
+/// from "field explicitly set".
+#[derive(Debug, Clone)]
 pub struct CcManifest {
-    #[serde(default = "default_cc_compiler")]
     pub cc: String,
-    #[serde(default = "default_cxx_compiler")]
     pub cxx: String,
-    #[serde(default)]
     pub cflags: Vec<String>,
-    #[serde(default)]
     pub cxxflags: Vec<String>,
-    #[serde(default)]
     pub ldflags: Vec<String>,
-    #[serde(default)]
     pub include_dirs: Vec<String>,
-    #[serde(default)]
     pub libraries: Vec<CcLibraryDef>,
-    #[serde(default)]
     pub programs: Vec<CcProgramDef>,
+}
+
+/// The raw serde shape of cc.yaml. Inheritable fields are optional; absent
+/// means "inherit the `[processor.cc]` config value".
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CcManifestRaw {
+    cc: Option<String>,
+    cxx: Option<String>,
+    cflags: Option<Vec<String>>,
+    cxxflags: Option<Vec<String>>,
+    ldflags: Option<Vec<String>>,
+    include_dirs: Option<Vec<String>>,
+    #[serde(default)]
+    libraries: Vec<CcLibraryDef>,
+    #[serde(default)]
+    programs: Vec<CcProgramDef>,
+}
+
+impl CcManifest {
+    /// Parse cc.yaml content, inheriting unset fields from the config.
+    pub fn parse(content: &str, defaults: &CcConfig) -> Result<Self, serde_yml::Error> {
+        let raw: CcManifestRaw = serde_yml::from_str(content)?;
+        Ok(Self {
+            cc: raw.cc.unwrap_or_else(|| defaults.cc.clone()),
+            cxx: raw.cxx.unwrap_or_else(|| defaults.cxx.clone()),
+            cflags: raw.cflags.unwrap_or_else(|| defaults.cflags.clone()),
+            cxxflags: raw.cxxflags.unwrap_or_else(|| defaults.cxxflags.clone()),
+            ldflags: raw.ldflags.unwrap_or_else(|| defaults.ldflags.clone()),
+            include_dirs: raw.include_dirs.unwrap_or_else(|| defaults.include_dirs.clone()),
+            libraries: raw.libraries,
+            programs: raw.programs,
+        })
+    }
 }
 
 /// CC (full C/C++ project) config. Custom: cc, cxx, cflags, cxxflags, ldflags, `include_dirs`, `single_invocation`, `cache_output_dir`.
@@ -632,12 +663,12 @@ impl KnownFields for CcConfig {
     }
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
         &[
-            ("cc",                "C compiler executable"),
-            ("cxx",               "C++ compiler executable"),
-            ("cflags",            "Flags passed to the C compiler"),
-            ("cxxflags",          "Flags passed to the C++ compiler"),
-            ("ldflags",           "Flags passed to the linker"),
-            ("include_dirs",      "Additional header search directories"),
+            ("cc",                "Default C compiler executable (overridable per cc.yaml)"),
+            ("cxx",               "Default C++ compiler executable (overridable per cc.yaml)"),
+            ("cflags",            "Default C compiler flags (overridable per cc.yaml)"),
+            ("cxxflags",          "Default C++ compiler flags (overridable per cc.yaml)"),
+            ("ldflags",           "Default linker flags (overridable per cc.yaml)"),
+            ("include_dirs",      "Default header search directories (overridable per cc.yaml)"),
             ("single_invocation", "Compile all sources in one compiler call"),
             ("cache_output_dir",  "Cache the entire output directory as a unit"),
         ]
