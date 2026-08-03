@@ -235,13 +235,11 @@ fn run() -> (Result<()>, bool) {
     match cli.command {
         Commands::Build { force, dry_run, verify_tool_versions, stop_after, ref shared } => {
             if dry_run {
-                let builder = Builder::new_with_overrides(&shared.iset, &shared.pset)?;
-                builder.apply_config_to_context(&ctx);
+                let builder = Builder::new_with_overrides(&ctx, &shared.iset, &shared.pset)?;
                 builder.dry_run(&ctx, force, shared.explain)?;
             } else {
                 let t = Instant::now();
-                let mut builder = Builder::new_with_overrides(&shared.iset, &shared.pset)?;
-                builder.apply_config_to_context(&ctx);
+                let mut builder = Builder::new_with_overrides(&ctx, &shared.iset, &shared.pset)?;
                 let builder_new_dur = t.elapsed();
                 let t = Instant::now();
                 if verify_tool_versions {
@@ -267,20 +265,20 @@ fn run() -> (Result<()>, bool) {
             ))?;
             match action {
                 CleanAction::Outputs { processors, no_empty_dirs } => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     let filter = if processors.is_empty() { None } else { Some(processors) };
                     builder.clean(&ctx, cli.verbose, filter.as_deref(), !no_empty_dirs)?;
                 }
                 CleanAction::All => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     builder.distclean()?;
                 }
                 CleanAction::Git => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     builder.hardclean(&ctx)?;
                 }
                 CleanAction::Unknown { dry_run, no_gitignore } => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     builder.clean_unknown(&ctx, !dry_run, cli.verbose, !no_gitignore)?;
                 }
             }
@@ -327,21 +325,20 @@ fn run() -> (Result<()>, bool) {
                     builder::smart::enable_analyzer(iname)?;
                 }
                 _ => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     builder.analyzers(&ctx, action, cli.verbose)?;
                 }
             }
         }
         Commands::Doctor => {
-            let builder = Builder::new()?;
+            let builder = Builder::new(&ctx)?;
             builder.doctor(&ctx)?;
         }
         Commands::Errors => {
             list_exit_codes(cli.verbose)?;
         }
         Commands::Fix { action } => {
-            let builder = Builder::new()?;
-            builder.apply_config_to_context(&ctx);
+            let builder = Builder::new(&ctx)?;
             match action {
                 cli::FixAction::Run { processors } => {
                     if processors.is_empty() {
@@ -355,13 +352,13 @@ fn run() -> (Result<()>, bool) {
             }
         }
         Commands::Graph { action } => {
-            let builder = Builder::new()?;
+            let builder = Builder::new(&ctx)?;
             builder.graph(&ctx, action)?;
         }
         Commands::Info { action } => {
             match action {
                 cli::InfoAction::Source => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     builder.info_source(&ctx)?;
                 }
             }
@@ -406,14 +403,13 @@ fn run() -> (Result<()>, bool) {
                     bail!("No rsconstruct.toml found. Use 'processors defconfig <name>' to see default config without a project.");
                 }
                 action => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     builder.processor(&ctx, action, cli.verbose)?;
                 }
             }
         }
         Commands::Product { action } => {
-            let builder = Builder::new()?;
-            builder.apply_config_to_context(&ctx);
+            let builder = Builder::new(&ctx)?;
             match action {
                 cli::ProductAction::Show { ref path } => {
                     builder.product_show(&ctx, path, cli.verbose)?;
@@ -421,7 +417,13 @@ fn run() -> (Result<()>, bool) {
             }
         }
         Commands::Sloc { cocomo, salary } => {
-            let file_index = file_index::FileIndex::build()?;
+            // Generated files are not project code: exclude configured
+            // output roots from the count. Config::load falls back to
+            // defaults when no rsconstruct.toml exists, so sloc still works
+            // outside a project.
+            let config = Config::load()?;
+            let (exclude_roots, _) = config.file_index_walk_dirs();
+            let file_index = file_index::FileIndex::build_with_force_dirs(&[], &exclude_roots)?;
             builder::sloc::run_sloc(&file_index, cocomo, salary)?;
         }
         Commands::Smart { action } => {
@@ -439,12 +441,12 @@ fn run() -> (Result<()>, bool) {
                     builder::smart::enable(name)?;
                 }
                 cli::SmartAction::EnableDetected => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     let detected = builder.detected_processors()?;
                     builder::smart::enable_detected(&detected)?;
                 }
                 cli::SmartAction::Minimal => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     let detected = builder.detected_processors()?;
                     builder::smart::minimal(&detected)?;
                 }
@@ -452,7 +454,7 @@ fn run() -> (Result<()>, bool) {
                     builder::smart::reset()?;
                 }
                 cli::SmartAction::EnableIfAvailable => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     let available = builder.detected_and_available_processors()?;
                     builder::smart::enable_if_available(&available)?;
                 }
@@ -460,20 +462,19 @@ fn run() -> (Result<()>, bool) {
                     builder::smart::only(names)?;
                 }
                 cli::SmartAction::Auto => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     let detected = builder.detected_and_available_processors()?;
                     builder::smart::auto(&detected)?;
                 }
                 cli::SmartAction::RemoveNoFileProcessors => {
-                    let builder = Builder::new()?;
+                    let builder = Builder::new(&ctx)?;
                     let empty = builder.no_file_processors(&ctx)?;
                     builder::smart::remove_no_file_processors(&empty)?;
                 }
             }
         }
         Commands::Status { breakdown } => {
-            let builder = Builder::new()?;
-            builder.apply_config_to_context(&ctx);
+            let builder = Builder::new(&ctx)?;
             builder.status(&ctx, cli.verbose, breakdown)?;
         }
         Commands::SymlinkInstall => {
@@ -575,7 +576,7 @@ fn run() -> (Result<()>, bool) {
             // Fall back to default config only if no config file exists.
             // If config exists but is broken, fail — don't silently use defaults.
             if std::path::Path::new("rsconstruct.toml").exists() {
-                let builder = Builder::new()?;
+                let builder = Builder::new(&ctx)?;
                 builder.tools(&ctx, action, cli.verbose)?;
             } else {
                 builder::tools::tools_no_config(&ctx, action, cli.verbose)?;

@@ -155,27 +155,6 @@ impl Product {
         }
     }
 
-    /// Cache key for checksum tracking.
-    /// Includes processor name, config hash, inputs, AND outputs to ensure
-    /// products with the same inputs but different outputs (e.g., pandoc producing
-    /// pdf, html, docx from the same source) get separate cache entries.
-    pub fn cache_key(&self) -> String {
-        let inputs: Vec<_> = self.inputs.iter()
-            .map(|p| p.display().to_string())
-            .collect();
-        let outputs: Vec<_> = self.outputs.iter()
-            .map(|p| p.display().to_string())
-            .collect();
-        let io_part = if outputs.is_empty() {
-            inputs.join(":")
-        } else {
-            format!("{}>{}", inputs.join(":"), outputs.join(":"))
-        };
-        match self.cache_key.digest() {
-            Some(hash) => format!("{}:{}:{}", self.processor, hash, io_part),
-            None => format!("{}:{}", self.processor, io_part),
-        }
-    }
 }
 
 /// Per-process integer ID assigned to a path by `PathInterner`.
@@ -806,31 +785,33 @@ mod tests {
     }
 
     #[test]
-    fn cache_key_differs_for_different_outputs() {
-        // Regression test: products with same inputs but different outputs
-        // (e.g., pandoc producing pdf, html, docx from the same .md file)
-        // must have different cache keys. Otherwise they overwrite each other's
-        // cache entries and cause stale output bugs.
-        let p_pdf = Product::new(
-            vec!["doc.md".into()], vec!["out/doc.pdf".into()], "pandoc", 0, Some("h".into()));
-        let p_html = Product::new(
-            vec!["doc.md".into()], vec!["out/doc.html".into()], "pandoc", 0, Some("h".into()));
-        let p_docx = Product::new(
-            vec!["doc.md".into()], vec!["out/doc.docx".into()], "pandoc", 0, Some("h".into()));
+    fn descriptor_key_differs_per_format_variant() {
+        // Regression test: products with the same input but different output
+        // formats (e.g., pandoc producing pdf, html, docx from the same .md
+        // file) must have different descriptor keys, or they overwrite each
+        // other's cache entries. The descriptor key is path-free, so the
+        // outputs themselves can't distinguish them — multi-format discovery
+        // passes the format as the variant component (see
+        // discover_multi_format), and that variant is what separates them.
+        let p_pdf = Product::with_variant(
+            vec!["doc.md".into()], vec!["out/doc.pdf".into()], "pandoc", 0, Some("h".into()), "pdf");
+        let p_html = Product::with_variant(
+            vec!["doc.md".into()], vec!["out/doc.html".into()], "pandoc", 0, Some("h".into()), "html");
+        let p_docx = Product::with_variant(
+            vec!["doc.md".into()], vec!["out/doc.docx".into()], "pandoc", 0, Some("h".into()), "docx");
 
-        assert_ne!(p_pdf.cache_key(), p_html.cache_key(),
-            "PDF and HTML products must have different cache keys");
-        assert_ne!(p_html.cache_key(), p_docx.cache_key(),
-            "HTML and DOCX products must have different cache keys");
-        assert_ne!(p_pdf.cache_key(), p_docx.cache_key(),
-            "PDF and DOCX products must have different cache keys");
+        assert_ne!(p_pdf.descriptor_key("chk"), p_html.descriptor_key("chk"),
+            "PDF and HTML products must have different descriptor keys");
+        assert_ne!(p_html.descriptor_key("chk"), p_docx.descriptor_key("chk"),
+            "HTML and DOCX products must have different descriptor keys");
+        assert_ne!(p_pdf.descriptor_key("chk"), p_docx.descriptor_key("chk"),
+            "PDF and DOCX products must have different descriptor keys");
     }
 
     #[test]
-    fn cache_key_includes_config_hash() {
+    fn descriptor_key_includes_config_hash() {
         let p1 = Product::new(vec!["a.c".into()], vec![], "cc", 0, None);
         let p2 = Product::new(vec!["a.c".into()], vec![], "cc", 0, Some("abc123".into()));
-        assert_ne!(p1.cache_key(), p2.cache_key());
         assert_ne!(p1.descriptor_key("chk"), p2.descriptor_key("chk"));
     }
 

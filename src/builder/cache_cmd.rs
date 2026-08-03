@@ -24,7 +24,7 @@ pub fn handle(ctx: &crate::build_context::BuildContext, action: CacheAction) -> 
                 println!("Cache cleared.");
             }
             CacheAction::Size => {
-                let builder = Builder::new()?;
+                let builder = Builder::new(ctx)?;
                 let (bytes, count) = builder.object_store().size();
                 if json_output::is_json_mode() {
                     let out = serde_json::json!({ "bytes": bytes, "objects": count });
@@ -34,8 +34,7 @@ pub fn handle(ctx: &crate::build_context::BuildContext, action: CacheAction) -> 
                 }
             }
             CacheAction::Trim => {
-                let builder = Builder::new()?;
-                builder.apply_config_to_context(ctx);
+                let builder = Builder::new(ctx)?;
                 let (bytes, count) = builder.object_store().trim()?;
                 // The object store is not the only thing that grows
                 // without bound: mtime rows for deleted files and expired
@@ -57,7 +56,7 @@ pub fn handle(ctx: &crate::build_context::BuildContext, action: CacheAction) -> 
                 }
             }
             CacheAction::RemoveStale => {
-                let builder = Builder::new()?;
+                let builder = Builder::new(ctx)?;
                 let valid_keys = builder.valid_cache_keys(ctx)?;
                 let stale_count = builder.object_store().remove_stale(&valid_keys)?;
                 let (bytes, trim_count) = builder.object_store().trim()?;
@@ -76,12 +75,12 @@ pub fn handle(ctx: &crate::build_context::BuildContext, action: CacheAction) -> 
                 }
             }
             CacheAction::List => {
-                let builder = Builder::new()?;
+                let builder = Builder::new(ctx)?;
                 let entries = builder.object_store().list();
                 println!("{}", serde_json::to_string_pretty(&entries)?);
             }
             CacheAction::Stats => {
-                let builder = Builder::new()?;
+                let builder = Builder::new(ctx)?;
                 let stats = builder.object_store().stats_by_processor();
 
                 if stats.is_empty() {
@@ -111,7 +110,7 @@ pub fn handle(ctx: &crate::build_context::BuildContext, action: CacheAction) -> 
                 }
             }
             CacheAction::Stale => {
-                let builder = Builder::new()?;
+                let builder = Builder::new(ctx)?;
                 let valid_keys = builder.valid_cache_keys(ctx)?;
                 let entries = builder.object_store().list();
                 let mut current_count = 0usize;

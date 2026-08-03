@@ -3,6 +3,13 @@ use std::path::{Path, PathBuf};
 
 use crate::config::StandardConfig;
 
+/// The tool's own state directory. Never indexed: rsconstruct must not
+/// discover, lint, or build its own cache (descriptors, objects, redb
+/// databases, temp files) as project source. Only the user's `.gitignore`
+/// would otherwise exclude it, and a project without one gets its build
+/// failed by checkers linting cache internals.
+const STATE_DIR: &str = ".rsconstruct";
+
 #[derive(Debug, Clone)]
 pub struct FileIndex {
     files: Vec<PathBuf>,
@@ -23,21 +30,41 @@ impl FileIndex {
     /// `.rsconstructignore` (via `add_custom_ignore_filename`).
     /// All paths are stored relative to project root (cwd).
     pub fn build() -> Result<Self> {
-        Self::build_with_force_dirs(&[])
+        Self::build_with_force_dirs(&[], &[])
     }
 
-    /// Build a file index, but also walk the listed directories ignoring
-    /// gitignore/rsconstructignore. Use this when the user has explicitly
-    /// listed a directory in a processor's `src_dirs` — that listing is an
-    /// opt-in to scan it even if it would otherwise be ignored.
+    /// Build a file index with two config-derived adjustments to the walk:
     ///
-    /// Common case: `src_dirs = ["out/generator"]` where `out/` is in
-    /// `.gitignore` because it holds generated files. The user explicitly
-    /// wants those generated files scanned (e.g. for terms checking).
-    pub fn build_with_force_dirs(force_dirs: &[&str]) -> Result<Self> {
+    /// - `exclude_roots`: configured output roots (the global `[build]
+    ///   output_dir` plus per-instance `output_dir`/`output`/`output_dirs`).
+    ///   The walk never descends into them — generated files must not be
+    ///   discovered as project source, or builds become non-idempotent
+    ///   (build 1 generates a file, build 2 lints it). Declared outputs
+    ///   still reach downstream processors as virtual files during the
+    ///   discovery loop; exclusion here only closes the accidental on-disk
+    ///   channel.
+    ///
+    /// - `force_dirs`: directories walked unconditionally, ignoring
+    ///   gitignore/rsconstructignore AND `exclude_roots`. A user who lists a
+    ///   directory in a processor's `src_dirs` has explicitly opted in to
+    ///   scanning it, even if it is gitignored or sits under an output root.
+    ///   Common case: `src_dirs = ["out/generator"]` — the user wants those
+    ///   generated files scanned (e.g. for terms checking).
+    pub fn build_with_force_dirs(force_dirs: &[&str], exclude_roots: &[String]) -> Result<Self> {
+        let exclude: Vec<PathBuf> = exclude_roots.iter().map(PathBuf::from).collect();
         let walker = ignore::WalkBuilder::new(".")
             .add_custom_ignore_filename(".rsconstructignore")
             .hidden(false) // don't skip hidden files by default (let .gitignore handle it)
+            .filter_entry(move |entry| {
+                if entry.file_name() == std::ffi::OsStr::new(STATE_DIR) {
+                    return false;
+                }
+                // Equality is enough: matching an excluded root stops the
+                // descent, so entries below it are never seen. Nested roots
+                // (e.g. "docs/generated") match when the walk reaches them.
+                let rel = entry.path().strip_prefix(".").unwrap_or_else(|_| entry.path());
+                !exclude.iter().any(|root| rel == root.as_path())
+            })
             .build();
 
         let mut files: Vec<PathBuf> = Vec::new();
@@ -65,6 +92,7 @@ impl FileIndex {
             }
             let walker = ignore::WalkBuilder::new(path)
                 .standard_filters(false) // ignore .gitignore, .ignore, hidden, etc.
+                .filter_entry(|entry| entry.file_name() != std::ffi::OsStr::new(STATE_DIR))
                 .build();
             for entry in walker {
                 let entry = crate::errors::ctx(entry, &format!("Failed to read directory entry under forced dir '{dir}'"))?;

@@ -1738,6 +1738,66 @@ impl Config {
         Ok(())
     }
 
+    /// Compute the directories the file-index walk must treat specially,
+    /// from the loaded config:
+    ///
+    /// - excluded output roots: the global `[build] output_dir` plus every
+    ///   instance's `output_dir`/`output`/`output_dirs` values (already
+    ///   resolved — `out/` rebasing has been applied by load time). The walk
+    ///   skips these so generated files are never discovered as source.
+    /// - forced scan dirs: `src_dirs` entries that fall under an excluded
+    ///   root. Naming such a directory in `src_dirs` is the explicit opt-in
+    ///   to scan generated files, so it is walked anyway.
+    ///
+    /// Empty and `"."` values are dropped: they mean in-place output at the
+    /// project root, which cannot be excluded from the walk.
+    pub fn file_index_walk_dirs(&self) -> (Vec<String>, Vec<String>) {
+        fn normalized(dir: &str) -> Option<String> {
+            let dir = dir.trim_end_matches('/');
+            if dir.is_empty() || dir == "." {
+                return None;
+            }
+            Some(dir.to_string())
+        }
+
+        let mut exclude: Vec<String> = Vec::new();
+        exclude.extend(normalized(&self.build.output_dir));
+        for inst in &self.processor.instances {
+            let Some(table) = inst.config_toml.as_table() else { continue };
+            for field in ["output_dir", "output"] {
+                if let Some(v) = table.get(field).and_then(toml::Value::as_str) {
+                    exclude.extend(normalized(v));
+                }
+            }
+            if let Some(dirs) = table.get("output_dirs").and_then(toml::Value::as_array) {
+                for v in dirs {
+                    if let Some(s) = v.as_str() {
+                        exclude.extend(normalized(s));
+                    }
+                }
+            }
+        }
+        exclude.sort();
+        exclude.dedup();
+
+        let mut force: Vec<String> = Vec::new();
+        for inst in &self.processor.instances {
+            let Some(dirs) = inst.config_toml.as_table()
+                .and_then(|t| t.get("src_dirs"))
+                .and_then(toml::Value::as_array) else { continue };
+            for v in dirs {
+                let Some(dir) = v.as_str().and_then(normalized) else { continue };
+                if exclude.iter().any(|root| Path::new(&dir).starts_with(root)) {
+                    force.push(dir);
+                }
+            }
+        }
+        force.sort();
+        force.dedup();
+
+        (exclude, force)
+    }
+
     pub(crate) fn load() -> Result<Self> {
         let config_path = Path::new(CONFIG_FILE);
         let local_path = Path::new(LOCAL_CONFIG_FILE);

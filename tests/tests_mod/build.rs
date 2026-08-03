@@ -1227,3 +1227,106 @@ fn src_dirs_never_defaults_to_scanning_the_tree() {
             if expect_products { "" } else { "not" });
     }
 }
+
+/// The file index must never pick up rsconstruct's own state directory.
+///
+/// Regression test: `FileIndex::build` used to index `.rsconstruct/` like any
+/// other directory — only the user's `.gitignore` accidentally excluded it.
+/// In a project without one, a root-scanning checker would lint the tool's
+/// own cache internals and fail the build.
+#[test]
+fn state_dir_is_never_indexed() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Root-scanning internal JSON checker; the test project has no
+    // .gitignore, so nothing but the file index itself excludes .rsconstruct.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.ijsonlint]\nsrc_dirs = [\"\"]\n",
+    ).unwrap();
+    fs::write(project_path.join("good.json"), "{\"ok\": true}\n").unwrap();
+
+    // First build creates .rsconstruct/
+    let build1 = run_rsconstruct(project_path, &["build"]);
+    assert!(build1.status.success(),
+        "first build failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&build1.stdout),
+        String::from_utf8_lossy(&build1.stderr));
+    assert!(project_path.join(".rsconstruct").exists());
+
+    // Plant an invalid JSON file inside the state dir. If the index picks it
+    // up, ijsonlint discovers it as a product and fails the build.
+    fs::write(project_path.join(".rsconstruct/bad.json"), "{not json").unwrap();
+
+    let build2 = run_rsconstruct(project_path, &["build"]);
+    let stdout = String::from_utf8_lossy(&build2.stdout);
+    let stderr = String::from_utf8_lossy(&build2.stderr);
+    assert!(build2.status.success(),
+        "build must not lint the tool's own state dir: stdout={stdout} stderr={stderr}");
+    assert!(!stdout.contains(".rsconstruct/bad.json") && !stderr.contains(".rsconstruct/bad.json"),
+        "state-dir file leaked into the build: stdout={stdout} stderr={stderr}");
+}
+
+/// Configured output roots must never be indexed as project source.
+///
+/// Regression test: the file index used to pick up generated files under the
+/// output directory — only the user's `.gitignore` accidentally excluded
+/// them, and builds were non-idempotent (build 1 generates a file, build 2
+/// lints it). The exclusion must follow the configured name, not a
+/// hardcoded "out".
+#[test]
+fn output_roots_are_not_indexed() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Renamed global output root plus a per-processor output_dir outside it.
+    // No .gitignore exists, so only the file index exclusion protects them.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[build]\noutput_dir = \"artifacts\"\n\n\
+         [processor.tera]\nsrc_dirs = [\"tera.templates\"]\noutput_dir = \"generated\"\n\n\
+         [processor.ijsonlint]\nsrc_dirs = [\"\"]\n",
+    ).unwrap();
+    fs::write(project_path.join("good.json"), "{\"ok\": true}\n").unwrap();
+    fs::create_dir_all(project_path.join("artifacts")).unwrap();
+    fs::write(project_path.join("artifacts/bad.json"), "{not json").unwrap();
+    fs::create_dir_all(project_path.join("generated")).unwrap();
+    fs::write(project_path.join("generated/bad.json"), "{not json").unwrap();
+
+    let build = run_rsconstruct(project_path, &["build"]);
+    let stdout = String::from_utf8_lossy(&build.stdout);
+    let stderr = String::from_utf8_lossy(&build.stderr);
+    assert!(build.status.success(),
+        "build must not lint files under output roots: stdout={stdout} stderr={stderr}");
+    assert!(!stdout.contains("bad.json") && !stderr.contains("bad.json"),
+        "output-root file leaked into the build: stdout={stdout} stderr={stderr}");
+}
+
+/// Listing a directory under an output root in `src_dirs` is the explicit
+/// opt-in to scan generated files there — the exclusion must not apply.
+#[test]
+fn src_dirs_under_output_root_are_scanned() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.ijsonlint]\nsrc_dirs = [\"out/checkme\"]\n",
+    ).unwrap();
+    fs::create_dir_all(project_path.join("out/checkme")).unwrap();
+    fs::write(project_path.join("out/checkme/bad.json"), "{not json").unwrap();
+    // Sibling dir under the same output root, NOT named in src_dirs: excluded.
+    fs::create_dir_all(project_path.join("out/other")).unwrap();
+    fs::write(project_path.join("out/other/unscanned.json"), "{not json").unwrap();
+
+    let build = run_rsconstruct(project_path, &["build"]);
+    let stdout = String::from_utf8_lossy(&build.stdout);
+    let stderr = String::from_utf8_lossy(&build.stderr);
+    assert!(!build.status.success(),
+        "explicitly opted-in dir under the output root must be scanned (and fail on the bad file): stdout={stdout} stderr={stderr}");
+    assert!(stdout.contains("out/checkme/bad.json") || stderr.contains("out/checkme/bad.json"),
+        "the opted-in file should be the reported failure: stdout={stdout} stderr={stderr}");
+    assert!(!stdout.contains("unscanned.json") && !stderr.contains("unscanned.json"),
+        "non-opted-in output dir must stay excluded: stdout={stdout} stderr={stderr}");
+}

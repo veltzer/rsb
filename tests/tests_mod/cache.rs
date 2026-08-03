@@ -212,6 +212,65 @@ fn cache_clear_removes_everything() {
     assert!(!stdout.contains("Restored from cache:"), "Should not restore after cache clear: {}", stdout);
 }
 
+/// `cache remove-stale` must keep entries for the current project state.
+///
+/// Regression test: `valid_cache_keys` used to collect plaintext
+/// `Product::cache_key()` strings while `remove_stale` compared them against
+/// hashed descriptor keys reconstructed from on-disk paths. Nothing ever
+/// matched, so `remove-stale` deleted the entire cache and `cache stale`
+/// reported 100% of entries as stale.
+#[test]
+fn remove_stale_keeps_current_entries() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    fs::write(
+        project_path.join("tera.templates/stale_test.txt.tera"),
+        "stale test content"
+    ).unwrap();
+
+    // Build to populate cache
+    let build = run_rsconstruct(project_path, &["build"]);
+    assert!(build.status.success());
+    assert!(project_path.join("stale_test.txt").exists());
+
+    // Everything in the cache corresponds to the current project state
+    let stale = run_rsconstruct_with_env(project_path, &["cache", "stale"], &[("NO_COLOR", "1")]);
+    assert!(stale.status.success());
+    let stale_stdout = String::from_utf8_lossy(&stale.stdout);
+    assert!(!stale_stdout.lines().any(|l| l.starts_with("stale ")),
+        "Fresh build must have no stale entries: {}", stale_stdout);
+    assert!(stale_stdout.lines().any(|l| l.starts_with("current ")),
+        "Fresh build's entries must be recognized as current: {}", stale_stdout);
+
+    // remove-stale must not remove anything
+    let remove = run_rsconstruct_with_env(project_path, &["cache", "remove-stale"], &[("NO_COLOR", "1")]);
+    assert!(remove.status.success());
+    let remove_stdout = String::from_utf8_lossy(&remove.stdout);
+    assert!(remove_stdout.contains("Removed 0 stale index entries"),
+        "remove-stale after a fresh build must remove nothing: {}", remove_stdout);
+
+    // The cache must still work: delete the output and restore from cache
+    fs::remove_file(project_path.join("stale_test.txt")).unwrap();
+    let rebuild = run_rsconstruct_with_env(project_path, &["build", "--verbose"], &[("NO_COLOR", "1")]);
+    assert!(rebuild.status.success());
+    let rebuild_stdout = String::from_utf8_lossy(&rebuild.stdout);
+    assert!(rebuild_stdout.contains("Restored from cache:"),
+        "Cache must survive remove-stale: {}", rebuild_stdout);
+
+    // Now actually make the entry stale: change the input content. The old
+    // descriptor no longer matches any current product state.
+    fs::write(
+        project_path.join("tera.templates/stale_test.txt.tera"),
+        "changed content"
+    ).unwrap();
+    let remove2 = run_rsconstruct_with_env(project_path, &["cache", "remove-stale"], &[("NO_COLOR", "1")]);
+    assert!(remove2.status.success());
+    let remove2_stdout = String::from_utf8_lossy(&remove2.stdout);
+    assert!(!remove2_stdout.contains("Removed 0 stale index entries"),
+        "Changing input content must make the old entry stale: {}", remove2_stdout);
+}
+
 #[test]
 fn cache_survives_input_rename() {
     let temp_dir = setup_test_project();

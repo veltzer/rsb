@@ -641,7 +641,7 @@ pub fn fix_all(config: &TermsConfig, remove_non_terms: bool) -> Result<()> {
     // sees those via `add_virtual_files` after the discover loop runs;
     // `terms fix` runs standalone so it must walk them itself.
     let force_dirs: Vec<&str> = config.standard.src_dirs().iter().map(std::string::String::as_str).collect();
-    let file_index = FileIndex::build_with_force_dirs(&force_dirs)?;
+    let file_index = FileIndex::build_with_force_dirs(&force_dirs, &[])?;
     let md_files = file_index.scan(&config.standard, true);
 
     if md_files.is_empty() {

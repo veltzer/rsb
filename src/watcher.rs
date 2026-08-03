@@ -65,7 +65,7 @@ fn register_watches(
 }
 
 pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions) -> Result<()> {
-    let mut builder = Builder::new_with_overrides(&opts.iset, &opts.pset)?;
+    let mut builder = Builder::new_with_overrides(ctx, &opts.iset, &opts.pset)?;
     let mut watch_paths = builder.watch_paths();
     let mut output_dir = builder.output_dir().to_string();
 
@@ -134,7 +134,7 @@ pub fn watch(ctx: &crate::build_context::BuildContext, opts: &BuildOptions) -> R
         // and keep watching — the next save triggers another attempt.
         println!();
         println!("{}", color::bold("Change detected, rebuilding..."));
-        match Builder::new_with_overrides(&opts.iset, &opts.pset) {
+        match Builder::new_with_overrides(ctx, &opts.iset, &opts.pset) {
             Err(e) => {
                 println!("{}", color::red(&format!("Config error: {e}")));
             }

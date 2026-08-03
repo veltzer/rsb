@@ -8,8 +8,6 @@ All config structs now embed `StandardConfig` via `#[serde(flatten)]`.
 
 - Remove old DB cache code: `CacheEntry`, `OutputEntry`, `get_entry`, `has_cache_entry`, `get_cached_input_checksum`, `CACHE_TABLE`. These are legacy from the pre-descriptor system. `has_cache_entry` (used in status display to distinguish "stale" vs "new") should use the descriptor system instead. ~80 lines of dead code.
 
-- Remove `cache_key()` method from `Product`. Only used by `has_cache_entry` and `remove_stale`. Once `has_cache_entry` is migrated to descriptors, it may become fully unused.
-
 - Split db.redb: the configs table (`CONFIGS_TABLE`) is still in the same DB as the now-unused cache table. Give configs its own file (`configs.redb`), then delete `db.redb` entirely.
 
 ## Cache correctness

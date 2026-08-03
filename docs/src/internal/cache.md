@@ -128,11 +128,11 @@ descriptor-key change is attributable to exactly one of them (or to
 
 ### Multi-format processors
 
-For processors that produce multiple output formats from the same input (e.g., pandoc producing PDF, HTML, and DOCX), each format is a separate product with a separate cache key. The output format is part of the config hash, so each format gets its own key naturally.
+For processors that produce multiple output formats from the same input (e.g., pandoc producing PDF, HTML, and DOCX), each format is a separate product with a separate cache key. The output format is mixed into the key as the `variant` component, so each format gets its own key naturally.
 
 ### Output depends on input name (known limitation)
 
-Most processors produce output that depends only on input content. However, a processor that embeds the input filename in its output (e.g., a `// Generated from foo.c` header) can get a false cache hit when a file is renamed without a content change, because the descriptor key hashes input *content*, not input *path*. A per-processor `output_depends_on_input_name` opt-in is planned but not implemented (see `todo.md`). In practice the common rename case is covered anyway: the output path is part of the product's identity via `Product::cache_key()`, so a rename that also changes the output name forces a rebuild.
+Most processors produce output that depends only on input content. However, a processor that embeds the input filename in its output (e.g., a `// Generated from foo.c` header) can get a false cache hit when a file is renamed without a content change, because the descriptor key hashes input *content*, not input *path*. A per-processor `output_depends_on_input_name` opt-in is planned but not implemented (see `todo.md`). A rename with identical content is a cache hit by design (the blob is path-free and is restored to the product's current output path — see the `cache_survives_input_rename` test), which is exactly why a filename-embedding processor would restore output still mentioning the old name.
 
 ## Flows
 

@@ -185,24 +185,26 @@ pub struct Builder {
 }
 
 impl Builder {
-    /// Apply config-derived settings to the `BuildContext`. Call this once after
-    /// creating the Builder, before any build/status operations. This bridges
-    /// config values that affect `BuildContext` state (e.g. `mtime_check`) without
-    /// requiring `Builder::new()` to take &`BuildContext`.
-    pub fn apply_config_to_context(&self, ctx: &crate::build_context::BuildContext) {
+    /// Apply config-derived settings to the `BuildContext`. Called by the
+    /// constructors so every path gets it — watch mode used to miss this
+    /// when it was a separate "remember to call after `new()`" step, silently
+    /// ignoring `cache.mtime_check` under `rsconstruct watch`. Only ever
+    /// *disables* mtime checking, so it cannot override the CLI
+    /// `--no-mtime-cache` flag regardless of ordering.
+    fn apply_config_to_context(&self, ctx: &crate::build_context::BuildContext) {
         if !self.config.cache.mtime_check {
             ctx.set_mtime_check(false);
         }
         ctx.set_webcache_ttl_secs(self.config.cache.webcache_ttl_secs);
     }
 
-    pub fn new() -> Result<Self> {
-        Self::new_with_overrides(&[], &[])
+    pub fn new(ctx: &crate::build_context::BuildContext) -> Result<Self> {
+        Self::new_with_overrides(ctx, &[], &[])
     }
 
     /// Construct a Builder, applying CLI `--iset`/`--pset` config overrides
     /// after the rsconstruct.toml is loaded.
-    pub fn new_with_overrides(iset: &[String], pset: &[String]) -> Result<Self> {
+    pub fn new_with_overrides(ctx: &crate::build_context::BuildContext, iset: &[String], pset: &[String]) -> Result<Self> {
         Config::require_config()?;
         let mut config = Config::load()?;
         config.apply_overrides(iset, pset)?;
@@ -222,10 +224,6 @@ impl Builder {
             None => None,
         };
 
-        // Note: config.cache.mtime_check is applied by the caller via
-        // ctx.set_mtime_check() — Builder::new() doesn't have access to
-        // BuildContext. The CLI --no-mtime-cache flag is also applied by
-        // the caller in main.rs.
         let object_store = ObjectStore::new(ObjectStoreOptions {
             restore_method,
             compression: config.cache.compression,
@@ -233,13 +231,17 @@ impl Builder {
             remote_push: config.cache.remote_push,
             remote_pull: config.cache.remote_pull,
         })?;
-        let file_index = FileIndex::build()?;
+        let (exclude_roots, force_dirs) = config.file_index_walk_dirs();
+        let force_refs: Vec<&str> = force_dirs.iter().map(String::as_str).collect();
+        let file_index = FileIndex::build_with_force_dirs(&force_refs, &exclude_roots)?;
 
-        Ok(Self {
+        let builder = Self {
             object_store,
             config,
             file_index,
-        })
+        };
+        builder.apply_config_to_context(ctx);
+        Ok(builder)
     }
 
     /// Create processors from declared instances in the config.
@@ -779,10 +781,19 @@ impl Builder {
         self.build_graph(ctx)
     }
 
-    /// Compute the set of valid cache keys from the current build graph.
+    /// Compute the set of valid descriptor keys from the current build graph.
+    /// These must be the exact keys the executor stores descriptors under
+    /// (`Product::descriptor_key` over the combined input checksum) — `cache
+    /// stale` and `cache remove-stale` compare them against the keys
+    /// reconstructed from on-disk descriptor paths.
     pub fn valid_cache_keys(&self, ctx: &crate::build_context::BuildContext) -> Result<std::collections::HashSet<String>> {
         let graph = self.build_graph_for_cache(ctx)?;
-        Ok(graph.products().iter().map(super::graph::Product::cache_key).collect())
+        graph.products().iter()
+            .map(|product| {
+                let input_checksum = crate::checksum::combined_input_checksum(ctx, &product.inputs)?;
+                Ok(product.descriptor_key(&input_checksum))
+            })
+            .collect()
     }
 
     /// Get a reference to the object store.
