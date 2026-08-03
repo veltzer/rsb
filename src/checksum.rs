@@ -59,6 +59,24 @@ pub fn file_checksum(ctx: &BuildContext, path: &Path) -> Result<String> {
     Ok(checksum)
 }
 
+/// Evict paths from the in-session checksum cache. The executor calls this
+/// whenever it writes or restores files (a product's outputs): the
+/// in-session cache assumes content is stable across one build run, and
+/// these are exactly the writes that break that assumption. Without
+/// eviction, the non-mtime path (`file_checksum`) serves the pre-write
+/// checksum to every later reader — including the post-execution
+/// descriptor-key recompute, which then keys the cache by content that no
+/// longer exists. (`fast_checksum` re-hashes on mtime change, so only
+/// `mtime_check = false` builds were affected.)
+pub fn forget_in_session(ctx: &BuildContext, paths: &[std::path::PathBuf]) {
+    let mut guard = ctx.checksum_cache.lock().unwrap();
+    if let Some(cache) = guard.as_mut() {
+        for path in paths {
+            cache.remove(path);
+        }
+    }
+}
+
 /// Stream a file through SHA-256 with a fixed-size buffer. The buffer is
 /// heap-allocated to keep stack usage trivial — a single allocation per
 /// hashed file is negligible next to the I/O.
@@ -375,12 +393,13 @@ mod tests {
         );
     }
 
-    /// The in-session cache assumes file content is stable across one build
-    /// run: a second read through the same context must return the cached
-    /// value even if the bytes changed. `fast_checksum`'s mid-build-write
-    /// handling is built on exactly this invariant.
+    /// The in-session cache serves repeat reads within one build run; the
+    /// executor evicts a product's outputs via `forget_in_session` whenever
+    /// it writes or restores them. Eviction is what keeps `file_checksum`
+    /// correct when mtime checking is off — without it, a mid-build rewrite
+    /// would be invisible for the rest of the run.
     #[test]
-    fn file_checksum_caches_per_context() {
+    fn file_checksum_cache_evicts_on_forget() {
         let ctx = BuildContext::new();
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().join("f.txt");
@@ -389,10 +408,14 @@ mod tests {
         let first = file_checksum(&ctx, &path).unwrap();
         fs::write(&path, b"two").unwrap();
         assert_eq!(file_checksum(&ctx, &path).unwrap(), first,
-            "same context must serve the in-session cached checksum");
+            "un-evicted reads serve the in-session cached checksum");
+
+        forget_in_session(&ctx, std::slice::from_ref(&path));
+        let second = file_checksum(&ctx, &path).unwrap();
+        assert_ne!(second, first, "eviction must expose the new content");
 
         let fresh_ctx = BuildContext::new();
-        assert_ne!(file_checksum(&fresh_ctx, &path).unwrap(), first,
-            "a fresh context must see the new content");
+        assert_eq!(file_checksum(&fresh_ctx, &path).unwrap(), second,
+            "post-eviction value must match a fresh context's view");
     }
 }

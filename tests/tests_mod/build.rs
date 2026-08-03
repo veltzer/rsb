@@ -1330,3 +1330,47 @@ fn src_dirs_under_output_root_are_scanned() {
     assert!(!stdout.contains("unscanned.json") && !stderr.contains("unscanned.json"),
         "non-opted-in output dir must stay excluded: stdout={stdout} stderr={stderr}");
 }
+
+/// With mtime checking off, builds over a processor chain must converge.
+///
+/// Regression test: the in-session checksum cache had no invalidation, so
+/// under --no-mtime-cache any input rewritten mid-build by an upstream
+/// product kept serving its pre-rewrite checksum for the rest of the run.
+/// The downstream product's cache descriptor was then keyed by content that
+/// no longer existed: the build after a change either skipped the downstream
+/// product entirely (stale output) or rebuilt it again on the next run.
+#[test]
+fn no_mtime_cache_chain_converges() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // tera renders doc.md in-place at the project root; imarkdown2html
+    // consumes it. On an incremental build the classify pass hashes the
+    // pre-rewrite doc.md into the in-session cache, then tera rewrites it
+    // mid-build.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n\n\
+         [processor.imarkdown2html]\nsrc_dirs = [\"\"]\n",
+    ).unwrap();
+    fs::write(project_path.join("tera.templates/doc.md.tera"), "# one\n").unwrap();
+
+    let b1 = run_rsconstruct(project_path, &["build", "--no-mtime-cache"]);
+    assert!(b1.status.success(),
+        "first build failed: stderr={}", String::from_utf8_lossy(&b1.stderr));
+
+    // Change the template: doc.md's content changes mid-build in build 2.
+    fs::write(project_path.join("tera.templates/doc.md.tera"), "# two\n").unwrap();
+    let b2 = run_rsconstruct(project_path, &["build", "--no-mtime-cache"]);
+    assert!(b2.status.success(),
+        "second build failed: stderr={}", String::from_utf8_lossy(&b2.stderr));
+
+    // Build 3: nothing changed — the whole chain must be cached.
+    let b3 = run_rsconstruct_with_env(
+        project_path, &["build", "--no-mtime-cache", "-v"], &[("NO_COLOR", "1")]);
+    assert!(b3.status.success(),
+        "third build failed: stderr={}", String::from_utf8_lossy(&b3.stderr));
+    let stdout3 = String::from_utf8_lossy(&b3.stdout);
+    assert!(!stdout3.contains("Processing:"),
+        "an unchanged project must be fully cached under --no-mtime-cache: {stdout3}");
+}

@@ -26,6 +26,10 @@ impl Executor<'_> {
         // Always mark the product as failed
         ctx.shared.failed_products.lock().insert(ctx.id);
 
+        // The tool may have partially written outputs before failing; evict
+        // them so no later read serves a pre-write checksum.
+        crate::checksum::forget_in_session(self.build_ctx, &ctx.product.outputs);
+
         // Record structured failure detail for `rsconstruct edit`
         let primary_file = ctx.product.inputs.first()
             .map(|p| p.display().to_string())
@@ -93,6 +97,9 @@ impl Executor<'_> {
         let restore_result = object_store.restore_from_descriptor(self.build_ctx, &desc_key, &ctx.product.outputs);
         match restore_result {
             Ok(true) => {
+                // The restore rewrote the outputs on disk; evict any
+                // pre-restore checksums from the in-session cache.
+                crate::checksum::forget_in_session(self.build_ctx, &ctx.product.outputs);
                 crate::output::detail(self.verbose, &format!("[{}] {} {}", ctx.product.processor,
                     color::cyan("Restored from cache:"),
                     self.product_display(ctx.product)));
@@ -158,6 +165,14 @@ impl Executor<'_> {
         graph: &crate::graph::BuildGraph,
         duration: Option<std::time::Duration>,
     ) -> bool {
+        // The product just (re)wrote its outputs: evict them from the
+        // in-session checksum cache so every later read — the recompute
+        // below when outputs double as inputs, and downstream products
+        // consuming them — hashes the new bytes instead of returning the
+        // pre-write value. `fast_checksum` re-hashes on mtime change, but
+        // with mtime checking off `file_checksum` has no other invalidation.
+        crate::checksum::forget_in_session(self.build_ctx, &ctx.product.outputs);
+
         // Recompute the input checksum NOW (post-execution) rather than reusing
         // the classify-time value. The cache key must match what the *next*
         // classify will compute from on-disk state, which means hashing inputs
