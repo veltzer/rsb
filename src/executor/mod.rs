@@ -17,7 +17,7 @@ use crate::color;
 use crate::graph::BuildGraph;
 use crate::object_store::{ExplainAction, ObjectStore};
 use crate::processors::ProcessorMap;
-use crate::stats::{FailedProduct, ProcessStats};
+use crate::stats::ProcessStats;
 
 /// Result of the per-item skip/restore pre-check.
 enum PreCheckResult {
@@ -80,9 +80,7 @@ struct SharedState {
     errors: Arc<Mutex<Vec<anyhow::Error>>>,
     failed_products: Arc<Mutex<HashSet<usize>>>,
     failed_messages: Arc<Mutex<Vec<String>>>,
-    failed_details: Arc<Mutex<Vec<FailedProduct>>>,
     failed_processors: Arc<Mutex<HashSet<String>>>,
-    unchanged_products: Arc<Mutex<HashSet<usize>>>,
     global_current: Arc<AtomicUsize>,
     global_total: usize,
 }
@@ -257,6 +255,11 @@ impl<'a> Executor<'a> {
     pub fn clean(&self, graph: &BuildGraph, verbose: bool) -> Result<HashMap<String, usize>> {
         let mut stats: HashMap<String, usize> = HashMap::new();
         for product in graph.products() {
+            // Nothing else in this serial loop observes the flag; without
+            // this check a clean over a large graph cannot be Ctrl+C'd.
+            if self.is_interrupted() {
+                return Err(crate::exit_code::interrupted());
+            }
             if let Some(processor) = self.processors.get(&product.processor) {
                 let count = processor.clean(product, verbose)?;
                 if count > 0 {

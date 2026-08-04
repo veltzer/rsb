@@ -284,10 +284,10 @@ impl Builder {
     /// Detect and display config changes for each processor.
     /// Shows colored diffs when processor configuration has changed since last build.
     fn detect_config_changes(&self, processors: &ProcessorMap, show_all: bool) {
-        // Don't show config diffs in JSON or quiet mode
-        if crate::json_output::is_json_mode() || crate::runtime_flags::quiet() {
-            return;
-        }
+        // JSON/quiet mode suppresses the *printing* only — the stored config
+        // baseline must still advance, or a CI running `--json` leaves the
+        // next human build diffing against a months-old baseline.
+        let print = !crate::json_output::is_json_mode() && !crate::runtime_flags::quiet();
 
         for name in sorted_keys(processors) {
             let processor = processors.get(name).expect(errors::PROCESSOR_NOT_IN_MAP);
@@ -306,7 +306,9 @@ impl Builder {
             };
 
             // Store the config and check if it changed
-            if let Ok(Some(old_json)) = self.object_store.store_processor_config(name, &config_json) {
+            if let Ok(Some(old_json)) = self.object_store.store_processor_config(name, &config_json)
+                && print
+            {
                 // Config changed - show diff
                 if let Some(diff) = ObjectStore::diff_configs(&old_json, &config_json) {
                     println!("{}",

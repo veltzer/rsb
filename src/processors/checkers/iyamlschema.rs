@@ -183,6 +183,12 @@ impl crate::processors::Processor for IyamlschemaProcessor {
         &self.config.standard
     }
 
+    // Serialize the FULL config (the trait default covers StandardConfig
+    // only), so the extra fields reach config-change detection.
+    fn config_json(&self) -> Option<String> {
+        crate::processors::ProcessorBase::config_json(&self.config)
+    }
+
     fn auto_detect(&self, file_index: &crate::file_index::FileIndex) -> bool {
         crate::processors::checker_auto_detect(&self.config.standard, file_index)
     }

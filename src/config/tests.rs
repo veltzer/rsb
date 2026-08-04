@@ -789,3 +789,52 @@ fn every_expected_type_arm_names_a_real_processor() {
          (renamed or removed?): {unknown:#?}"
     );
 }
+
+/// The sibling check for the *field* half of every arm: each field must be
+/// declared by at least one of the arm's processors (or be a shared
+/// standard/scan field). `every_expected_type_arm_is_a_live_field` cannot
+/// catch a field that exists nowhere — it enumerates candidates from
+/// `known_fields()`, so a renamed field's stale arm (the "checker"/"linter"
+/// arms, the `("a2x","a2x")` typo) was never probed. Recovering the arms
+/// from source text makes the dead-arm check total.
+#[test]
+fn every_expected_type_arm_field_is_declared_by_its_processor() {
+    let src = include_str!("mod.rs");
+    let body = src
+        .split_once("fn expected_field_type(")
+        .expect("expected_field_type must exist")
+        .1;
+
+    use crate::config::KnownFields as _;
+    let shared: std::collections::HashSet<&str> = crate::config::StandardConfig::known_fields().iter().copied()
+        .chain(SCAN_CONFIG_FIELDS.iter().copied())
+        .chain(STANDARD_EXTRA_FIELDS.iter().copied())
+        .collect();
+
+    let mut dead: Vec<String> = Vec::new();
+    for line in body.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("(\"") else { continue };
+        let Some((procs, tail)) = rest.split_once("\", \"") else { continue };
+        let Some((fields, _)) = tail.split_once("\")") else { continue };
+        for field in fields.split(" | ") {
+            let field = field.trim().trim_matches('"');
+            let declared = shared.contains(field)
+                || procs.split(" | ").any(|p| {
+                    let p = p.trim().trim_matches('"');
+                    ProcessorConfig::known_fields_for(p)
+                        .is_some_and(|fs| fs.contains(&field))
+                });
+            if !declared {
+                dead.push(format!("({procs:?}, {field:?})"));
+            }
+        }
+    }
+    dead.sort();
+    dead.dedup();
+    assert!(
+        dead.is_empty(),
+        "expected_field_type has arms for fields that no processor declares \
+         (renamed or removed field?): {dead:#?}"
+    );
+}

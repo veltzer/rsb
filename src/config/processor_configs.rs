@@ -309,6 +309,10 @@ impl Default for MarpConfig {
                 command: "marp".into(),
                 output_dir: "out/marp".into(),
                 formats: vec!["pdf".into()],
+                // Must match processor_defaults_for("marp") — the two
+                // encodings of every default are hand-synchronized until H1
+                // merges them; a divergence here regressed once already.
+                args: vec!["--html".into(), "--allow-local-files".into()],
                 ..StandardConfig::default()
             },
         }

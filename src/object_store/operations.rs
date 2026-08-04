@@ -240,36 +240,39 @@ mod tests {
     /// come down, not just the first.
     #[test]
     fn remote_pull_restores_every_tree_entry() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let remote_dir = tmp.path().join("remote");
         let ctx = BuildContext::new();
         ctx.set_mtime_check(false);
         let key = "0bcd9abc";
 
         // Tree entry paths must be relative (production entries are always
         // project-root-relative; the remote-fetch boundary rejects absolute
-        // ones), so the tree dir is cwd-relative — tempfile can't be used
-        // here because it canonicalizes to an absolute path.
-        let outdir = std::path::PathBuf::from(format!("target/test-tmp/remote-pull-{}/outdir", std::process::id()));
+        // ones), so everything lives under a cwd-relative dir — tempfile
+        // can't be used because it canonicalizes to an absolute path, and
+        // the stores must share a filesystem with the tree dir for the
+        // hardlink restore.
+        let base = std::path::PathBuf::from(
+            format!("target/test-tmp/remote-pull-{}", std::process::id()));
+        let remote_dir = base.join("remote");
+        let outdir = base.join("outdir");
         fs::create_dir_all(&outdir).unwrap();
         fs::write(outdir.join("a.txt"), b"alpha").unwrap();
         fs::write(outdir.join("b.txt"), b"beta").unwrap();
         let dirs = [std::sync::Arc::new(outdir.clone())];
         {
             let producer = ObjectStore::new_with_remote(
-                &tmp.path().join("a"), "a.redb", &remote_dir,
+                &base.join("a"), "a.redb", &remote_dir,
             );
             producer.store_tree_descriptor(&ctx, key, &dirs, &[], &|_| false).unwrap();
         }
 
         fs::remove_dir_all(&outdir).unwrap();
         let consumer = ObjectStore::new_with_remote(
-            &tmp.path().join("b"), "b.redb", &remote_dir,
+            &base.join("b"), "b.redb", &remote_dir,
         );
         assert!(consumer.restore_from_descriptor(&ctx, key, &[]).unwrap());
         assert_eq!(fs::read(outdir.join("a.txt")).unwrap(), b"alpha");
         assert_eq!(fs::read(outdir.join("b.txt")).unwrap(), b"beta");
-        let _ = fs::remove_dir_all(outdir.parent().unwrap());
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// A corrupt remote must never poison the local content-addressed store.

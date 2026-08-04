@@ -72,18 +72,13 @@ pub fn setup_project_with_config(config: &str) -> TempDir {
 }
 
 /// Mark a file executable, so a test can put a script on PATH and have the
-/// build actually invoke it. No-op on non-unix, where PATH lookup does not
-/// consult the executable bit.
+/// build actually invoke it. Unconditionally unix (the project targets
+/// Linux/macOS only — `#[cfg]` forks are forbidden as untestable dead code).
 pub fn make_executable(path: &Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(path).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(path, perms).unwrap();
-    }
-    #[cfg(not(unix))]
-    let _ = path;
+    use std::os::unix::fs::PermissionsExt;
+    let mut perms = fs::metadata(path).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(path, perms).unwrap();
 }
 
 /// Create a file at the given path, creating parent directories as needed.

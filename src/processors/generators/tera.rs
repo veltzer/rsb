@@ -5,7 +5,7 @@ use mlua::prelude::*;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tera::{Context as TeraContext, Function, Tera, Value as TeraValue, to_value};
 
@@ -34,8 +34,11 @@ impl CtxPtr {
     }
 }
 
-/// Render a template item and write to output
-fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem) -> Result<()> {
+/// Render a template item and write to output. `includable` is the set of
+/// `.tera` files registered for `{% include %}` resolution — sourced from
+/// the file index at discover time, so ignored trees (`node_modules`, vendored
+/// code) never contribute templates.
+fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem, includable: &[PathBuf]) -> Result<()> {
     // Ensure parent directory of output exists
     crate::processors::ensure_output_dir(&item.output_path)?;
 
@@ -61,17 +64,14 @@ fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem
     tera.add_raw_template("template", &template_content)
         .context("Failed to parse template")?;
 
-    // Register all .tera files in the project so {% include %} can resolve them
-    for entry in glob::glob("**/*.tera")
-        .context("Invalid glob pattern: **/*.tera")?
-    {
-        let path = entry.context("Failed to read glob match for **/*.tera")?;
-        // Skip directories and the main template we already registered
-        if !path.is_file() || path == item.source_path {
+    // Register the project's .tera files so {% include %} can resolve them
+    for path in includable {
+        // Skip the main template we already registered
+        if *path == item.source_path {
             continue;
         }
         let name = path.to_string_lossy().to_string();
-        let content = fs::read_to_string(&path)
+        let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read template: {}", path.display()))?;
         tera.add_raw_template(&name, &content)
             .with_context(|| format!("Failed to parse template: {}", path.display()))?;
@@ -96,12 +96,20 @@ fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem
 
 pub struct TeraProcessor {
     config: TeraConfig,
+    /// All `.tera` files in the project, captured from the file index at
+    /// discover time. `render_template` registers these so `{% include %}`
+    /// resolves — reading them from the index (instead of re-globbing the
+    /// filesystem per render, as this used to) honors
+    /// `.gitignore`/`.rsconstructignore` and costs one walk, not one per
+    /// product.
+    includable_templates: std::sync::Mutex<Vec<PathBuf>>,
 }
 
 impl TeraProcessor {
     pub const fn new(config: TeraConfig) -> Self {
         Self {
             config,
+            includable_templates: std::sync::Mutex::new(Vec::new()),
         }
     }
 }
@@ -132,6 +140,12 @@ impl Processor for TeraProcessor {
         let items = super::find_templates(&self.config.standard, file_index);
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
+        // Capture the includable-template set for execute (see the field doc).
+        *self.includable_templates.lock().unwrap() = file_index.files().iter()
+            .filter(|p| p.to_string_lossy().ends_with(".tera"))
+            .cloned()
+            .collect();
+
         for item in items {
             let mut inputs = Vec::with_capacity(1 + extra.len());
             inputs.push(item.source_path.clone());
@@ -152,7 +166,8 @@ impl Processor for TeraProcessor {
             product.primary_input().to_path_buf(),
             product.primary_output().to_path_buf(),
         );
-        render_template(ctx, &item)
+        let includable = self.includable_templates.lock().unwrap().clone();
+        render_template(ctx, &item, &includable)
     }
 }
 
@@ -247,16 +262,31 @@ impl Function for CopyrightYearsFunction {
 
         let mut cmd = Command::new("git");
         cmd.args(["log", "--reverse", "--format=%ad", "--date=format:%Y"]);
+        // Falling back to the current year is only legitimate for a repo
+        // with no history (fresh project, not a git repo). Every other
+        // failure — git errored, unparseable date — must be surfaced: a
+        // silent fallback renders "© 2026" instead of the full range, gets
+        // cached, and differs between machines (e.g. shallow CI clones,
+        // which this cannot detect at all).
         let first_year: i32 = match run_command_capture(self.ctx.get(), &cmd) {
             Ok(output) if output.status.success() => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                stdout
-                    .lines()
-                    .next()
-                    .and_then(|line| line.trim().parse().ok())
-                    .unwrap_or(current_year)
+                match stdout.lines().next() {
+                    None => current_year, // repo with zero commits
+                    Some(line) => line.trim().parse().map_err(|e| {
+                        tera::Error::msg(format!("copyright_years: cannot parse git year {line:?}: {e}"))
+                    })?,
+                }
             }
-            _ => current_year,
+            Ok(_) => {
+                // Non-zero exit: not a repo / no HEAD yet. Legitimate
+                // fallback, but say so — silence here masked real failures.
+                crate::output::warn("copyright_years: git log failed (not a repository or no commits yet); using the current year");
+                current_year
+            }
+            Err(e) => {
+                return Err(tera::Error::msg(format!("copyright_years: failed to run git: {e}")));
+            }
         };
 
         let first_year = first_year.min(current_year);
@@ -680,7 +710,7 @@ pub static TERA_FUNCTIONS: &[TeraFunctionDoc] = &[
         summary: "List GitHub Actions workflow files under `.github/workflows/*.yml` with their `name` fields.",
         args: "(none)",
         returns: r"array<{file: string, name: string}>",
-        dep_tracking: "Not currently tracked by the analyzer; rebuilds rely on the template body itself.",
+        dep_tracking: "The workflow files are content-tracked inputs and the resolved path set enters the cache hash — renaming a workflow's name: or adding/removing a file invalidates the product.",
         example: r"{% for wf in workflow_names() %}![{{ wf.name }}](.../{{ wf.file }}){% endfor %}",
     },
     TeraFunctionDoc {

@@ -37,7 +37,11 @@ impl ObjectStore {
             .with_context(|| format!("Failed to read descriptor temp file metadata: {}", tmp_path.display()))?
             .permissions();
         perms.set_readonly(true);
-        let _ = fs::set_permissions(&tmp_path, perms);
+        // Checked like the identical operation in blobs.rs: trim/remove_stale
+        // justify their chmod-then-unlink dance with "descriptors are
+        // read-only" — an invariant a swallowed error here would unmake.
+        fs::set_permissions(&tmp_path, perms)
+            .with_context(|| format!("Failed to set descriptor read-only: {}", tmp_path.display()))?;
 
         if let Err(e) = fs::rename(&tmp_path, &path) {
             let mut writable = fs::metadata(&tmp_path).map(|m| m.permissions());

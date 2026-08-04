@@ -164,9 +164,11 @@ pub fn default_config_json<C: Default + DeserializeOwned + Serialize + KnownFiel
     // its fields at serialization time even when the per-processor
     // known_fields() omits them, so StandardConfig's known_fields are also
     // accepted as recognized.
-    #[cfg(debug_assertions)]
-    {
-        if let Some(obj) = json_val.as_object() {
+    // Runtime-gated, not `#[cfg]`-forked: a cfg'd-out block is code that
+    // `cargo test` can never compile. `cfg!` keeps it compiled everywhere
+    // and evaluated only in debug builds.
+    if cfg!(debug_assertions)
+        && let Some(obj) = json_val.as_object() {
             let known: std::collections::HashSet<&str> = C::known_fields().iter().copied()
                 .chain(crate::config::StandardConfig::known_fields().iter().copied())
                 .chain(crate::config::SCAN_CONFIG_FIELDS.iter().copied())
@@ -186,7 +188,6 @@ pub fn default_config_json<C: Default + DeserializeOwned + Serialize + KnownFiel
                 );
             }
         }
-    }
 
     serde_json::to_string_pretty(&json_val).ok()
 }

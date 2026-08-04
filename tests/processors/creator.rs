@@ -17,8 +17,7 @@ fn setup_creator_project() -> TempDir {
         "echo 'content_a' > dir_a/file_a.txt\n",
         "echo 'content_b' > dir_b/file_b.txt\n",
     )).unwrap();
-    #[cfg(unix)]
-    {
+        {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -42,7 +41,6 @@ fn setup_creator_project() -> TempDir {
 }
 
 #[test]
-#[cfg(unix)]
 fn creator_produces_two_output_dirs() {
     let temp_dir = setup_creator_project();
     let project_path = temp_dir.path();
@@ -63,7 +61,6 @@ fn creator_produces_two_output_dirs() {
 }
 
 #[test]
-#[cfg(unix)]
 fn creator_clean_removes_output_dirs() {
     let temp_dir = setup_creator_project();
     let project_path = temp_dir.path();
@@ -90,7 +87,6 @@ fn creator_clean_removes_output_dirs() {
 }
 
 #[test]
-#[cfg(unix)]
 fn creator_restores_output_dirs_from_cache() {
     let temp_dir = setup_creator_project();
     let project_path = temp_dir.path();
@@ -129,7 +125,6 @@ fn creator_restores_output_dirs_from_cache() {
 }
 
 #[test]
-#[cfg(unix)]
 fn creator_incremental_skip() {
     let temp_dir = setup_creator_project();
     let project_path = temp_dir.path();

@@ -23,7 +23,7 @@ sass/components/button.scss  ->  out/sass/components/button.css
 
 ```toml
 [processor.sass]
-sass_bin = "sass"                         # Sass compiler binary (default: "sass")
+command = "sass"                          # Sass compiler binary (default: "sass")
 src_extensions = [".scss", ".sass"]           # File extensions to process
 output_dir = "out/sass"                   # Output directory (default: "out/sass")
 dep_inputs = []                         # Additional files that trigger rebuilds
@@ -31,7 +31,7 @@ dep_inputs = []                         # Additional files that trigger rebuilds
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `sass_bin` | string | `"sass"` | Path to sass compiler |
+| `command` | string | `"sass"` | Path to sass compiler |
 | `src_extensions` | string[] | `[".scss", ".sass"]` | File extensions to discover |
 | `output_dir` | string | `"out/sass"` | Output directory |
 | `dep_inputs` | string[] | `[]` | Extra files whose changes trigger rebuilds |

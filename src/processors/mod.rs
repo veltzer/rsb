@@ -6,7 +6,6 @@ pub mod lua;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-#[cfg(debug_assertions)]
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -70,57 +69,43 @@ pub fn parent_dir_or_empty(path: &Path) -> &Path {
 
 // Thread-local holding the current processor's declared tools.
 // Set before execute()/execute_batch() and cleared after.
-// Used by debug_assert in run_command_inner() to catch undeclared tool usage.
-#[cfg(debug_assertions)]
+// Used by the check in run_command_inner() to catch undeclared tool usage.
+//
+// One always-compiled implementation, no `#[cfg]` fork: the previous
+// `#[cfg(not(debug_assertions))]` no-op stubs were dead code `cargo test`
+// could never compile, which is the exact failure mode the project's no-cfg
+// rule names. The bookkeeping is a thread_local swap per product execution —
+// noise next to a process spawn. Only the *panic* stays debug-gated (via
+// `debug_assert!` at the check site).
 thread_local! {
     static DECLARED_TOOLS: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
 }
 
-/// Set the declared tools for the current thread (debug builds only).
-#[cfg(debug_assertions)]
+/// Set the declared tools for the current thread.
 pub fn set_declared_tools(tools: Option<Vec<String>>) {
     DECLARED_TOOLS.with(|dt| {
         *dt.borrow_mut() = tools;
     });
 }
 
-/// No-op in release builds.
-#[cfg(not(debug_assertions))]
-pub fn set_declared_tools(_tools: Option<Vec<String>>) {}
-
 /// Temporarily suspend the declared-tools check for user-specified commands.
 /// Returns a guard that restores the previous value when dropped.
-#[cfg(debug_assertions)]
 pub fn suspend_tool_check() -> ToolCheckGuard {
     let prev = DECLARED_TOOLS.with(|dt| dt.borrow_mut().take());
     ToolCheckGuard { prev }
 }
 
-/// No-op in release builds.
-#[cfg(not(debug_assertions))]
-pub const fn suspend_tool_check() -> ToolCheckGuard {
-    ToolCheckGuard { _private: () }
-}
-
 /// RAII guard that restores the declared tools when dropped.
-#[cfg(debug_assertions)]
 pub struct ToolCheckGuard {
     prev: Option<Vec<String>>,
 }
 
-#[cfg(debug_assertions)]
 impl Drop for ToolCheckGuard {
     fn drop(&mut self) {
         DECLARED_TOOLS.with(|dt| {
             *dt.borrow_mut() = self.prev.take();
         });
     }
-}
-
-/// No-op guard for release builds.
-#[cfg(not(debug_assertions))]
-pub struct ToolCheckGuard {
-    _private: (),
 }
 
 /// Format a `Command` as a shell-like string for display.
@@ -169,12 +154,11 @@ fn run_command_inner(
 ) -> Result<Output> {
     log_command(cmd);
 
-    #[cfg(debug_assertions)]
     DECLARED_TOOLS.with(|dt| {
         if let Some(ref tools) = *dt.borrow() {
             let program = cmd.get_program().to_string_lossy();
             let basename = program.rsplit('/').next().unwrap_or(&program);
-            assert!(
+            debug_assert!(
                 tools.iter().any(|t| {
                     let t_basename = t.rsplit('/').next().unwrap_or(t);
                     t_basename == basename
@@ -185,7 +169,7 @@ fn run_command_inner(
     });
 
     if ctx.is_interrupted() {
-        anyhow::bail!("Interrupted");
+        return Err(crate::exit_code::interrupted());
     }
 
     let program = cmd.get_program().to_os_string();
@@ -237,7 +221,7 @@ fn run_command_inner(
         let mut interrupt_rx = ctx.interrupt_receiver();
 
         if ctx.is_interrupted() {
-            anyhow::bail!("Interrupted");
+            return Err(crate::exit_code::interrupted());
         }
 
         // Drive the stdin write concurrently with draining the child's
@@ -276,7 +260,7 @@ fn run_command_inner(
             biased;
 
             _ = interrupt_rx.changed() => {
-                anyhow::bail!("Interrupted")
+                Err(crate::exit_code::interrupted())
             }
             () = tokio::time::sleep(dur) => {
                 let prog = program.to_string_lossy();
@@ -291,7 +275,7 @@ fn run_command_inner(
             biased;
 
             _ = interrupt_rx.changed() => {
-                anyhow::bail!("Interrupted")
+                Err(crate::exit_code::interrupted())
             }
             result = wait => result,
         } }
@@ -384,8 +368,25 @@ pub fn flush_words(
     words_path: &Path,
     header_line: Option<&str>,
 ) -> Result<()> {
+    // Dedupe against the file's CURRENT contents, not just the caller's
+    // snapshot: another instance (or an earlier flush in a watch session)
+    // may have appended since the snapshot was taken at construction, and
+    // append-only writing would silently accumulate duplicates.
+    let mut known: HashSet<String> = existing.clone();
+    match std::fs::read_to_string(words_path) {
+        Ok(content) => {
+            known.extend(content.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_string));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(e).with_context(|| format!("Failed to read words file: {}", words_path.display()));
+        }
+    }
     let to_add: Vec<_> = new_words.iter()
-        .filter(|w| !existing.contains(*w))
+        .filter(|w| !known.contains(*w))
         .collect();
     if to_add.is_empty() {
         return Ok(());
@@ -836,9 +837,8 @@ pub enum ProcessorType {
     /// Unlike Generator (one product per input file), creates a single product.
     Explicit,
     /// A user-defined processor implemented in Lua via the plugin runtime.
-    /// Lua scripts may override this by declaring `processor_type()` returning
-    /// "checker"/"generator"/"creator"/"explicit" — only scripts that omit that
-    /// function are categorized as Lua.
+    /// (A `processor_type()` Lua hook was once documented as overriding this;
+    /// no Rust code ever read it — all Lua plugins are categorized as Lua.)
     Lua,
 }
 
@@ -1311,7 +1311,26 @@ mod tests {
             ("mermaid", false),
             ("libreoffice", false),
             ("drawio", false),
+            ("pandoc", false),
         ];
+
+        // Completeness: the list above is a hand-maintained copy, and it
+        // silently skipped pandoc once. Pin it against the actual number of
+        // SimpleGeneratorParams construction sites in the generators tree
+        // (source-scanning at test time, same technique as the bare-println
+        // scanner) so a new SimpleGenerator that skips this list fails here.
+        let mut param_sites = 0;
+        for entry in std::fs::read_dir("src/processors/generators").unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "rs") {
+                let src = std::fs::read_to_string(&path).unwrap();
+                param_sites += src.matches("SimpleGeneratorParams {").count();
+            }
+        }
+        assert_eq!(simple_generators.len(), param_sites,
+            "SimpleGenerator construction sites and this list disagree — a \
+             new SimpleGenerator must be added here so its is_native \
+             declarations stay pinned");
 
         for (name, params_native) in simple_generators {
             let registry_native = crate::registries::is_native(name);
@@ -1417,7 +1436,6 @@ mod tests {
     /// a writer thread: feeding all of stdin before draining stdout wedges
     /// as soon as the child fills its output pipe. 1 MB is well past the
     /// typical 64 KB pipe buffer in both directions.
-    #[cfg(unix)]
     #[test]
     fn stdin_and_output_are_pumped_concurrently() {
         crate::runtime_flags::init_for_test();
@@ -1440,7 +1458,6 @@ mod tests {
     /// A stdin write failure is reported only when the child also failed —
     /// where truncated input is a plausible cause. A successful child that
     /// simply stopped reading is not an error.
-    #[cfg(unix)]
     #[test]
     fn failing_child_that_ignored_stdin_reports_its_own_failure() {
         crate::runtime_flags::init_for_test();

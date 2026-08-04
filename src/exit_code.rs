@@ -85,6 +85,15 @@ pub fn config_error(message: impl Into<String>) -> anyhow::Error {
     RsconstructError::new(RsconstructExitCode::ConfigError, message.into()).into()
 }
 
+/// Shorthand for a typed interrupt. Every interruption must be raised
+/// through this (never `bail!("Interrupted")` strings): `classify_error`
+/// consults only typed information, so an untyped interrupt classifies as
+/// exit 1 and a Ctrl+C during `fix`/`clean` reports as a build failure
+/// instead of exit 130.
+pub fn interrupted() -> anyhow::Error {
+    RsconstructError::new(RsconstructExitCode::Interrupted, "Interrupted".to_string()).into()
+}
+
 /// Classify an anyhow error into an exit code.
 ///
 /// Only typed information is consulted: a [`RsconstructError`] anywhere in

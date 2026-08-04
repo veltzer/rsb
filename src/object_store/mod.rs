@@ -29,14 +29,12 @@ pub fn walk_files(dir: &Path) -> Vec<PathBuf> {
                 if path.is_dir() {
                     stack.push(path);
                 } else if path.is_file() {
-                    // Skip in-flight temp files from a concurrent store
-                    // (temp-then-rename); they are not cache content.
-                    if path.file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with(".tmp-"))
-                    {
-                        continue;
-                    }
+                    // Temp files (temp-then-rename in flight, or orphaned by
+                    // a crash) are included deliberately: `trim` collects
+                    // them as unreferenced garbage — a filter here once made
+                    // crash-orphaned temp files permanently unreclaimable by
+                    // every management command. redb's exclusive lock means
+                    // no second process is mid-write while we walk.
                     result.push(path);
                 }
             }
@@ -51,7 +49,7 @@ pub fn walk_files(dir: &Path) -> Vec<PathBuf> {
 /// remote-fetch boundary (`try_fetch_descriptor_from_remote`): production
 /// entries are always project-root-relative, so an absolute path can only
 /// come from a foreign descriptor.
-pub(super) fn safe_entry_path(raw: &str) -> Result<&Path> {
+fn safe_entry_path(raw: &str) -> Result<&Path> {
     let path = Path::new(raw);
     if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
         anyhow::bail!("cache descriptor entry path '{raw}' escapes the project root");

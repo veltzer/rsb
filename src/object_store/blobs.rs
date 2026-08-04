@@ -56,15 +56,17 @@ impl ObjectStore {
     /// and concurrent stores of identical content don't collide.
     pub(super) fn store_object(&self, content: &[u8]) -> Result<String> {
         let checksum = Self::calculate_checksum_bytes(content);
-        if self.has_object(&checksum) {
-            return Ok(checksum);
-        }
-
+        // Short-circuit only when the object exists in the CURRENT format:
+        // a format-blind `has_object` check made toggling `compression = true`
+        // a silent no-op for every object already stored uncompressed.
         let object_path = if self.compression {
             self.compressed_object_path(&checksum)
         } else {
             self.object_path(&checksum)
         };
+        if object_path.exists() {
+            return Ok(checksum);
+        }
         let parent = object_path.parent()
             .context("Object path has no parent directory")?;
         fs::create_dir_all(parent)

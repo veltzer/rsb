@@ -61,7 +61,7 @@ The `rsconstruct status` command also disables mtime checking internally to ensu
 
 The mtime database is stored at `.rsconstruct/mtime.redb`, separate from the build cache (`objects/` and `descriptors/`) and the config tracking database. This separation means:
 
-- `rsconstruct cache clear` removes the build cache but preserves the mtime database (the next build will still benefit from mtime-based skipping)
+- `rsconstruct cache clear` removes the entire `.rsconstruct/` directory — build cache AND mtime database (see `cache.md`; the clear must work even when a database is corrupted, so it deletes the whole state dir)
 - The mtime database can be deleted independently without affecting cached build outputs
 
 ## Combined input checksum
@@ -69,8 +69,8 @@ The mtime database is stored at `.rsconstruct/mtime.redb`, separate from the bui
 The `combined_input_checksum(inputs)` function computes a single hash representing all input files for a product. It:
 
 1. Checksums each input file (using the two-layer cache)
-2. Joins all checksums with `:`
-3. Hashes the combined string to produce a fixed-length result
+2. Hashes the checksums as length-prefixed parts (not a separator join —
+   see `hash_checksums`, which has an injection-proofing test)
 
 Missing files get a `MISSING:<path>` sentinel so that different sets of missing files produce different combined checksums.
 

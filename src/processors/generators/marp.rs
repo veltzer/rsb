@@ -67,6 +67,12 @@ impl Processor for MarpProcessor {
         &self.config.standard
     }
 
+    // Serialize the FULL config (the trait default covers StandardConfig
+    // only), so the extra fields reach config-change detection.
+    fn config_json(&self) -> Option<String> {
+        crate::processors::ProcessorBase::config_json(&self.config)
+    }
+
     fn clean(&self, product: &Product, verbose: bool) -> Result<usize> {
         crate::processors::ProcessorBase::clean(product, &product.processor, verbose)
     }
@@ -95,7 +101,9 @@ impl Processor for MarpProcessor {
             .to_string_lossy();
         ensure_output_dir(output)?;
         let command = self.config.standard.require_command("marp")?;
-        let timeout = Duration::from_secs(self.config.timeout_secs);
+        // Both floored at 1, like each other: timeout_secs = 0 would make
+        // every invocation time out instantly (× max_attempts retries).
+        let timeout = Duration::from_secs(self.config.timeout_secs.max(1));
         let max_attempts = self.config.max_attempts.max(1);
 
         for attempt in 1..=max_attempts {

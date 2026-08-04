@@ -185,6 +185,14 @@ impl Processor for ZspellProcessor {
         // when it exists.
         let mut dep_auto = self.config.standard.dep_auto.clone();
         dep_auto.push(self.config.words_file.clone());
+        // The system dictionary decides pass/fail just as much: a hunspell
+        // package update that removes a word must invalidate cached passes.
+        // These are absolute paths (a documented exception — the descriptor
+        // key hashes input *content*, not paths, so cache portability is
+        // unaffected).
+        let dict_dir = Path::new(&self.config.dict_dir);
+        dep_auto.push(dict_dir.join(format!("{}.aff", self.config.language)).to_string_lossy().into_owned());
+        dep_auto.push(dict_dir.join(format!("{}.dic", self.config.language)).to_string_lossy().into_owned());
 
         discover_checker_products(
             graph,

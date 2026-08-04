@@ -763,8 +763,7 @@ sleep 0.3
 
     let script_path = project_path.join("check_concurrency.sh");
     fs::write(&script_path, script_content).unwrap();
-    #[cfg(unix)]
-    {
+        {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -856,8 +855,7 @@ sleep 0.3
 
     let script_path = project_path.join("check_concurrency.sh");
     fs::write(&script_path, script_content).unwrap();
-    #[cfg(unix)]
-    {
+        {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -926,8 +924,7 @@ if grep -q "FAIL" "$input"; then
 fi
 cp "$input" "$output"
 "#).unwrap();
-    #[cfg(unix)]
-    {
+        {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -1329,6 +1326,29 @@ fn src_dirs_under_output_root_are_scanned() {
         "the opted-in file should be the reported failure: stdout={stdout} stderr={stderr}");
     assert!(!stdout.contains("unscanned.json") && !stderr.contains("unscanned.json"),
         "non-opted-in output dir must stay excluded: stdout={stdout} stderr={stderr}");
+}
+
+/// Zero values for `[build]` knobs whose zero case silently breaks the
+/// build must be rejected at config load, not silently obeyed
+/// (`max_discovery_passes = 0` used to skip discovery and report an empty
+/// build as success).
+#[test]
+fn zero_value_build_knobs_are_rejected() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    for (toml, needle) in [
+        ("[build]\nmax_discovery_passes = 0\n", "max_discovery_passes"),
+        ("[build]\nmax_arg_len = 0\n", "max_arg_len"),
+    ] {
+        fs::write(project_path.join("rsconstruct.toml"), toml).unwrap();
+        let out = run_rsconstruct(project_path, &["build"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!out.status.success(),
+            "{needle} = 0 must be a config error, not a silent no-op build");
+        assert!(stderr.contains(needle),
+            "error must name the offending field: {stderr}");
+    }
 }
 
 /// With mtime checking off, builds over a processor chain must converge.

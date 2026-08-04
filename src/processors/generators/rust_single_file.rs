@@ -36,6 +36,12 @@ impl Processor for RustSingleFileProcessor {
         &self.config.standard
     }
 
+    // Serialize the FULL config (the trait default covers StandardConfig
+    // only), so the extra fields reach config-change detection.
+    fn config_json(&self) -> Option<String> {
+        crate::processors::ProcessorBase::config_json(&self.config)
+    }
+
     fn clean(&self, product: &crate::graph::Product, verbose: bool) -> anyhow::Result<usize> {
         crate::processors::ProcessorBase::clean(product, &product.processor, verbose)
     }

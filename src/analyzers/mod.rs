@@ -343,13 +343,17 @@ where
         // filesystem state (glob results) that must be recomputed on
         // every run. The checksum is taken before the scan (see set()).
         if let Err(e) = deps_cache.set(analyzer_name, source, source_checksum, &result.deps) {
-            eprintln!("Warning: failed to cache dependencies for {}: {}", source.display(), e);
+            crate::output::warn(&format!("failed to cache dependencies for {}: {}", source.display(), e));
         }
 
         let joined_pieces = if result.hash_pieces.is_empty() {
             None
         } else {
-            Some(result.hash_pieces.join("|"))
+            // Length-prefixed hash, not a '|' join: pieces embed file paths,
+            // which can contain the separator (same injection class as the
+            // old CacheKey::material).
+            let parts: Vec<&str> = result.hash_pieces.iter().map(String::as_str).collect();
+            Some(crate::checksum::hash_parts(&parts))
         };
         for &id in product_ids {
             if let Some(product) = graph.get_product_mut(id) {

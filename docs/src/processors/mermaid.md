@@ -18,7 +18,7 @@ output in the configured formats. Each format produces a separate output file.
 
 ```toml
 [processor.mermaid]
-mmdc_bin = "mmdc"                      # The mmdc command to run
+command = "mmdc"                       # The mmdc command to run
 formats = ["png"]                      # Output formats (png, svg, pdf)
 args = []                              # Additional arguments to pass to mmdc
 output_dir = "out/mermaid"             # Output directory
@@ -27,7 +27,7 @@ dep_inputs = []                      # Additional files that trigger rebuilds wh
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `mmdc_bin` | string | `"mmdc"` | The mermaid-cli executable to run |
+| `command` | string | `"mmdc"` | The mermaid-cli executable to run |
 | `formats` | string[] | `["png"]` | Output formats to generate (`png`, `svg`, `pdf`) |
 | `args` | string[] | `[]` | Extra arguments passed to mmdc |
 | `output_dir` | string | `"out/mermaid"` | Base output directory |

@@ -84,6 +84,12 @@ impl Processor for AspellProcessor {
         &self.config.standard
     }
 
+    // Serialize the FULL config (the trait default covers StandardConfig
+    // only), so the extra fields reach config-change detection.
+    fn config_json(&self) -> Option<String> {
+        crate::processors::ProcessorBase::config_json(&self.config)
+    }
+
     fn required_tools(&self) -> Vec<String> {
         vec![self.config.standard.command.clone()]
     }

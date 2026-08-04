@@ -69,6 +69,12 @@ impl crate::processors::Processor for TermsProcessor {
         &self.config.standard
     }
 
+    // Serialize the FULL config (the trait default covers StandardConfig
+    // only), so the extra fields reach config-change detection.
+    fn config_json(&self) -> Option<String> {
+        crate::processors::ProcessorBase::config_json(&self.config)
+    }
+
     fn auto_detect(&self, file_index: &FileIndex) -> bool {
         Path::new(&self.config.dir_terms_unambiguous).is_dir()
             && !file_index.scan(&self.config.standard, true).is_empty()

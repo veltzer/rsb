@@ -21,7 +21,7 @@ generates HTML files.
 
 ```toml
 [processor.chromium]
-chromium_bin = "google-chrome"            # The Chromium/Chrome executable to run
+command = "google-chrome"                 # The Chromium/Chrome executable to run
 args = []                                 # Additional arguments to pass to Chromium
 output_dir = "out/chromium"               # Output directory for PDFs
 dep_inputs = []                         # Additional files that trigger rebuilds when changed
@@ -29,7 +29,7 @@ dep_inputs = []                         # Additional files that trigger rebuilds
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `chromium_bin` | string | `"google-chrome"` | The Chromium or Google Chrome executable |
+| `command` | string | `"google-chrome"` | The Chromium or Google Chrome executable |
 | `args` | string[] | `[]` | Extra arguments passed to Chromium |
 | `output_dir` | string | `"out/chromium"` | Base output directory for PDF files |
 | `dep_inputs` | string[] | `[]` | Extra files whose changes trigger rebuilds |

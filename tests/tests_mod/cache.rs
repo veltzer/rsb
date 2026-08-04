@@ -321,7 +321,6 @@ fn cache_survives_input_rename() {
 /// The tool here is a shell script the test owns, so "upgrading" it is a
 /// file write. `script` declares its `command` as a required tool, which is
 /// what feeds the tool component of the cache key.
-#[cfg(unix)]
 #[test]
 fn tool_upgrade_invalidates_cached_results() {
     let temp_dir = setup_test_project();
@@ -379,7 +378,6 @@ fn tool_upgrade_invalidates_cached_results() {
 
 /// `[build] hash_tool_versions = false` restores the old behavior for
 /// projects that must not have tool identity in their cache keys.
-#[cfg(unix)]
 #[test]
 fn hash_tool_versions_false_ignores_tool_upgrade() {
     let temp_dir = setup_test_project();

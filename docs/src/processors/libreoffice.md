@@ -19,7 +19,7 @@ invocations since LibreOffice only supports a single running instance.
 
 ```toml
 [processor.libreoffice]
-libreoffice_bin = "libreoffice"        # The libreoffice command to run
+command = "libreoffice"                # The libreoffice command to run
 formats = ["pdf"]                      # Output formats (pdf, pptx)
 args = []                              # Additional arguments to pass to libreoffice
 output_dir = "out/libreoffice"         # Output directory
@@ -28,7 +28,7 @@ dep_inputs = []                      # Additional files that trigger rebuilds wh
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `libreoffice_bin` | string | `"libreoffice"` | The libreoffice executable to run |
+| `command` | string | `"libreoffice"` | The libreoffice executable to run |
 | `formats` | string[] | `["pdf"]` | Output formats to generate (`pdf`, `pptx`) |
 | `args` | string[] | `[]` | Extra arguments passed to libreoffice |
 | `output_dir` | string | `"out/libreoffice"` | Base output directory |

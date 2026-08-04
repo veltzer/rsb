@@ -39,8 +39,7 @@ fn setup_shared_site_project() -> TempDir {
         "echo 'pandoc-about' > _site/about.html\n",
     )).unwrap();
 
-    #[cfg(unix)]
-    {
+        {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&mkdocs_script, fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&pandoc_script, fs::Permissions::from_mode(0o755)).unwrap();
@@ -72,7 +71,6 @@ fn setup_shared_site_project() -> TempDir {
 }
 
 #[test]
-#[cfg(unix)]
 fn shared_dir_both_build_successfully() {
     let temp_dir = setup_shared_site_project();
     let project_path = temp_dir.path();
@@ -101,7 +99,6 @@ fn shared_dir_both_build_successfully() {
 }
 
 #[test]
-#[cfg(unix)]
 fn shared_dir_clean_and_restore_preserves_ownership() {
     let temp_dir = setup_shared_site_project();
     let project_path = temp_dir.path();
@@ -146,7 +143,6 @@ fn shared_dir_clean_and_restore_preserves_ownership() {
 /// NOT recreate about.html (because it's not in mkdocs's tree), and the
 /// explicit processor must re-run to produce it.
 #[test]
-#[cfg(unix)]
 fn creator_tree_does_not_include_foreign_outputs() {
     let temp_dir = setup_shared_site_project();
     let project_path = temp_dir.path();
@@ -198,7 +194,6 @@ fn creator_tree_does_not_include_foreign_outputs() {
 /// the graph-build phase MUST fail with an "Output conflict" error. Without this
 /// guarantee the shared-folder logic would be unsound (two "owners" of one path).
 #[test]
-#[cfg(unix)]
 fn two_processors_declaring_same_output_file_errors() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();
@@ -209,8 +204,7 @@ fn two_processors_declaring_same_output_file_errors() {
 
     let script = project_path.join("touch.sh");
     fs::write(&script, "#!/bin/bash\ntouch \"$1\"\n").unwrap();
-    #[cfg(unix)]
-    {
+        {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     }

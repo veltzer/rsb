@@ -6,10 +6,19 @@
 ///
 /// Produces error messages like:
 ///   "Failed to read config at src/config/mod.rs:42: No such file or directory"
+///
+/// The source error is kept in the anyhow chain (context, not a formatted
+/// string): `classify_error` walks the chain looking for `io::Error`, so a
+/// version of this that stringified the source made exit code 5 (`IoError`)
+/// unreachable for everything routed through here.
 #[track_caller]
-pub fn ctx<T, E: std::fmt::Display>(r: Result<T, E>, msg: &str) -> anyhow::Result<T> {
+pub fn ctx<T, E>(r: Result<T, E>, msg: &str) -> anyhow::Result<T>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
     let loc = std::panic::Location::caller();
-    r.map_err(|e| anyhow::anyhow!("{} at {}:{}: {}", msg, loc.file(), loc.line(), e))
+    r.map_err(|e| anyhow::Error::new(e)
+        .context(format!("{} at {}:{}", msg, loc.file(), loc.line())))
 }
 
 /// Like `ctx()` but for Option — converts None to an error with <file:line> location.

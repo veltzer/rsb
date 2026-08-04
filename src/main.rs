@@ -208,19 +208,27 @@ fn run() -> (Result<()>, bool) {
     // same line and only ever read OR'd with it — pure redundancy.
     {
         let ctx_for_signal = Arc::clone(&ctx);
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(0);
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect(errors::SIGNAL_HANDLER_RUNTIME);
             rt.block_on(async {
-                tokio::signal::ctrl_c().await.expect(errors::SIGNAL_LISTEN);
+                let mut interrupt = platform::interrupt_signal().expect(errors::SIGNAL_LISTEN);
+                // Handler installed — let run() proceed. Before this rendezvous
+                // a Ctrl+C would hit the default disposition and kill the
+                // process instantly, bypassing interrupt() and every Drop.
+                let _ = ready_tx.send(());
+                interrupt.recv().await;
                 ctx_for_signal.interrupt();
                 eprintln!("\nInterrupted. Press Ctrl+C again to force exit.");
-                tokio::signal::ctrl_c().await.expect(errors::SIGNAL_LISTEN);
+                interrupt.recv().await;
                 std::process::exit(130);
             });
         });
+        // Bounded by thread startup + signal registration: microseconds.
+        let _ = ready_rx.recv();
     }
     let init_dur = t.elapsed();
 
@@ -538,7 +546,11 @@ fn run() -> (Result<()>, bool) {
                     // Config::load() validates all fields — unknown fields, types, required fields.
                     // If it succeeds, the config is valid.
                     let _config = config::Config::load()?;
-                    println!("rsconstruct.toml is valid.");
+                    if json_output::is_json_mode() {
+                        println!("{}", serde_json::json!({ "valid": true }));
+                    } else {
+                        output::info("rsconstruct.toml is valid.");
+                    }
                 }
             }
         }
@@ -611,7 +623,11 @@ fn run() -> (Result<()>, bool) {
             match action {
                 WebCacheAction::Clear => {
                     let count = webcache::clear()?;
-                    println!("Removed {count} cached entries.");
+                    if json_output::is_json_mode() {
+                        println!("{}", serde_json::json!({ "removed_entries": count }));
+                    } else {
+                        output::info(&format!("Removed {count} cached entries."));
+                    }
                 }
                 WebCacheAction::Stats => {
                     let (bytes, count) = webcache::stats()?;

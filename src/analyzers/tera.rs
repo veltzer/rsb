@@ -278,6 +278,29 @@ fn scan_template_recursive(
         }
     }
 
+    // 3c) workflow_names() — content-tracked like grep_count: the renderer
+    // reads each workflow file's `name:` field, so the matched files are
+    // inputs (renaming a workflow's name must invalidate the product) and
+    // the resolved path set is a hash piece (adding/removing a workflow file
+    // must too). The pattern mirrors WorkflowNamesFunction in
+    // processors/generators/tera.rs; this used to be untracked — a renamed
+    // workflow left stale rendered output cached indefinitely.
+    static WORKFLOW_NAMES_RE: OnceLock<Regex> = OnceLock::new();
+    let workflow_names_re = WORKFLOW_NAMES_RE.get_or_init(|| {
+        Regex::new(r"workflow_names\s*\(\s*\)").expect(errors::INVALID_REGEX)
+    });
+    if workflow_names_re.is_match(&content) {
+        let matched = expand_glob(".github/workflows/*.yml")?;
+        hash_pieces.push(format!("workflow_names_resolved:{}", matched.join("\n")));
+        for p in matched {
+            let pb = PathBuf::from(p);
+            if !seen.contains(&pb) {
+                seen.insert(pb.clone());
+                paths.push(pb);
+            }
+        }
+    }
+
     // 4) shell_output(...): require depends_on, harvest patterns and command
     for caps in shell_re.captures_iter(&content) {
         let body = &caps[1];

@@ -1,7 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
 use crate::common::run_rsconstruct_with_env;
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
@@ -186,7 +185,6 @@ fn script_no_project_discovered() {
 }
 
 #[test]
-#[cfg(unix)]
 fn script_rebuilds_when_command_file_changes() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let project_path = temp_dir.path();

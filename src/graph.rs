@@ -645,8 +645,27 @@ impl BuildGraph {
             }
         }
 
-        // Check 2: validate dependency references point to existing products
+        // Check 2: internal graph consistency. The old form of this check
+        // (dep ids within bounds) was unreachable by construction — every
+        // edge comes from a live index in `output_to_product`. The invariants
+        // that CAN break under a bad retain/rebuild are id/index agreement
+        // and the parallel-vector lengths, which is exactly the corruption
+        // class `retain_products` had historically.
         if config.validate_dep_references {
+            for (index, product) in self.products.iter().enumerate() {
+                if product.id != index {
+                    errors.push(format!(
+                        "[{}] product at index {index} carries id {} — ids must equal indices after retain/rebuild",
+                        product.processor, product.id,
+                    ));
+                }
+            }
+            if self.dependencies.len() != self.products.len() {
+                errors.push(format!(
+                    "dependency table has {} rows for {} products",
+                    self.dependencies.len(), self.products.len(),
+                ));
+            }
             for (id, deps) in self.dependencies.iter().enumerate() {
                 for &dep_id in deps {
                     if dep_id >= self.products.len() {

@@ -1403,10 +1403,6 @@ fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
         // cargo / clippy
         ("cargo", "profiles") => Some(FieldType::StringArray),
         ("cargo" | "clippy", "cargo" | "command") => Some(FieldType::String),
-        // mypy, pyrefly, shellcheck, rumdl, yamllint, jq, jsonlint, taplo
-        ("mypy" | "pyrefly" | "shellcheck" | "luacheck" | "script", "checker") => Some(FieldType::String),
-        ("rumdl" | "yamllint" | "jsonlint" | "taplo", "linter") => Some(FieldType::String),
-        ("jq", "checker") => Some(FieldType::String),
         // tags
         ("tags", "output" | "tags_dir") => Some(FieldType::String),
         // pip
@@ -1433,7 +1429,6 @@ fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
         ("pdflatex", "runs") => Some(FieldType::Integer),
         ("pdflatex", "qpdf" | "shell_escape") => Some(FieldType::Bool),
         // a2x
-        ("a2x", "a2x") => Some(FieldType::String),
         // pdfunite / ipdfunite
         ("pdfunite" | "ipdfunite", "source_dir" | "source_ext" | "source_output_dir") => Some(FieldType::String),
         // cache_output_dir — shared by creators
@@ -1553,6 +1548,24 @@ fn validate_single_processor(
 /// and have the correct TOML types. Supports both single-instance and multi-instance formats.
 /// Returns a list of error strings (empty if valid). `Config::load` combines this with the
 /// analyzer validator output under a single "Invalid config:" header.
+/// Range-check `[build]` values whose zero cases silently break the build:
+/// `max_discovery_passes = 0` skips discovery entirely and reports an empty
+/// build as success; `max_arg_len = 0` degenerates every batch to one file
+/// per process spawn. (`parallel = 0` and `batch_size = 0` are documented
+/// sentinels and stay valid.) Same message shape as the per-processor
+/// `max_jobs != 0` guard.
+fn validate_build_config(build: &BuildConfig) -> Result<()> {
+    if build.max_discovery_passes == 0 {
+        return Err(crate::exit_code::config_error(
+            "[build] max_discovery_passes must be at least 1 — 0 would skip discovery entirely and report an empty build as success".to_string()));
+    }
+    if build.max_arg_len == 0 {
+        return Err(crate::exit_code::config_error(
+            "[build] max_arg_len must be at least 1 — 0 would split every batch into one file per tool invocation".to_string()));
+    }
+    Ok(())
+}
+
 fn validate_processor_fields_raw(raw: &toml::Value) -> Vec<String> {
     let Some(processor_table) = raw.get("processor").and_then(|v| v.as_table()) else {
         return Vec::new();
@@ -1835,6 +1848,7 @@ impl Config {
             let config: Self = raw.try_into()
                 .map_err(|e| crate::exit_code::config_error(
                     format!("Failed to parse config file {}: {e}", config_path.display())))?;
+            validate_build_config(&config.build)?;
             // Capture byte-level spans from the substituted sources so we can
             // report user-set fields as `rsconstruct.toml:<line>` (or
             // `rsconstruct.local.toml:<line>`) instead of the sentinel

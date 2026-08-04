@@ -18,7 +18,7 @@ each file, generating output in the configured formats.
 
 ```toml
 [processor.drawio]
-drawio_bin = "drawio"                  # The drawio command to run
+command = "drawio"                     # The drawio command to run
 formats = ["png"]                      # Output formats (png, svg, pdf)
 args = []                              # Additional arguments to pass to drawio
 output_dir = "out/drawio"              # Output directory
@@ -27,7 +27,7 @@ dep_inputs = []                      # Additional files that trigger rebuilds wh
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `drawio_bin` | string | `"drawio"` | The drawio executable to run |
+| `command` | string | `"drawio"` | The drawio executable to run |
 | `formats` | string[] | `["png"]` | Output formats to generate (`png`, `svg`, `pdf`) |
 | `args` | string[] | `[]` | Extra arguments passed to drawio |
 | `output_dir` | string | `"out/drawio"` | Base output directory |

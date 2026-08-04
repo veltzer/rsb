@@ -36,29 +36,21 @@ impl ExplicitProcessor {
             }
         }
         // Glob inputs (one glob at a time in config order, sorted within each
-        // glob). A bad pattern or unreadable match is an error — silently
-        // resolving to zero inputs would hide a config typo behind missing
-        // dependencies.
+        // glob). A bad pattern is an error — silently resolving to zero
+        // inputs would hide a config typo behind missing dependencies.
+        //
+        // Matching runs against the FILE INDEX ONLY (real files plus virtual
+        // files from upstream generators). A previous version also globbed
+        // the raw filesystem and unioned the two — half-honoring the user's
+        // `.gitignore`/`.rsconstructignore`: a pattern like `**/*.json`
+        // silently swept node_modules/ into the input set.
         for pattern in &self.config.input_globs {
-            let mut glob_results: Vec<PathBuf> = Vec::new();
-            // Match against real files on disk
-            let entries = glob::glob(pattern)
-                .with_context(|| format!("Invalid input_globs pattern: {pattern}"))?;
-            for entry in entries {
-                let entry = entry
-                    .with_context(|| format!("Failed to read glob match for pattern: {pattern}"))?;
-                if entry.is_file() {
-                    glob_results.push(entry);
-                }
-            }
-            // Also match against virtual files in the file index
             let pat = glob::Pattern::new(pattern)
                 .with_context(|| format!("Invalid input_globs pattern: {pattern}"))?;
-            for file in file_index.files() {
-                if pat.matches(&file.to_string_lossy()) && !glob_results.contains(file) {
-                    glob_results.push(file.clone());
-                }
-            }
+            let mut glob_results: Vec<PathBuf> = file_index.files().iter()
+                .filter(|file| pat.matches(&file.to_string_lossy()))
+                .cloned()
+                .collect();
             glob_results.sort();
             glob_results.dedup();
             resolved.extend(glob_results);

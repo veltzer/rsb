@@ -15,9 +15,9 @@ impl Builder {
     /// per-product cleanup are removed bottom-up.
     pub fn clean(&self, ctx: &crate::build_context::BuildContext, verbose: bool, processor_filter: Option<&[String]>, sweep_empty_dirs: bool) -> Result<()> {
         if let Some(names) = processor_filter {
-            println!("{}", color::bold(&format!("Cleaning outputs for: {}", names.join(", "))));
+            crate::output::info(&color::bold(&format!("Cleaning outputs for: {}", names.join(", "))));
         } else {
-            println!("{}", color::bold("Cleaning build artifacts..."));
+            crate::output::info(&color::bold("Cleaning build artifacts..."));
         }
 
         // Create processors and build graph (fast path: skip dependency scanning)
@@ -76,17 +76,17 @@ impl Builder {
         // Print summary
         let total_files: usize = stats.values().sum();
         if total_files == 0 && dirs_removed == 0 {
-            println!("{}", color::dim("Clean summary: nothing to clean"));
+            crate::output::info(&color::dim("Clean summary: nothing to clean"));
         } else {
-            println!("{}", color::bold("Clean summary:"));
+            crate::output::info(&color::bold("Clean summary:"));
             let sorted_stats: std::collections::BTreeMap<_, _> = stats.iter().collect();
             for (proc, count) in &sorted_stats {
-                println!("  {proc}: {count} file(s)");
+                crate::output::info(&format!("  {proc}: {count} file(s)"));
             }
             if dirs_removed > 0 {
-                println!("  {dirs_removed} empty dir(s) removed");
+                crate::output::info(&format!("  {dirs_removed} empty dir(s) removed"));
             }
-            println!("{}", color::green(&format!(
+            crate::output::info(&color::green(&format!(
                 "Total: {total_files} file(s) removed",
             )));
         }
@@ -95,23 +95,24 @@ impl Builder {
 
     /// Remove all build outputs and cache directories (.rsconstruct/ and out/)
     pub fn distclean(&self) -> Result<()> {
-        println!("{}", color::bold("Removing build directories..."));
+        crate::output::info(&color::bold("Removing build directories..."));
 
         let rsconstruct_dir = std::path::Path::new(".rsconstruct");
         if rsconstruct_dir.exists() {
             fs::remove_dir_all(rsconstruct_dir)
                 .context("Failed to remove .rsconstruct/ directory")?;
-            println!("Removed {}", rsconstruct_dir.display());
+            crate::output::info(&format!("Removed {}", rsconstruct_dir.display()));
         }
 
-        let out_dir = std::path::Path::new("out");
+        // The configured output root, not a hardcoded "out".
+        let out_dir = std::path::Path::new(&self.config.build.output_dir);
         if out_dir.exists() {
             fs::remove_dir_all(out_dir)
-                .context("Failed to remove out/ directory")?;
-            println!("Removed {}", out_dir.display());
+                .with_context(|| format!("Failed to remove {}/ directory", out_dir.display()))?;
+            crate::output::info(&format!("Removed {}", out_dir.display()));
         }
 
-        println!("{}", color::green("Distclean completed!"));
+        crate::output::info(&color::green("Distclean completed!"));
         Ok(())
     }
 
@@ -123,7 +124,7 @@ impl Builder {
             bail!("Not a git repository. Hardclean requires a git repository.");
         }
 
-        println!("{}", color::bold("Running git clean -qffxd..."));
+        crate::output::info(&color::bold("Running git clean -qffxd..."));
 
         let mut cmd = Command::new("git");
         cmd.args(["clean", "-qffxd"]);

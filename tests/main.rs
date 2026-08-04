@@ -113,3 +113,32 @@ mod processors {
     pub mod slidev;
     pub mod shared_output_dir;
 }
+
+/// Every test file on disk must be registered above — a file missing from
+/// this hand-maintained module list silently never runs, with no warning
+/// from anything. This asserts the list matches the two directories.
+#[test]
+fn every_test_file_is_registered() {
+    let this = include_str!("main.rs");
+    let mut missing: Vec<String> = Vec::new();
+    for (dir, prefix) in [("tests/tests_mod", "tests_mod"), ("tests/processors", "processors")] {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            // Registered either via #[path = "dir/file.rs"] or `pub mod file;`
+            // inside the dir's module block.
+            let by_path = format!("{prefix}/{stem}.rs");
+            let by_mod = format!("mod {stem};");
+            if !this.contains(&by_path) && !this.contains(&by_mod) {
+                missing.push(format!("{dir}/{stem}.rs"));
+            }
+        }
+    }
+    missing.sort();
+    assert!(missing.is_empty(),
+        "test files exist on disk but are not registered in tests/main.rs \
+         (they silently never run): {missing:#?}");
+}

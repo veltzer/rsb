@@ -77,6 +77,14 @@ impl FileIndex {
                     .unwrap_or(&path)
                     .to_path_buf();
                 files.push(relative);
+            } else if entry.file_type().is_some_and(|ft| ft.is_symlink()) {
+                // The walker does not follow symlinks, so a symlinked source
+                // (or a symlinked directory of sources) is never indexed —
+                // never checked, never built. Silent skips are forbidden:
+                // say it out loud so the gap is diagnosable.
+                crate::output::warn(&format!(
+                    "Ignoring symlink (symlinks are not followed): {}",
+                    entry.path().display()));
             }
         }
 

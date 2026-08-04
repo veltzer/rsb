@@ -22,7 +22,7 @@ typical processors — see [Concurrency limiting](#concurrency-limiting) below.
 
 ```toml
 [processor.marp]
-marp_bin = "marp"                      # The marp command to run
+command = "marp"                       # The marp command to run
 formats = ["pdf"]                      # Output formats (pdf, pptx, html)
 args = ["--html", "--allow-local-files"]  # Additional arguments to pass to marp
 output_dir = "out/marp"                # Output directory
@@ -32,7 +32,7 @@ max_jobs = 2                           # Limit concurrent marp instances (each s
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marp_bin` | string | `"marp"` | The marp executable to run |
+| `command` | string | `"marp"` | The marp executable to run |
 | `formats` | string[] | `["pdf"]` | Output formats to generate (`pdf`, `pptx`, `html`) |
 | `args` | string[] | `["--html", "--allow-local-files"]` | Extra arguments passed to marp |
 | `output_dir` | string | `"out/marp"` | Base output directory |

@@ -1,6 +1,6 @@
 use crate::color;
 use crate::json_output::{emit_product_complete, ProductStatus};
-use crate::stats::{FailedProduct, ProcessStats};
+use crate::stats::ProcessStats;
 
 use super::{Executor, HandlerContext, RestoreOutcome, SharedState};
 
@@ -29,16 +29,6 @@ impl Executor<'_> {
         // The tool may have partially written outputs before failing; evict
         // them so no later read serves a pre-write checksum.
         crate::checksum::forget_in_session(self.build_ctx, &ctx.product.outputs);
-
-        // Record structured failure detail for `rsconstruct edit`
-        let primary_file = ctx.product.inputs.first()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
-        ctx.shared.failed_details.lock().push(FailedProduct {
-            file: primary_file,
-            processor: ctx.proc_name.to_string(),
-            error: format!("{error:#}"),
-        });
 
         // Wrap the error with the processor name so users can always identify the source.
         // Use {:#} to include the full anyhow error chain (e.g. tera rendering details).
@@ -217,11 +207,7 @@ impl Executor<'_> {
             object_store.store_tree_descriptor(self.build_ctx, &desc_key, &ctx.product.output_dirs, &ctx.product.outputs, &is_foreign)
         };
         match cache_result {
-            Ok(changed) => {
-                if !changed {
-                    ctx.shared.unchanged_products.lock().insert(ctx.id);
-                }
-            }
+            Ok(_changed) => {}
             Err(e) => {
                 emit_product_complete(
                     &self.product_display(ctx.product),

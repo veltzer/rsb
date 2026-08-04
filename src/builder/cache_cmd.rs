@@ -21,7 +21,11 @@ pub fn handle(ctx: &crate::build_context::BuildContext, action: CacheAction) -> 
                 if rsconstruct_dir.exists() {
                     crate::errors::ctx(fs::remove_dir_all(rsconstruct_dir), "Failed to remove .rsconstruct directory")?;
                 }
-                println!("Cache cleared.");
+                if json_output::is_json_mode() {
+                    println!("{}", serde_json::json!({ "cleared": true }));
+                } else {
+                    crate::output::info("Cache cleared.");
+                }
             }
             CacheAction::Size => {
                 let builder = Builder::new(ctx)?;

@@ -37,9 +37,9 @@ impl Builder {
 
         if fixable.is_empty() {
             if processor_filter.is_some() {
-                println!("{}", color::yellow("No matching processors with fix capability."));
+                crate::output::info(&color::yellow("No matching processors with fix capability."));
             } else {
-                println!("{}", color::yellow("No processors with fix capability found."));
+                crate::output::info(&color::yellow("No processors with fix capability found."));
             }
             return Ok(());
         }
@@ -50,11 +50,11 @@ impl Builder {
 
         let products: Vec<_> = graph.products().to_vec();
         if products.is_empty() {
-            println!("{}", color::yellow("No files to fix."));
+            crate::output::info(&color::yellow("No files to fix."));
             return Ok(());
         }
 
-        println!("{}", color::bold(&format!(
+        crate::output::info(&color::bold(&format!(
             "Fixing {} file(s) using: {}",
             products.len(),
             fixable.join(", "),
@@ -100,12 +100,15 @@ impl Builder {
         }
 
         if error_count > 0 {
-            println!("{}", color::red(&format!(
+            // The failure summary goes to stderr with the per-error details
+            // (never into a JSON stdout stream); the bail below carries the
+            // machine-relevant outcome via the exit code.
+            crate::output::error(&format!(
                 "Fix completed: {fixed_count} fixed, {error_count} errors",
-            )));
+            ));
             anyhow::bail!("Fix failed with {error_count} error(s)");
         }
-        println!("{}", color::green(&format!(
+        crate::output::info(&color::green(&format!(
             "Fix completed: {fixed_count} file(s) processed",
         )));
 
@@ -123,7 +126,14 @@ impl Builder {
             .collect();
 
         if fixers.is_empty() {
-            println!("{}", color::yellow("No fix-capable processors declared in this project."));
+            // The JSON branch below must also cover the empty case — a
+            // consumer parsing `fix list --json` used to get valid JSON on
+            // non-empty projects and a bare English sentence on empty ones.
+            if crate::json_output::is_json_mode() {
+                println!("[]");
+            } else {
+                crate::output::info(&color::yellow("No fix-capable processors declared in this project."));
+            }
             return Ok(());
         }
 

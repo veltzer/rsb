@@ -24,7 +24,7 @@ The `--proto_path` is automatically set to the parent directory of each input fi
 
 ```toml
 [processor.protobuf]
-protoc_bin = "protoc"                     # Protoc binary (default: "protoc")
+command = "protoc"                        # Protoc binary (default: "protoc")
 src_extensions = [".proto"]                   # File extensions to process
 output_dir = "out/protobuf"              # Output directory (default: "out/protobuf")
 dep_inputs = []                         # Additional files that trigger rebuilds
@@ -32,7 +32,7 @@ dep_inputs = []                         # Additional files that trigger rebuilds
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `protoc_bin` | string | `"protoc"` | Path to protoc compiler |
+| `command` | string | `"protoc"` | Path to protoc compiler |
 | `src_extensions` | string[] | `[".proto"]` | File extensions to discover |
 | `output_dir` | string | `"out/protobuf"` | Output directory |
 | `dep_inputs` | string[] | `[]` | Extra files whose changes trigger rebuilds |

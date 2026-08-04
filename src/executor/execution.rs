@@ -256,9 +256,7 @@ impl Executor<'_> {
             errors: Arc::new(Mutex::new(Vec::new())),
             failed_products: Arc::new(Mutex::new(HashSet::new())),
             failed_messages: Arc::new(Mutex::new(Vec::new())),
-            failed_details: Arc::new(Mutex::new(Vec::new())),
             failed_processors: Arc::new(Mutex::new(HashSet::new())),
-            unchanged_products: Arc::new(Mutex::new(HashSet::new())),
             global_current: Arc::new(AtomicUsize::new(0)),
             global_total,
         };
@@ -695,12 +693,8 @@ impl Executor<'_> {
         let final_msgs = Arc::try_unwrap(shared.failed_messages)
             .map_err(|_| anyhow::anyhow!("internal error: outstanding Arc reference to failed messages"))?
             .into_inner();
-        let final_details = Arc::try_unwrap(shared.failed_details)
-            .map_err(|_| anyhow::anyhow!("internal error: outstanding Arc reference to failed details"))?
-            .into_inner();
         stats.failed_count = final_failed.len();
         stats.failed_messages = final_msgs;
-        stats.failed_details = final_details;
 
         // In non-keep-going mode, return the first error after giving
         // independent products a chance to execute and be cached

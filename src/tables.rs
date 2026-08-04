@@ -25,9 +25,14 @@ fn build_table(headers: &[&str], rows: &[Vec<String>]) -> Table {
 
 /// Print a table with an explicit header row. A horizontal separator is drawn
 /// between the header and the data rows.
+///
+/// Routed through `output::info`: tables are human prose, so `--quiet`
+/// silences them and `--json` keeps them out of the machine stream (a bare
+/// `println!` here used to leak box-drawing into both, across all ~39 table
+/// call sites at once).
 pub fn print_table(headers: &[&str], rows: &[Vec<String>]) {
     let mut table = build_table(headers, rows);
-    println!("{}", table.with(Style::rounded()));
+    crate::output::info(&format!("{}", table.with(Style::rounded())));
 }
 
 /// Print a table with an explicit header row and a summary ("Total") row.
@@ -43,7 +48,7 @@ pub fn print_table_with_total(headers: &[&str], rows: &[Vec<String>], total: &[S
         (1, header_line),
         (n_rows - 1, total_line),
     ]);
-    println!("{}", table.with(style));
+    crate::output::info(&format!("{}", table.with(style)));
 }
 
 /// Render a boolean as "Yes" or "No" — the canonical formatting used in tables.

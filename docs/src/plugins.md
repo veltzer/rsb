@@ -22,7 +22,7 @@ end
 function discover(project_root, config, files)
     local products = {}
     for _, file in ipairs(files) do
-        local stub = rsconstruct.stub_path(project_root, file, "eslint")
+        local stub = rsconstruct.stub_path(file, "eslint")
         table.insert(products, {
             inputs = {file},
             outputs = {stub},
@@ -83,7 +83,7 @@ Must return a table of products. Each product is a table with `inputs` and `outp
 function discover(project_root, config, files)
     local products = {}
     for _, file in ipairs(files) do
-        local stub = rsconstruct.stub_path(project_root, file, "myplugin")
+        local stub = rsconstruct.stub_path(file, "myplugin")
         table.insert(products, {
             inputs = {file},
             outputs = {stub},
@@ -144,25 +144,20 @@ function required_tools()
 end
 ```
 
-#### `processor_type()`
+#### Checkers: stub files or no outputs
 
-Returns the type of processor: `"generator"` or `"checker"`. Generators create real output files (e.g., compilers, transpilers). Checkers validate input files; for checkers, you can choose whether to produce stub files or not. Default: `"checker"`.
+A checker plugin chooses one of two output shapes in `discover()`:
 
-**Option 1: Checker with stub files (for Lua plugins)**
-```lua
-function processor_type()
-    return "checker"
-end
-```
-When using stub files, return `outputs = {stub}` from `discover()` and call `rsconstruct.write_stub()` in `execute()`.
+**Option 1: with stub files** — return `outputs = {stub}` from `discover()`
+and call `rsconstruct.write_stub()` in `execute()`. The stub file records
+the pass on disk.
 
-**Option 2: Checker without stub files**
-```lua
-function processor_type()
-    return "checker"
-end
-```
-Return `outputs = {}` from `discover()` and don't write stubs in `execute()`. The cache database entry itself serves as the success record.
+**Option 2: without stub files** — return `outputs = {}` from `discover()`
+and don't write stubs in `execute()`. The cache entry itself serves as the
+success record.
+
+(An earlier version of this page documented a `processor_type()` hook; no
+Rust code ever read it, and it has been removed.)
 
 ## The `rsconstruct` Global Table
 
@@ -170,7 +165,7 @@ Lua plugins have access to an `rsconstruct` global table with helper functions.
 
 | Function | Description |
 |---|---|
-| `rsconstruct.stub_path(project_root, source, suffix)` | Compute the stub output path for a source file. Maps `project_root/a/b/file.ext` to `out/suffix/a_b_file.ext.suffix`. |
+| `rsconstruct.stub_path(source, suffix)` | Compute the stub output path for a source file (relative to the project root). Maps `a/b/file.ext` to `out/suffix/a_b_file.ext.suffix`. |
 | `rsconstruct.run_command(program, args)` | Run an external command. Errors if the command fails (non-zero exit). |
 | `rsconstruct.run_command_cwd(program, args, cwd)` | Run an external command with a working directory. |
 | `rsconstruct.write_stub(path, content)` | Write a stub file (creates parent directories as needed). |
@@ -318,7 +313,7 @@ function discover(project_root, config, files)
     for _, file in ipairs(files) do
         table.insert(products, {
             inputs = {file},
-            outputs = {rsconstruct.stub_path(project_root, file, "yamllint")},
+            outputs = {rsconstruct.stub_path(file, "yamllint")},
         })
     end
     return products

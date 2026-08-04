@@ -222,6 +222,16 @@ impl Builder {
                 // Phase 2: Run dependency analyzers
                 self.run_analyzers(ctx, &mut graph, true)?;
 
+                // Match the main pipeline: resolve edges and validate, so
+                // `analyzers build` and `build` agree on whether the project
+                // is well-formed. This used to skip both and report success
+                // on configs that `build` rejects with a validation error.
+                graph.resolve_dependencies();
+                let validation_errors = graph.validate(&self.config.graph);
+                if !validation_errors.is_empty() {
+                    anyhow::bail!("Graph validation failed:\n{}", validation_errors.join("\n"));
+                }
+
                 // Show summary from cache
                 let deps_cache = DepsCache::open()?;
                 let stats = deps_cache.stats_by_analyzer();
@@ -263,7 +273,8 @@ impl Builder {
                 if let Some(analyzer_name) = analyzer {
                     // Clear only entries from specific analyzer
                     let deps_cache = DepsCache::open()?;
-                    let removed = crate::errors::ctx(deps_cache.remove_by_analyzer(&analyzer_name), &format!("Failed to remove deps for analyzer '{analyzer_name}'"))?;
+                    let removed = deps_cache.remove_by_analyzer(&analyzer_name)
+                        .with_context(|| format!("Failed to remove deps for analyzer '{analyzer_name}'"))?;
                     if removed > 0 {
                         println!("Removed {removed} entries from '{analyzer_name}' analyzer.");
                     } else {

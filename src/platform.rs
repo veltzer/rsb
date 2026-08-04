@@ -48,3 +48,14 @@ pub fn set_permissions_mode(path: &std::path::Path, mode: u32) -> std::io::Resul
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 }
+
+/// Register a SIGINT stream. Must be called inside a tokio runtime.
+///
+/// Registration happens at call time — unlike `tokio::signal::ctrl_c()`,
+/// which registers only when its future is first polled — so the caller can
+/// signal "handler installed" deterministically and close the startup window
+/// where a Ctrl+C would hit the default disposition and kill the process
+/// with no cleanup.
+pub fn interrupt_signal() -> std::io::Result<tokio::signal::unix::Signal> {
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+}

@@ -489,8 +489,8 @@ impl Builder {
                     *ext_counts.entry(ext.to_string()).or_default() += 1;
                 }
             }
-            println!();
-            println!("{}:", color::bold("Source files by processor"));
+            crate::output::info("");
+            crate::output::info(&format!("{}:", color::bold("Source files by processor")));
             let rows: Vec<Vec<String>> = per_processor.iter().map(|(proc_name, ext_counts)| {
                 let total: usize = ext_counts.values().sum();
                 let breakdown_str = if total == 0 {
