@@ -17,7 +17,7 @@ inventory::submit! { crate::registries::ProcessorPlugin {
     keywords: &["python", "linter", "formatter", "py", "pip"],
     description: "Lint and format Python files using ruff",
     is_native: false,
-    can_fix: true,
+    can_fix: false,
     supports_batch: true,
     max_jobs_cap: None,
 } }

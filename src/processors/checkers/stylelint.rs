@@ -17,7 +17,7 @@ inventory::submit! { crate::registries::ProcessorPlugin {
     keywords: &["css", "scss", "less", "linter", "web", "frontend", "node", "npm"],
     description: "Lint CSS/SCSS files using stylelint",
     is_native: false,
-    can_fix: true,
+    can_fix: false,
     supports_batch: true,
     max_jobs_cap: None,
 } }

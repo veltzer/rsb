@@ -46,7 +46,7 @@ impl ObjectStore {
             }
             CacheDescriptor::Tree { entries } => {
                 for entry in &entries {
-                    let file_path = Path::new(&entry.path);
+                    let file_path = super::safe_entry_path(&entry.path)?;
                     if file_path.exists() {
                         if let Some(existing) = Self::verify_checksum(ctx, file_path)
                             && existing == entry.checksum {

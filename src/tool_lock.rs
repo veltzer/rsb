@@ -180,7 +180,19 @@ fn tool_identity(_ctx: &BuildContext, tool: &str, lock: Option<&ToolLockFile>) -
         return Some(format!("{}={}", tool, locked.version_output));
     }
     let path = which::which(tool).ok()?;
-    let meta = fs::metadata(&path).ok()?;
+    let meta = match fs::metadata(&path) {
+        Ok(m) => m,
+        Err(e) => {
+            // A tool that IS on PATH but can't be stat'd (dangling symlink,
+            // unreadable parent) must not silently drop out of the cache key
+            // — that reopens the "tool upgrade leaves stale PASSes valid"
+            // hole this mechanism exists to close. Surface it.
+            crate::output::warn(&format!(
+                "Cannot stat tool '{tool}' at {}: {e} — excluding it from cache keys",
+                path.display()));
+            return None;
+        }
+    };
     let mtime = meta.modified().ok()
         .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_nanos());
@@ -204,8 +216,6 @@ pub fn processor_tool_hashes(
     processors: &ProcessorMap,
     enabled: &dyn Fn(&str) -> bool,
 ) -> Result<std::collections::HashMap<String, String>> {
-    use sha2::{Digest, Sha256};
-
     let lock = read_lock_file()?;
 
     let mut result = std::collections::HashMap::new();
@@ -257,9 +267,10 @@ pub fn processor_tool_hashes(
 
         if !version_parts.is_empty() {
             version_parts.sort();
-            let combined = version_parts.join("\n");
-            let hash = Sha256::digest(combined.as_bytes());
-            result.insert(name.clone(), hex::encode(hash));
+            // Length-prefixed parts, not a newline join: identities embed
+            // filesystem paths, which can contain newlines.
+            let parts: Vec<&str> = version_parts.iter().map(String::as_str).collect();
+            result.insert(name.clone(), crate::checksum::hash_parts(&parts));
         }
     }
 

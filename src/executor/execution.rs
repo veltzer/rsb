@@ -293,7 +293,7 @@ impl Executor<'_> {
                 // Spawn one thread per batch group
                 for (proc_name, items) in &batch_groups {
                     s.spawn(move || {
-                        self.process_batch_group(proc_name, items, lctx_ref);
+                        self.process_batch_group(proc_name, items, lctx_ref, semaphores_ref);
                     });
                 }
 
@@ -370,6 +370,7 @@ impl Executor<'_> {
         proc_name: &str,
         items: &[WorkItem],
         lctx: &LevelContext,
+        semaphores: &HashMap<String, Arc<Semaphore>>,
     ) {
         if self.is_interrupted() {
             return;
@@ -380,7 +381,7 @@ impl Executor<'_> {
         // Handle skip/restore for items that don't need rebuild
         let mut to_execute: Vec<&WorkItem> = Vec::new();
         for item in items {
-            match self.try_skip_or_restore(item, proc_name, lctx, false) {
+            match self.try_skip_or_restore(item, proc_name, lctx, true) {
                 // Already skipped or restored — nothing left to execute.
                 PreCheckResult::Handled => {}
                 PreCheckResult::NeedsExecution => to_execute.push(item),
@@ -434,19 +435,71 @@ impl Executor<'_> {
             for p in &product_refs {
                 json_output::emit_product_start(&self.product_display(p), &p.processor);
             }
+
+            // Honor the per-processor max_jobs semaphore around the tool
+            // invocation, matching the non-batch path.
+            let semaphore = semaphores.get(proc_name);
+            if let Some(sem) = semaphore {
+                sem.acquire();
+            }
             let batch_start = Instant::now();
+
+            // Retry: the first attempt covers the whole chunk; each retry
+            // re-runs only the products that failed the previous attempt, so
+            // `--retry` keeps its per-product meaning on the batch path
+            // (it used to be silently ignored here).
+            let max_attempts = 1 + self.retry;
+            let mut final_results: Vec<Option<anyhow::Result<()>>> =
+                (0..chunk.len()).map(|_| None).collect();
+            let mut pending: Vec<usize> = (0..chunk.len()).collect();
             crate::processors::set_declared_tools(Some(processor.required_tools()));
-            let results = processor.execute_batch(self.build_ctx, &product_refs);
+            for attempt in 1..=max_attempts {
+                let refs: Vec<&crate::graph::Product> =
+                    pending.iter().map(|&i| product_refs[i]).collect();
+                let results = processor.execute_batch(self.build_ctx, &refs);
+
+                // Validate batch returned correct number of results
+                assert_eq!(results.len(), refs.len(),
+                    "execute_batch returned {} results for {} products (processor: {})",
+                    results.len(), refs.len(), proc_name);
+
+                let mut still_failing: Vec<usize> = Vec::new();
+                for (&idx, result) in pending.iter().zip(results) {
+                    if result.is_err() && attempt < max_attempts {
+                        crate::output::info(&format!("[{}] {} {} (attempt {}/{}, retrying...)",
+                            proc_name,
+                            color::yellow("Retry:"),
+                            self.product_display(product_refs[idx]),
+                            attempt, max_attempts));
+                        still_failing.push(idx);
+                    } else {
+                        if result.is_ok() && attempt > 1 {
+                            // Passed on a retry: report flaky, like the non-batch path.
+                            let mut stats = lctx.shared.stats.lock();
+                            stats.entry(proc_name.to_string()).or_default().flaky += 1;
+                            crate::output::info(&format!("[{}] {} {} (passed on attempt {})",
+                                proc_name,
+                                color::yellow("FLAKY:"),
+                                self.product_display(product_refs[idx]),
+                                attempt));
+                        }
+                        final_results[idx] = Some(result);
+                    }
+                }
+                pending = still_failing;
+                if pending.is_empty() {
+                    break;
+                }
+            }
             crate::processors::set_declared_tools(None);
             let batch_duration = batch_start.elapsed();
-
-            // Validate batch returned correct number of results
-            assert_eq!(results.len(), chunk.len(),
-                "execute_batch returned {} results for {} products (processor: {})",
-                results.len(), chunk.len(), proc_name);
+            if let Some(sem) = semaphore {
+                sem.release();
+            }
 
             // Process per-product results
-            for (item, result) in chunk.iter().zip(results) {
+            for (item, result) in chunk.iter().zip(final_results) {
+                let result = result.expect("the retry loop records a final result for every product");
                 let product = lctx.graph.get_product(item.product_id).expect(errors::INVALID_PRODUCT_ID);
 
                 let ctx = HandlerContext {

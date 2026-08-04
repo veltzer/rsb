@@ -17,7 +17,7 @@ inventory::submit! { crate::registries::ProcessorPlugin {
     keywords: &["javascript", "linter", "js", "node", "npm", "web", "frontend"],
     description: "Check JavaScript style using standard",
     is_native: false,
-    can_fix: true,
+    can_fix: false,
     supports_batch: true,
     max_jobs_cap: None,
 } }

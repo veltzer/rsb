@@ -208,6 +208,21 @@ fn hash_checksums(checksums: &[String]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Hash a sequence of string parts with length prefixes, so no part can
+/// impersonate a boundary between parts — the same injection-proofing as
+/// `hash_checksums`, exposed for the other key-composition sites
+/// (`CacheKey::digest`/`descriptor_key`, tool identity hashing). Those sites
+/// used to join user-influenced values (instance names, file paths) with
+/// bare separators, letting crafted values realign key boundaries.
+pub fn hash_parts(parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    for p in parts {
+        hasher.update((p.len() as u64).to_le_bytes());
+        hasher.update(p.as_bytes());
+    }
+    hex::encode(hasher.finalize())
+}
+
 /// Outcome of a `checksum_fast` call, surfacing whether the mtime cache
 /// succeeded in avoiding a file read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

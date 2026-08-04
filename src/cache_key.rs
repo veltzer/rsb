@@ -101,26 +101,23 @@ impl CacheKey {
         &self.components
     }
 
-    /// The serialized component list that feeds the digest. Each component is
-    /// `tag=value`, joined by `|`. Both separators are excluded from tags, and
-    /// values are hex digests or config-supplied names, so the encoding is
-    /// unambiguous in practice for every current contributor.
-    fn material(&self) -> String {
-        self.components.iter()
-            .map(|(c, v)| format!("{}={}", c.tag(), v))
-            .collect::<Vec<_>>()
-            .join("|")
-    }
-
     /// A stable digest of the components alone, with no input content.
     /// `None` when there are no components, so that a product with no
     /// non-input state produces a key identical in shape to the old
     /// `config_hash: None` case.
+    ///
+    /// Tags and values are hashed as length-prefixed parts (see
+    /// `checksum::hash_parts`): analyzer values embed arbitrary file paths,
+    /// so a separator-joined encoding would let a crafted path realign
+    /// component boundaries and collide two different keys.
     pub fn digest(&self) -> Option<String> {
         if self.components.is_empty() {
             return None;
         }
-        Some(crate::checksum::bytes_checksum(self.material().as_bytes()))
+        let parts: Vec<&str> = self.components.iter()
+            .flat_map(|(c, v)| [c.tag(), v.as_str()])
+            .collect();
+        Some(crate::checksum::hash_parts(&parts))
     }
 
     /// Compute the content-addressed descriptor key for a product.
@@ -135,18 +132,14 @@ impl CacheKey {
     /// for the bump rule. For processors not in the builtin registry (e.g. Lua
     /// plugins), `v0` is used.
     pub fn descriptor_key(&self, processor: &str, input_checksum: &str) -> String {
-        let mut parts = String::new();
-        parts.push_str(processor);
-        parts.push_str(":v");
-        let version = crate::registries::processor_version(processor).unwrap_or(0);
-        parts.push_str(&version.to_string());
-        if let Some(digest) = self.digest() {
-            parts.push(':');
-            parts.push_str(&digest);
-        }
-        parts.push(':');
-        parts.push_str(input_checksum);
-        crate::checksum::bytes_checksum(parts.as_bytes())
+        let version = crate::registries::processor_version(processor).unwrap_or(0).to_string();
+        // Length-prefixed parts (not separator-joined): the processor half is
+        // a user-controlled instance name, so a name containing the separator
+        // could otherwise realign the version/digest boundaries and collide
+        // two different keys. An absent digest is the empty part — the length
+        // prefix keeps it distinct from every real digest.
+        let digest = self.digest().unwrap_or_default();
+        crate::checksum::hash_parts(&[processor, &version, &digest, input_checksum])
     }
 }
 
@@ -203,6 +196,31 @@ mod tests {
         let before = key.digest();
         key.push(Component::ToolVersion, "def");
         assert_ne!(before, key.digest());
+    }
+
+    #[test]
+    fn descriptor_key_is_injection_proof() {
+        // Under the old separator-joined scheme both sides hashed the same
+        // string ("p:v0:q:v0:r"): a user-controlled instance name containing
+        // the separator realigned the version boundary. Length-prefixed
+        // parts make the boundaries structural.
+        assert_ne!(
+            CacheKey::new().descriptor_key("p:v0:q", "r"),
+            CacheKey::new().descriptor_key("p", "q:v0:r"),
+            "instance names must not be able to realign key boundaries");
+    }
+
+    #[test]
+    fn digest_is_injection_proof() {
+        // Analyzer values embed arbitrary file paths; a value containing the
+        // old "|tag=" encoding must not collide with two real components.
+        let mut spliced = CacheKey::new();
+        spliced.push(Component::Analyzer, "a|analyzer=b");
+        let mut two = CacheKey::new();
+        two.push(Component::Analyzer, "a");
+        two.push(Component::Analyzer, "b");
+        assert_ne!(spliced.digest(), two.digest(),
+            "analyzer values must not be able to fake component boundaries");
     }
 
     #[test]

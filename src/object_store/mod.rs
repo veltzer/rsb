@@ -45,6 +45,20 @@ pub fn walk_files(dir: &Path) -> Vec<PathBuf> {
     result
 }
 
+/// Reject descriptor entry paths with `..` components — they could write
+/// (restore) or delete (stale-output cleanup via `previous_tree_paths`)
+/// outside the project root. Absolute paths are additionally rejected at the
+/// remote-fetch boundary (`try_fetch_descriptor_from_remote`): production
+/// entries are always project-root-relative, so an absolute path can only
+/// come from a foreign descriptor.
+pub(super) fn safe_entry_path(raw: &str) -> Result<&Path> {
+    let path = Path::new(raw);
+    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        anyhow::bail!("cache descriptor entry path '{raw}' escapes the project root");
+    }
+    Ok(path)
+}
+
 const RSBUILD_DIR: &str = ".rsconstruct";
 const OBJECTS_DIR: &str = "objects";
 const DESCRIPTORS_DIR: &str = "descriptors";

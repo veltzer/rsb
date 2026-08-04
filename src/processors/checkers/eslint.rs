@@ -17,7 +17,7 @@ inventory::submit! { crate::registries::ProcessorPlugin {
     keywords: &["javascript", "typescript", "linter", "js", "ts", "jsx", "tsx", "node", "npm", "web", "frontend"],
     description: "Lint JavaScript/TypeScript files using ESLint",
     is_native: false,
-    can_fix: true,
+    can_fix: false,
     supports_batch: true,
     max_jobs_cap: None,
 } }

@@ -967,6 +967,16 @@ fn generate_completion_script(shell: Shell) -> Result<String> {
 /// generated script, so a format change fails `cargo test` before it can
 /// reach a user.
 fn inject_bash_processor_completions(script: &str) -> Result<String> {
+    // The fixer alternation is generated from the plugin registry so it can
+    // never drift from `can_fix` (it used to be a hand-maintained copy that
+    // had to be updated whenever a plugin's flag changed). Sorted for
+    // deterministic output; may be empty when no plugin declares can_fix.
+    let mut fixer_types: Vec<&str> = crate::registries::all_plugins()
+        .filter(|p| p.can_fix)
+        .map(|p| p.name)
+        .collect();
+    fixer_types.sort_unstable();
+
     // Bash helpers: extract instance names from rsconstruct.toml.
     let helper = r#"
 _rsconstruct_inames() {
@@ -983,14 +993,15 @@ _rsconstruct_analyzer_inames() {
 }
 _rsconstruct_fixer_inames() {
     # Filter inames to only processors with fix capability.
-    # Types with built-in fix: ruff, black, prettier, eslint, stylelint, standard, taplo, rumdl, markdownlint.
+    # The alternation below is generated from the plugin registry (can_fix)
+    # when the completion script is emitted; it may be empty.
     # For script processors: check if fix_command is set in the toml section.
     local toml="rsconstruct.toml"
     [[ -f "$toml" ]] || return
-    local fixers="ruff|black|prettier|eslint|stylelint|standard|taplo|rumdl|markdownlint"
+    local fixers="__RSCONSTRUCT_FIXER_TYPES__"
     for iname in $(_rsconstruct_inames); do
         local pname="${iname%%.*}"
-        if echo "$pname" | grep -qE "^($fixers)$"; then
+        if [ -n "$fixers" ] && echo "$pname" | grep -qE "^($fixers)$"; then
             echo "$iname"
         elif [ "$pname" = "script" ]; then
             # Check if fix_command is set in this script section
@@ -1000,7 +1011,7 @@ _rsconstruct_fixer_inames() {
         fi
     done
 }
-"#;
+"#.replace("__RSCONSTRUCT_FIXER_TYPES__", &fixer_types.join("|"));
 
     // Replace instance-name targets to call _rsconstruct_inames at tab time.
     // For each target section, replace the early-return COMPREPLY with a call to our helper.

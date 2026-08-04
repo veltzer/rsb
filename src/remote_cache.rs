@@ -158,8 +158,19 @@ impl RemoteCache for HttpBackend {
             &self.full_url(key),
         ]);
         let output = run_command_capture(ctx, &cmd)?;
-        let status_code = String::from_utf8_lossy(&output.stdout);
-        Ok(status_code.trim() == "200")
+        if !output.status.success() {
+            // Transport failure (DNS, connection refused, timeout) must be
+            // an error, not "absent" — collapsing them silently degrades
+            // every machine to full rebuilds with zero diagnostics.
+            anyhow::bail!("HTTP cache unreachable for {} (curl exit {:?})",
+                self.full_url(key), output.status.code());
+        }
+        match String::from_utf8_lossy(&output.stdout).trim() {
+            "200" => Ok(true),
+            "404" | "410" => Ok(false),
+            other => anyhow::bail!("HTTP cache returned status {other} for {}",
+                self.full_url(key)),
+        }
     }
 
     fn upload(&self, ctx: &crate::build_context::BuildContext, key: &str, src: &Path) -> Result<()> {
@@ -174,15 +185,32 @@ impl RemoteCache for HttpBackend {
     }
 
     fn download_bytes(&self, ctx: &crate::build_context::BuildContext, key: &str) -> Result<Option<Vec<u8>>> {
+        // Body goes to a temp file so stdout carries only the status code —
+        // that is what lets a 404 (a normal cache miss) be distinguished
+        // from a transport failure (an error the caller must see).
+        let url = self.full_url(key);
+        let tmp = std::env::temp_dir().join(format!("rsconstruct-download-{}", uuid_simple()));
         let mut cmd = Command::new("curl");
-        cmd.args(["-s", "-f", &self.full_url(key)]);
-        let output = run_command_capture(ctx, &cmd)?;
-
-        if output.status.success() {
-            Ok(Some(output.stdout))
-        } else {
-            Ok(None)
-        }
+        cmd.args(["-s", "-o"]).arg(&tmp).args(["-w", "%{http_code}", &url]);
+        let output = run_command_capture(ctx, &cmd);
+        let result = (|| {
+            let output = output?;
+            if !output.status.success() {
+                anyhow::bail!("HTTP cache unreachable for {url} (curl exit {:?})",
+                    output.status.code());
+            }
+            match String::from_utf8_lossy(&output.stdout).trim() {
+                "200" => {
+                    let data = fs::read(&tmp)
+                        .with_context(|| format!("Failed to read downloaded cache entry: {}", tmp.display()))?;
+                    Ok(Some(data))
+                }
+                "404" | "410" => Ok(None),
+                other => anyhow::bail!("HTTP cache returned status {other} for {url}"),
+            }
+        })();
+        let _ = fs::remove_file(&tmp);
+        result
     }
 }
 
@@ -258,23 +286,12 @@ impl RemoteCache for FileBackend {
         Ok(Some(data))
     }
 
-    fn upload_bytes(&self, _ctx: &crate::build_context::BuildContext, key: &str, data: &[u8]) -> Result<()> {
-        let path = self.full_path(key);
-
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create directory for cache upload: {}", parent.display()))?;
-        }
-
-        fs::write(&path, data)
-            .with_context(|| format!("Failed to write to remote cache: {}", path.display()))?;
-
-        // Make read-only to prevent corruption, consistent with upload()
-        crate::platform::set_permissions_mode(&path, 0o444)
-            .with_context(|| format!("Failed to set remote cache entry read-only: {}", path.display()))?;
-
-        Ok(())
-    }
+    // upload_bytes deliberately NOT overridden: the trait default writes a
+    // temp file and delegates to `upload()`, whose copy → chmod → rename
+    // discipline is what keeps other machines reading the shared mount from
+    // ever observing a half-written entry. A previous override here did a
+    // bare `fs::write` at the final key — torn reads for consumers, and a
+    // hard EACCES failure on every re-push over the 0o444 file.
 }
 
 /// Generate a simple unique identifier (timestamp + pid + counter)

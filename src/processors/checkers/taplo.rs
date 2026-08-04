@@ -17,7 +17,7 @@ inventory::submit! { crate::registries::ProcessorPlugin {
     keywords: &["toml", "formatter", "linter", "validator"],
     description: "Check TOML files using taplo",
     is_native: false,
-    can_fix: true,
+    can_fix: false,
     supports_batch: true,
     max_jobs_cap: None,
 } }

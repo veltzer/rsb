@@ -93,7 +93,17 @@ impl ObjectStore {
     pub fn previous_tree_paths(&self, cache_key: &str) -> Vec<PathBuf> {
         match self.get_descriptor(cache_key) {
             Some(CacheDescriptor::Tree { entries }) => {
-                entries.into_iter().map(|e| PathBuf::from(e.path)).collect()
+                entries.into_iter()
+                    .filter_map(|e| match super::safe_entry_path(&e.path) {
+                        Ok(_) => Some(PathBuf::from(e.path)),
+                        // These paths feed fs::remove_file — never delete
+                        // outside the project root on a descriptor's say-so.
+                        Err(err) => {
+                            crate::output::warn(&format!("Ignoring unsafe tree entry: {err}"));
+                            None
+                        }
+                    })
+                    .collect()
             }
             _ => Vec::new(),
         }
