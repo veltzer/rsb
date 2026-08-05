@@ -12,12 +12,32 @@
 use anyhow::{Context, Result, bail};
 use std::process::Command;
 
-use crate::config::{PandocConfig, PANDOC_PDF_ENGINES};
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::graph::Product;
 use crate::processors::{
     DiscoverMode, SimpleGenerator, SimpleGeneratorParams,
     run_command, check_command_output, ensure_output_dir,
 };
+
+/// Engines accepted for `pandoc.pdf_engine`. Empty string means "use pandoc's default".
+pub const PANDOC_PDF_ENGINES: &[&str] = &["pdflatex", "xelatex", "lualatex", "tectonic", "wkhtmltopdf", "weasyprint", "prince", "context"];
+
+/// Pandoc processor config. Custom field: `pdf_engine` (forwarded to --pdf-engine
+/// when format == pdf). Empty string keeps pandoc's default engine.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PandocConfig {
+    #[serde(default)]
+    pub pdf_engine: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+impl AsRef<StandardConfig> for PandocConfig {
+    fn as_ref(&self) -> &StandardConfig {
+        &self.standard
+    }
+}
 
 fn validate_pdf_engine(engine: &str) -> Result<()> {
     if !engine.is_empty() && !PANDOC_PDF_ENGINES.contains(&engine) {
@@ -89,11 +109,15 @@ fn plugin_create(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,
     name: "pandoc", processor_type: crate::processors::ProcessorType::Generator, create: plugin_create,
-    known_fields: crate::registries::typed_known_fields::<crate::config::PandocConfig>,
-    checksum_fields: crate::registries::typed_checksum_fields::<crate::config::PandocConfig>,
-    must_fields: crate::registries::typed_must_fields::<crate::config::PandocConfig>,
-    field_descriptions: crate::registries::typed_field_descriptions::<crate::config::PandocConfig>,
-    defconfig_json: crate::registries::default_config_json::<crate::config::PandocConfig>,
+    fields: &[
+        crate::config::FieldSpec { name: "pdf_engine", ty: crate::config::FieldType::String,
+            affects_output: true, required: false,
+            doc: "PDF engine for --pdf-engine (e.g. xelatex, lualatex). Empty = pandoc default (pdflatex)." },
+    ],
+    omit_standard_fields: &[],
+    scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+    defaults: Some(crate::config::ProcessorDefaults { output_dir: "out/pandoc", formats: &["pdf", "html", "docx"], command: "pandoc", ..crate::config::ProcessorDefaults::EMPTY }),
+    defconfig_json: crate::registries::default_config_json::<PandocConfig>,
     keywords: &["markdown", "converter", "pdf", "html", "docx", "generator"],
     description: "Convert documents using pandoc",
     is_native: false,

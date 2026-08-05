@@ -2,12 +2,43 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::process::Command;
 
-use crate::config::PdflatexConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output};
 
 use super::DiscoverParams;
+
+const fn default_pdflatex_runs() -> usize {
+    2
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PdflatexConfig {
+    #[serde(default = "default_pdflatex_runs")]
+    pub runs: usize,
+    #[serde(default = "crate::config::default_true")]
+    pub qpdf: bool,
+    /// Pass -shell-escape to pdflatex. Historically always on; note it lets
+    /// any .tex input execute arbitrary shell commands during the build.
+    #[serde(default = "crate::config::default_true")]
+    pub shell_escape: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for PdflatexConfig {
+    fn default() -> Self {
+        Self {
+            runs: 2,
+            qpdf: true,
+            shell_escape: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 /// Temp file extensions produced by pdflatex that should be cleaned between runs.
 pub struct PdflatexProcessor {
@@ -52,7 +83,7 @@ impl Processor for PdflatexProcessor {
             config: &self.config,
             output_dir: &self.config.standard.output_dir,
             processor_name: instance_name,
-            checksum_fields: <crate::config::PdflatexConfig as crate::config::KnownFields>::checksum_fields(),
+            checksum_fields: crate::config::checksum_fields_of(instance_name),
         };
         super::discover_single_format(graph, file_index, &params, "pdf")
     }
@@ -149,11 +180,21 @@ inventory::submit! {
         name: "pdflatex",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::PdflatexConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::PdflatexConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::PdflatexConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::PdflatexConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::PdflatexConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "runs", ty: crate::config::FieldType::Integer,
+                affects_output: true, required: false,
+                doc: "Number of pdflatex compilation passes" },
+            crate::config::FieldSpec { name: "qpdf", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Run qpdf to optimize the output PDF" },
+            crate::config::FieldSpec { name: "shell_escape", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Pass -shell-escape to pdflatex (lets .tex files run shell commands)" },
+        ],
+        omit_standard_fields: &["formats"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".tex"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "pdflatex", output_dir: "out/pdflatex", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<PdflatexConfig>,
         keywords: &["latex", "tex", "pdf", "generator", "typesetting"],
         description: "Compile LaTeX documents using pdflatex",
         is_native: false,

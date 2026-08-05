@@ -8,7 +8,6 @@ use anyhow::Result;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::config::KnownFields;
 use crate::processors::{Processor, ProcessorType};
 
 /// A processor plugin. One struct for all processor types.
@@ -35,11 +34,25 @@ pub struct ProcessorPlugin {
     pub version: u32,
     /// Create a processor from resolved TOML config (defaults already applied).
     pub create: fn(&toml::Value) -> Result<Box<dyn Processor>>,
-    /// Config metadata
-    pub known_fields: fn() -> &'static [&'static str],
-    pub checksum_fields: fn() -> &'static [&'static str],
-    pub must_fields: fn() -> &'static [&'static str],
-    pub field_descriptions: fn() -> &'static [(&'static str, &'static str)],
+    /// The processor's custom config fields — THE schema. Every projection
+    /// (known/checksum/must fields, descriptions, expected types) derives
+    /// from this list plus the implicit `StandardConfig` fields, so a field
+    /// is declared exactly once, in the processor's own file. Standard
+    /// fields need no entry unless overridden (e.g. `required: true` on
+    /// "command"); a spec whose name matches a standard field replaces the
+    /// inherited one.
+    pub fields: &'static [crate::config::FieldSpec],
+    /// Standard fields this processor does NOT accept (e.g. `cc` takes no
+    /// "command" — compilers come from cc.yaml). Listed fields are removed
+    /// from the derived known/checksum sets, so the validator rejects them.
+    pub omit_standard_fields: &'static [&'static str],
+    /// Scan defaults (`src_extensions` etc.), applied with provenance before
+    /// deserialization. `None` for processors that scan nothing by default
+    /// (script, creator, generator, explicit).
+    pub scan_defaults: Option<crate::config::ScanDefaultsData>,
+    /// Processor defaults (`command`, `dep_auto`, ...), applied with
+    /// provenance before deserialization. `None` when every default is empty.
+    pub defaults: Option<crate::config::ProcessorDefaults>,
     /// Return the default config as pretty JSON. Receives the processor name
     /// so it can apply the correct defaults.
     pub defconfig_json: fn(&str) -> Option<String>,
@@ -150,41 +163,35 @@ pub fn deserialize_and_try_create<C: Default + DeserializeOwned>(
 }
 
 /// Build default config JSON for a config type, applying defaults for the given processor name.
-pub fn default_config_json<C: Default + DeserializeOwned + Serialize + KnownFields>(name: &str) -> Option<String> {
+pub fn default_config_json<C: Default + DeserializeOwned + Serialize>(name: &str) -> Option<String> {
     let mut val = toml::Value::Table(toml::map::Map::new());
     let mut prov = crate::config::ProvenanceMap::new();
     apply_all_defaults(name, &mut val, &mut prov);
     let cfg: C = toml::from_str(&toml::to_string(&val).ok()?).ok()?;
     let json_val = serde_json::to_value(&cfg).ok()?;
 
-    // Stage C defense-in-depth check (debug builds only): every key the user
-    // can write must be classified as either "in checksum_fields" (affects
-    // output) or "in known_fields - checksum_fields" (recognized but not
-    // hashed). Configs that `#[serde(flatten)]` StandardConfig inherit all of
-    // its fields at serialization time even when the per-processor
-    // known_fields() omits them, so StandardConfig's known_fields are also
-    // accepted as recognized.
+    // Defense-in-depth check (debug builds only): every key the config
+    // serializes must be recognized by the derived schema (the plugin's
+    // FieldSpec list plus the implicit StandardConfig/scan fields) — a
+    // serialized-but-undeclared field would be invisible to validation and
+    // to checksum membership.
     // Runtime-gated, not `#[cfg]`-forked: a cfg'd-out block is code that
     // `cargo test` can never compile. `cfg!` keeps it compiled everywhere
     // and evaluated only in debug builds.
     if cfg!(debug_assertions)
         && let Some(obj) = json_val.as_object() {
-            let known: std::collections::HashSet<&str> = C::known_fields().iter().copied()
-                .chain(crate::config::StandardConfig::known_fields().iter().copied())
-                .chain(crate::config::SCAN_CONFIG_FIELDS.iter().copied())
-                .chain(crate::config::STANDARD_EXTRA_FIELDS.iter().copied())
-                .collect();
-            let checksum: std::collections::HashSet<&str> = C::checksum_fields().iter().copied().collect();
+            use crate::config::KnownFields as _;
+            let known: std::collections::HashSet<&str> =
+                crate::config::ProcessorConfig::known_fields_for(name).unwrap_or_default()
+                    .into_iter()
+                    .chain(crate::config::StandardConfig::known_fields().iter().copied())
+                    .chain(crate::config::SCAN_CONFIG_FIELDS.iter().copied())
+                    .chain(crate::config::STANDARD_EXTRA_FIELDS.iter().copied())
+                    .collect();
             for key in obj.keys() {
                 debug_assert!(
                     known.contains(key.as_str()),
-                    "Processor '{name}': default config field '{key}' is serialized but not declared in known_fields() or scan fields"
-                );
-            }
-            for k in &checksum {
-                debug_assert!(
-                    known.contains(k),
-                    "Processor '{name}': checksum_fields() contains '{k}' which is not in known_fields()"
+                    "Processor '{name}': default config field '{key}' is serialized but not declared in its FieldSpec list or scan fields"
                 );
             }
         }
@@ -192,10 +199,11 @@ pub fn default_config_json<C: Default + DeserializeOwned + Serialize + KnownFiel
     serde_json::to_string_pretty(&json_val).ok()
 }
 
-pub fn typed_known_fields<C: KnownFields>() -> &'static [&'static str] { C::known_fields() }
-pub fn typed_checksum_fields<C: KnownFields>() -> &'static [&'static str] { C::checksum_fields() }
-pub fn typed_must_fields<C: KnownFields>() -> &'static [&'static str] { C::must_fields() }
-pub fn typed_field_descriptions<C: KnownFields>() -> &'static [(&'static str, &'static str)] { C::field_descriptions() }
+// Typed KnownFields projection — used by ANALYZER plugin entries only
+// (AnalyzerPlugin still carries metadata as fn pointers). Processor plugins
+// declare a FieldSpec list instead; do not use this in ProcessorPlugin
+// entries.
+pub fn typed_known_fields<C: crate::config::KnownFields>() -> &'static [&'static str] { C::known_fields() }
 
 #[cfg(test)]
 mod tests {

@@ -2,10 +2,36 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{GemConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, SiblingFilter, run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+fn default_gem_home() -> String {
+    "gems".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GemConfig {
+    #[serde(default = "default_gem_home")]
+    pub gem_home: String,
+    #[serde(default = "crate::config::default_true")]
+    pub cache_output_dir: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for GemConfig {
+    fn default() -> Self {
+        Self {
+            gem_home: "gems".into(),
+            cache_output_dir: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct GemProcessor {
     config: GemConfig,
@@ -57,7 +83,7 @@ impl Processor for GemProcessor {
             return Ok(());
         };
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::GemConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         let siblings = SiblingFilter {
@@ -108,11 +134,18 @@ inventory::submit! {
         name: "gem",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::GemConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::GemConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::GemConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::GemConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::GemConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "gem_home", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Directory where gems are installed" },
+            crate::config::FieldSpec { name: "cache_output_dir", ty: crate::config::FieldType::Bool,
+                affects_output: false, required: false,
+                doc: "Cache the entire output directory as a unit" },
+        ],
+        omit_standard_fields: &["formats", "dep_auto", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["Gemfile"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "bundle", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<GemConfig>,
         keywords: &["ruby", "gem", "package-manager", "rb"],
         description: "Install Ruby dependencies using Bundler",
         is_native: false,

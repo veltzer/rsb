@@ -248,19 +248,17 @@ fn print_processor_metadata(name: &str, verbose: bool) {
     use crate::config::{SCAN_FIELD_DESCRIPTIONS, SHARED_FIELD_DESCRIPTIONS};
 
     let proc_descs = crate::config::ProcessorConfig::field_descriptions_for(name)
-        .unwrap_or(&[]);
+        .unwrap_or_default();
 
     let must_fields: std::collections::HashSet<&str> =
         crate::config::ProcessorConfig::must_fields_for(name)
-            .unwrap_or(&[])
-            .iter()
-            .copied()
+            .unwrap_or_default()
+            .into_iter()
             .collect();
     let checksum_fields: std::collections::HashSet<&str> =
         crate::config::ProcessorConfig::checksum_fields_for(name)
-            .unwrap_or(&[])
-            .iter()
-            .copied()
+            .unwrap_or_default()
+            .into_iter()
             .collect();
 
     let defaults: serde_json::Value = crate::config::ProcessorConfig::defconfig_json(name)

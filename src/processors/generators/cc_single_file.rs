@@ -320,10 +320,116 @@ fn expand_backticks(ctx: &crate::build_context::BuildContext, value: &str) -> Re
 
 use std::path::PathBuf;
 
-use crate::config::{CcSingleFileConfig, CompilerProfile, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, format_command, run_command};
+
+/// Method for scanning C/C++ header dependencies
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum IncludeScanner {
+    /// Native regex-based scanner (fast, no external process)
+    #[default]
+    Native,
+    /// Use gcc/g++ -MM (accurate but slower, spawns external process)
+    Compiler,
+}
+
+/// Configuration for a single compiler profile
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct CompilerProfile {
+    /// Profile name (used in output paths, e.g., "gcc", "clang")
+    pub name: String,
+    /// Whether this profile is enabled (default: true)
+    #[serde(default = "crate::config::default_true")]
+    pub enabled: bool,
+    #[serde(default = "crate::config::default_cc_compiler")]
+    pub cc: String,
+    #[serde(default = "crate::config::default_cxx_compiler")]
+    pub cxx: String,
+    #[serde(default)]
+    pub cflags: Vec<String>,
+    #[serde(default)]
+    pub cxxflags: Vec<String>,
+    #[serde(default)]
+    pub ldflags: Vec<String>,
+    #[serde(default = "crate::config::default_output_suffix")]
+    pub output_suffix: String,
+}
+
+/// `CcSingleFile` config. Custom fields: cc, cxx, cflags, cxxflags, ldflags, `output_suffix`, compilers, `include_paths`, `include_scanner`.
+/// Unused `StandardConfig` fields: command, formats.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CcSingleFileConfig {
+    /// Legacy single-compiler fields (used when `compilers` is empty)
+    #[serde(default = "crate::config::default_cc_compiler")]
+    pub cc: String,
+    #[serde(default = "crate::config::default_cxx_compiler")]
+    pub cxx: String,
+    #[serde(default)]
+    pub cflags: Vec<String>,
+    #[serde(default)]
+    pub cxxflags: Vec<String>,
+    #[serde(default)]
+    pub ldflags: Vec<String>,
+    #[serde(default = "crate::config::default_output_suffix")]
+    pub output_suffix: String,
+    /// Multiple compiler profiles (if set, overrides legacy fields)
+    #[serde(default)]
+    pub compilers: Vec<CompilerProfile>,
+    /// Shared settings across all compilers
+    #[serde(default)]
+    pub include_paths: Vec<String>,
+    /// Method for scanning header dependencies (native or compiler)
+    #[serde(default)]
+    pub include_scanner: IncludeScanner,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl CcSingleFileConfig {
+    /// Get the list of enabled compiler profiles to use.
+    /// If `compilers` is set, returns enabled profiles from that list.
+    /// Otherwise, creates a single profile from the legacy fields.
+    pub(crate) fn get_compiler_profiles(&self) -> Vec<CompilerProfile> {
+        if self.compilers.is_empty() {
+            // Legacy mode: create single profile from top-level fields
+            vec![CompilerProfile {
+                name: String::new(), // Empty name = no subdirectory
+                enabled: true,
+                cc: self.cc.clone(),
+                cxx: self.cxx.clone(),
+                cflags: self.cflags.clone(),
+                cxxflags: self.cxxflags.clone(),
+                ldflags: self.ldflags.clone(),
+                output_suffix: self.output_suffix.clone(),
+            }]
+        } else {
+            self.compilers.iter().filter(|p| p.enabled).cloned().collect()
+        }
+    }
+}
+
+impl Default for CcSingleFileConfig {
+    fn default() -> Self {
+        Self {
+            cc: "gcc".into(),
+            cxx: "g++".into(),
+            cflags: Vec::new(),
+            cxxflags: Vec::new(),
+            ldflags: Vec::new(),
+            output_suffix: ".elf".into(),
+            compilers: Vec::new(),
+            include_paths: Vec::new(),
+            include_scanner: IncludeScanner::default(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 
 pub struct CcSingleFileProcessor {
@@ -464,7 +570,7 @@ impl CcSingleFileProcessor {
             return Ok(());
         }
 
-        let cfg_hash = if for_clean { None } else { Some(output_config_hash(&self.config, <crate::config::CcSingleFileConfig as crate::config::KnownFields>::checksum_fields())) };
+        let cfg_hash = if for_clean { None } else { Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name))) };
         let extra = if for_clean { Vec::new() } else { resolve_extra_inputs(&self.config.standard.dep_inputs)? };
 
         for profile in &self.profiles {
@@ -551,11 +657,39 @@ inventory::submit! {
         name: "cc_single_file",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::CcSingleFileConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::CcSingleFileConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::CcSingleFileConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::CcSingleFileConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::CcSingleFileConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "cc", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "C compiler executable" },
+            crate::config::FieldSpec { name: "cxx", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "C++ compiler executable" },
+            crate::config::FieldSpec { name: "cflags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Flags passed when compiling C sources" },
+            crate::config::FieldSpec { name: "cxxflags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Flags passed when compiling C++ sources" },
+            crate::config::FieldSpec { name: "ldflags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Flags passed to the linker" },
+            crate::config::FieldSpec { name: "output_suffix", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Suffix appended to output binary names" },
+            crate::config::FieldSpec { name: "compilers", ty: crate::config::FieldType::TableArray,
+                affects_output: true, required: false,
+                doc: "Named compiler profiles (overrides cc/cxx when set)" },
+            crate::config::FieldSpec { name: "include_paths", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Additional header search directories" },
+            crate::config::FieldSpec { name: "include_scanner", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Header dependency scanner: native (fast) or compiler (accurate)" },
+        ],
+        omit_standard_fields: &["command", "formats", "args"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { output_dir: "out/cc_single_file", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<CcSingleFileConfig>,
         keywords: &["c", "cpp", "compiler", "gcc", "clang", "binary", "executable"],
         description: "Compile C/C++ source files into executables (single-file)",
         is_native: false,

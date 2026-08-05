@@ -1,12 +1,24 @@
 use anyhow::Result;
 use std::process::Command;
 
-use crate::config::{Jinja2Config, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output};
 
 use super::TemplateItem;
+
+/// Jinja2 template processor config. No custom fields.
+/// `command` is the Python interpreter used to render (default: python3).
+/// Unused `StandardConfig` fields: formats, `output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
+pub struct Jinja2Config {
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 /// Render a Jinja2 template via the configured Python interpreter and write to output
 fn render_jinja2(ctx: &crate::build_context::BuildContext, python: &str, item: &TemplateItem) -> Result<()> {
@@ -81,7 +93,7 @@ impl Processor for Jinja2Processor {
                 inputs,
                 vec![item.output_path.clone()],
                 instance_name,
-                Some(output_config_hash(&self.config, <crate::config::Jinja2Config as crate::config::KnownFields>::checksum_fields())),
+                Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name))),
             )?;
         }
 
@@ -107,11 +119,11 @@ inventory::submit! {
         name: "jinja2",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::Jinja2Config>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::Jinja2Config>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::Jinja2Config>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::Jinja2Config>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::Jinja2Config>,
+        fields: &[],
+        omit_standard_fields: &[],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".j2"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "python3", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<Jinja2Config>,
         keywords: &["python", "template", "generator", "jinja", "pip"],
         description: "Render Jinja2 templates into output files",
         is_native: false,

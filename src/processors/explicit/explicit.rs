@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::config::ExplicitConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{
@@ -10,6 +12,21 @@ use crate::processors::{
     run_command, check_command_output, ensure_output_dir,
 };
 use crate::config::output_config_hash;
+
+/// Explicit config. Custom: inputs, `input_globs`, `output_files`, `output_dirs`.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ExplicitConfig {
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    #[serde(default)]
+    pub input_globs: Vec<String>,
+    #[serde(default)]
+    pub output_files: Vec<String>,
+    #[serde(default)]
+    pub output_dirs: Vec<String>,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct ExplicitProcessor {
     config: ExplicitConfig,
@@ -91,7 +108,7 @@ impl Processor for ExplicitProcessor {
 
         let output_files: Vec<PathBuf> = self.config.output_files.iter().map(PathBuf::from).collect();
         let output_dirs: Vec<PathBuf> = self.config.output_dirs.iter().map(PathBuf::from).collect();
-        let hash = Some(output_config_hash(&self.config, <crate::config::ExplicitConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
 
         if output_dirs.is_empty() {
             graph.add_product(inputs, output_files, instance_name, hash)?;
@@ -162,11 +179,27 @@ inventory::submit! {
         name: "explicit",
         processor_type: crate::processors::ProcessorType::Explicit,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::ExplicitConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::ExplicitConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::ExplicitConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::ExplicitConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::ExplicitConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "command", ty: crate::config::FieldType::String,
+                affects_output: true, required: true,
+                doc: "Command to run to produce the outputs" },
+            crate::config::FieldSpec { name: "inputs", ty: crate::config::FieldType::StringArray,
+                affects_output: false, required: false,
+                doc: "Explicit list of input files" },
+            crate::config::FieldSpec { name: "input_globs", ty: crate::config::FieldType::StringArray,
+                affects_output: false, required: false,
+                doc: "Glob patterns for input files" },
+            crate::config::FieldSpec { name: "output_files", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Output files produced by the command" },
+            crate::config::FieldSpec { name: "output_dirs", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Output directories produced by the command" },
+        ],
+        omit_standard_fields: &["formats", "dep_inputs", "dep_auto", "output_dir", "batch", "max_jobs"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults::EMPTY),
+        defconfig_json: crate::registries::default_config_json::<ExplicitConfig>,
         keywords: &["explicit", "command", "custom", "script"],
         description: "Run a command with explicitly declared inputs and outputs",
         is_native: false,

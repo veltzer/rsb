@@ -3,10 +3,47 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{PdfuniteConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output};
+
+fn default_pdfunite_source_dir() -> String {
+    "marp/courses".into()
+}
+
+fn default_pdfunite_source_ext() -> String {
+    ".md".into()
+}
+
+fn default_pdfunite_source_output_dir() -> String {
+    "out/marp".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PdfuniteConfig {
+    #[serde(default = "default_pdfunite_source_dir")]
+    pub source_dir: String,
+    #[serde(default = "default_pdfunite_source_ext")]
+    pub source_ext: String,
+    #[serde(default = "default_pdfunite_source_output_dir")]
+    pub source_output_dir: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for PdfuniteConfig {
+    fn default() -> Self {
+        Self {
+            source_dir: "marp/courses".into(),
+            source_ext: ".md".into(),
+            source_output_dir: "out/marp".into(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct PdfuniteProcessor {
     config: PdfuniteConfig,
@@ -74,7 +111,7 @@ impl Processor for PdfuniteProcessor {
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {
         let base = Path::new(&self.config.source_dir);
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::PdfuniteConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         // Compute upstream scan dir once
@@ -145,11 +182,21 @@ inventory::submit! {
         name: "pdfunite",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::PdfuniteConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::PdfuniteConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::PdfuniteConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::PdfuniteConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::PdfuniteConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "source_dir", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Directory containing course YAML files listing PDFs to merge" },
+            crate::config::FieldSpec { name: "source_ext", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Extension of source files used to find PDFs" },
+            crate::config::FieldSpec { name: "source_output_dir", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Directory where source PDFs (to be merged) are located" },
+        ],
+        omit_standard_fields: &["formats"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["course.yaml"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "pdfunite", output_dir: "out/pdfunite", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<PdfuniteConfig>,
         keywords: &["pdf", "merger", "generator"],
         description: "Merge PDFs from subdirectories into course bundles",
         is_native: false,

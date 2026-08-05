@@ -531,148 +531,119 @@ fn substitute_variables_rejects_partial_undefined_references() {
         "expected the residual-reference error, got: {err}");
 }
 
-// Schema-consistency tests.
+// Schema tests.
 //
-// A processor's field schema is spread across hand-synced places: the
-// config struct, `known_fields()`, `checksum_fields()`,
-// `field_descriptions()`, and the `expected_field_type` table. Nothing in
-// the type system keeps them in agreement, and they have drifted before
-// (dead `*_bin` type arms for fields that no longer exist; checksum
-// fields missing from type validation). These tests iterate every
-// registered plugin and fail on any disagreement.
+// The field schema is the plugin's FieldSpec list — known/checksum/must
+// fields, descriptions, and expected types are all projections of it, so
+// the old cross-list drift class (dead type arms, checksum entries naming
+// removed fields, undocumented fields) is impossible by construction. The
+// properties that remain checkable are the ones the data itself can get
+// wrong.
 
-use crate::config::{expected_field_type, SCAN_CONFIG_FIELDS, STANDARD_EXTRA_FIELDS};
+use crate::config::SCAN_CONFIG_FIELDS;
 use crate::registries::processor::all_plugins;
 
-/// Every field a processor declares must have a type-validation entry.
-/// Without one, `--iset`/config type checking silently accepts anything
-/// for that field.
+/// `FieldSpec` entries must be well-formed: non-empty name, non-empty doc
+/// (a blank doc is a blank cell in `processors defconfig`), no duplicate
+/// names within a plugin, and no collision with scan fields (scan fields
+/// are validated generically; a spec shadowing one would create two
+/// authorities for its type).
 #[test]
-fn every_known_field_has_an_expected_type() {
+fn every_field_spec_is_well_formed() {
+    let mut bad: Vec<String> = Vec::new();
+    for plugin in all_plugins() {
+        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for spec in plugin.fields {
+            if spec.name.is_empty() {
+                bad.push(format!("{}: empty field name", plugin.name));
+            }
+            if spec.doc.is_empty() {
+                bad.push(format!("{}.{}: empty doc", plugin.name, spec.name));
+            }
+            if !seen.insert(spec.name) {
+                bad.push(format!("{}.{}: duplicate FieldSpec", plugin.name, spec.name));
+            }
+            if SCAN_CONFIG_FIELDS.contains(&spec.name) {
+                bad.push(format!("{}.{}: FieldSpec shadows a scan field", plugin.name, spec.name));
+            }
+        }
+        for omitted in plugin.omit_standard_fields {
+            use crate::config::KnownFields as _;
+            if !crate::config::StandardConfig::known_fields().contains(omitted) {
+                bad.push(format!("{}: omit_standard_fields names non-standard field '{omitted}'", plugin.name));
+            }
+        }
+    }
+    bad.sort();
+    assert!(bad.is_empty(), "malformed FieldSpec entries: {bad:#?}");
+}
+
+/// A processor is one file — but three touch-points necessarily live
+/// outside it, and nothing but this test enforces them: the docs page, the
+/// integration test file, and (checked separately below) the `mod`
+/// declaration. A missing docs page or test file is invisible to the
+/// compiler; `prettier` once shipped silently half-registered exactly this
+/// way. Grandfathered gaps are allowlisted — shrink the lists, never grow
+/// them.
+#[test]
+fn every_plugin_has_docs_and_tests() {
+    const DOCS_ALLOWLIST: &[&str] = &[
+        "creator", "duplicate_files", "encoding", "ijq", "ijsonlint",
+        "ipdfunite", "isass", "itaplo", "iyamllint", "license_header",
+        "marp_images", "prettier", "svglint", "svgo",
+    ];
+    const TESTS_ALLOWLIST: &[&str] = &[
+        "checkpatch", "chromium", "cpplint", "encoding", "explicit",
+        "ijq", "ijsonlint", "imarkdown2html", "ipdfunite", "isass",
+        "itaplo", "iyamllint", "license_header", "linux_module",
+        "markdown2html", "marp_images", "objdump", "prettier", "yaml2json",
+    ];
+
     let mut missing: Vec<String> = Vec::new();
     for plugin in all_plugins() {
-        for field in (plugin.known_fields)() {
-            if expected_field_type(plugin.name, field).is_none() {
-                missing.push(format!("{}.{field}", plugin.name));
+        let name = plugin.name;
+        if !DOCS_ALLOWLIST.contains(&name)
+            && !std::path::Path::new(&format!("docs/src/processors/{name}.md")).exists()
+        {
+            missing.push(format!("{name}: no docs/src/processors/{name}.md"));
+        }
+        if !TESTS_ALLOWLIST.contains(&name)
+            && !std::path::Path::new(&format!("tests/processors/{name}.rs")).exists()
+        {
+            missing.push(format!("{name}: no tests/processors/{name}.rs"));
+        }
+    }
+    missing.sort();
+    assert!(missing.is_empty(),
+        "processors missing their out-of-file touch-points (add the file, or — for \
+         pre-existing gaps only — the allowlist entry): {missing:#?}");
+}
+
+/// Every `.rs` file under `src/processors/<category>/` must be declared in
+/// that category's `mod.rs`. A forgotten `mod` line is the one-file
+/// design's silent kill switch: the file compiles as dead code, submits
+/// nothing to inventory, and the processor simply does not exist.
+#[test]
+fn every_processor_file_is_declared() {
+    let mut missing: Vec<String> = Vec::new();
+    for dir in ["src/processors/checkers", "src/processors/generators",
+                "src/processors/creators", "src/processors/explicit",
+                "src/processors/lua"] {
+        let mod_src = std::fs::read_to_string(format!("{dir}/mod.rs")).unwrap();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+            if stem == "mod" || path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            if !mod_src.contains(&format!("mod {stem};")) {
+                missing.push(format!("{dir}/{stem}.rs not declared in {dir}/mod.rs"));
             }
         }
     }
     missing.sort();
     assert!(missing.is_empty(),
-        "known fields with no expected_field_type entry (type validation silently accepts anything): {missing:#?}");
-}
-
-/// Every processor-specific arm in `expected_field_type` must correspond to
-/// a field some processor actually declares. A dead arm is drift: the field
-/// was renamed or removed and the table was not updated.
-#[test]
-fn every_expected_type_arm_is_a_live_field() {
-    // The table is a match, not data, so it can't be enumerated directly.
-    // Instead check the inverse for the fields we can enumerate: for every
-    // plugin, every field name that any OTHER plugin declares should either
-    // be unknown to this processor's type table or be a field it declares.
-    // This catches an arm keyed to a processor whose config lost the field.
-    let mut dead: Vec<String> = Vec::new();
-    for plugin in all_plugins() {
-        let declared: std::collections::HashSet<&str> = (plugin.known_fields)().iter().copied()
-            .chain(SCAN_CONFIG_FIELDS.iter().copied())
-            .chain(STANDARD_EXTRA_FIELDS.iter().copied())
-            .collect();
-        // Field names that appear in any plugin's schema — the candidate set
-        // the type table could plausibly be keyed on.
-        for other in all_plugins() {
-            for field in (other.known_fields)() {
-                if !declared.contains(field)
-                    && expected_field_type(plugin.name, field).is_some()
-                    && !is_generic_field(field)
-                {
-                    dead.push(format!("{}.{field}", plugin.name));
-                }
-            }
-        }
-    }
-    dead.sort();
-    dead.dedup();
-    assert!(dead.is_empty(),
-        "expected_field_type has arms for fields the processor does not declare (renamed or removed?): {dead:#?}");
-}
-
-/// Fields handled by the generic (non-processor-specific) match arm apply
-/// to every processor regardless of what it declares. Keep in sync with the
-/// first `match field` block in `expected_field_type`.
-fn is_generic_field(field: &str) -> bool {
-    matches!(field,
-        "src_dirs" | "src_extensions" | "src_exclude_dirs" | "src_exclude_files"
-        | "src_exclude_paths" | "src_files" | "args" | "dep_inputs" | "dep_auto"
-        | "max_jobs" | "enabled" | "batch" | "command" | "output_dir" | "formats")
-}
-
-/// Every checksum field must be a known field — a checksum entry naming a
-/// field that doesn't exist silently drops out of the config hash, and a
-/// missing entry for an output-affecting field means stale build outputs.
-#[test]
-fn every_checksum_field_is_known() {
-    let mut bad: Vec<String> = Vec::new();
-    for plugin in all_plugins() {
-        let known: std::collections::HashSet<&str> = (plugin.known_fields)().iter().copied()
-            .chain(SCAN_CONFIG_FIELDS.iter().copied())
-            .chain(STANDARD_EXTRA_FIELDS.iter().copied())
-            .collect();
-        for field in (plugin.checksum_fields)() {
-            if !known.contains(field) {
-                bad.push(format!("{}.{field}", plugin.name));
-            }
-        }
-    }
-    bad.sort();
-    assert!(bad.is_empty(),
-        "checksum_fields naming fields not in known_fields (silently excluded from the config hash): {bad:#?}");
-}
-
-/// Every documented field must be a known field. A description for a
-/// removed field is stale documentation surfaced by `processors defconfig`.
-#[test]
-fn every_described_field_is_known() {
-    let mut bad: Vec<String> = Vec::new();
-    for plugin in all_plugins() {
-        let known: std::collections::HashSet<&str> = (plugin.known_fields)().iter().copied()
-            .chain(SCAN_CONFIG_FIELDS.iter().copied())
-            .chain(STANDARD_EXTRA_FIELDS.iter().copied())
-            .collect();
-        for (field, _) in (plugin.field_descriptions)() {
-            if !known.contains(field) {
-                bad.push(format!("{}.{field}", plugin.name));
-            }
-        }
-    }
-    bad.sort();
-    assert!(bad.is_empty(),
-        "field_descriptions naming fields not in known_fields (stale docs): {bad:#?}");
-}
-
-/// Every declared field needs a description — `processors defconfig` shows a
-/// blank cell for anything missing one, and a user has no way to learn what
-/// the field does.
-#[test]
-fn every_known_field_has_a_description() {
-    use crate::config::SHARED_FIELD_DESCRIPTIONS;
-    let mut missing: Vec<String> = Vec::new();
-    for plugin in all_plugins() {
-        let described: std::collections::HashSet<&str> = (plugin.field_descriptions)().iter()
-            .map(|(f, _)| *f)
-            .chain(SHARED_FIELD_DESCRIPTIONS.iter().map(|(f, _)| *f))
-            .chain(SCAN_CONFIG_FIELDS.iter().copied())
-            .collect();
-        for field in (plugin.known_fields)() {
-            if !described.contains(field) {
-                missing.push(format!("{}.{field}", plugin.name));
-            }
-        }
-    }
-    missing.sort();
-    missing.dedup();
-    assert!(missing.is_empty(),
-        "known fields with no description (blank cell in `processors defconfig`): {missing:#?}");
+        "processor files invisible to the build (missing mod declaration): {missing:#?}");
 }
 
 // Tests for processor section shape classification (finding 11)
@@ -745,96 +716,5 @@ fn mixed_scalar_and_table_values_are_single_instance() {
     assert_eq!(
         classify("[processor.pylint]\nargs = [\"--x\"]\n\n[processor.pylint.core]\nargs = [\"--y\"]\n"),
         SectionShape::SingleInstance,
-    );
-}
-
-/// Every processor NAME appearing in an `expected_field_type` arm must be a
-/// real registered plugin.
-///
-/// `every_expected_type_arm_is_a_live_field` catches an arm whose *field* is
-/// gone, but it enumerates fields from the plugin table and so cannot see an
-/// arm keyed to a processor that no longer exists at all — that arm is simply
-/// never reached, and nothing points at it. The table is a `match` rather than
-/// data (finding 1's `FieldSpec` note), so the names are recovered from the
-/// source text: that is the only way to enumerate the left-hand side of a
-/// match without restructuring it into a table.
-#[test]
-fn every_expected_type_arm_names_a_real_processor() {
-    let src = include_str!("mod.rs");
-    let body = src
-        .split_once("fn expected_field_type(")
-        .expect("expected_field_type must exist")
-        .1;
-    // The processor-specific arms are the tuple-patterned ones: ("a" | "b", "field") => ...
-    let known: std::collections::HashSet<&str> = all_plugins().map(|p| p.name).collect();
-
-    let mut unknown: Vec<String> = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim();
-        let Some(rest) = trimmed.strip_prefix("(\"") else { continue };
-        // Left-hand side up to the comma that separates processor from field.
-        let Some((procs, _)) = rest.split_once("\", \"") else { continue };
-        for name in procs.split(" | ") {
-            let name = name.trim().trim_matches('"');
-            if !name.is_empty() && !known.contains(name) {
-                unknown.push(name.to_string());
-            }
-        }
-    }
-    unknown.sort();
-    unknown.dedup();
-    assert!(
-        unknown.is_empty(),
-        "expected_field_type has arms keyed to processors that are not registered \
-         (renamed or removed?): {unknown:#?}"
-    );
-}
-
-/// The sibling check for the *field* half of every arm: each field must be
-/// declared by at least one of the arm's processors (or be a shared
-/// standard/scan field). `every_expected_type_arm_is_a_live_field` cannot
-/// catch a field that exists nowhere — it enumerates candidates from
-/// `known_fields()`, so a renamed field's stale arm (the "checker"/"linter"
-/// arms, the `("a2x","a2x")` typo) was never probed. Recovering the arms
-/// from source text makes the dead-arm check total.
-#[test]
-fn every_expected_type_arm_field_is_declared_by_its_processor() {
-    let src = include_str!("mod.rs");
-    let body = src
-        .split_once("fn expected_field_type(")
-        .expect("expected_field_type must exist")
-        .1;
-
-    use crate::config::KnownFields as _;
-    let shared: std::collections::HashSet<&str> = crate::config::StandardConfig::known_fields().iter().copied()
-        .chain(SCAN_CONFIG_FIELDS.iter().copied())
-        .chain(STANDARD_EXTRA_FIELDS.iter().copied())
-        .collect();
-
-    let mut dead: Vec<String> = Vec::new();
-    for line in body.lines() {
-        let trimmed = line.trim();
-        let Some(rest) = trimmed.strip_prefix("(\"") else { continue };
-        let Some((procs, tail)) = rest.split_once("\", \"") else { continue };
-        let Some((fields, _)) = tail.split_once("\")") else { continue };
-        for field in fields.split(" | ") {
-            let field = field.trim().trim_matches('"');
-            let declared = shared.contains(field)
-                || procs.split(" | ").any(|p| {
-                    let p = p.trim().trim_matches('"');
-                    ProcessorConfig::known_fields_for(p)
-                        .is_some_and(|fs| fs.contains(&field))
-                });
-            if !declared {
-                dead.push(format!("({procs:?}, {field:?})"));
-            }
-        }
-    }
-    dead.sort();
-    dead.dedup();
-    assert!(
-        dead.is_empty(),
-        "expected_field_type has arms for fields that no processor declares \
-         (renamed or removed field?): {dead:#?}"
     );
 }

@@ -628,9 +628,43 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "true", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "coreutils" }] },
 ];
 
+// Processor files may submit additional ToolInfo entries via
+// `inventory::submit!` — a new processor declares its external tool in its
+// own file instead of editing this registry. The central TOOLS table above
+// keeps the long-standing shared entries; consumers must iterate
+// `all_tools()`, never TOOLS directly.
+inventory::collect!(ToolInfo);
+
+/// Every known tool: the central table plus processor-file submissions.
+pub fn all_tools() -> impl Iterator<Item = &'static ToolInfo> {
+    TOOLS.iter().chain(inventory::iter::<ToolInfo>)
+}
+
 /// Look up a tool by name.
 pub fn tool_info(tool: &str) -> Option<&'static ToolInfo> {
-    TOOLS.iter().find(|t| t.name == tool)
+    all_tools().find(|t| t.name == tool)
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+
+    /// A tool name must have exactly one registry entry — a processor
+    /// submitting a name the central table already carries (or two
+    /// processors submitting the same name) would make `tool_info`'s answer
+    /// depend on iteration order.
+    #[test]
+    fn tool_names_are_unique_across_central_and_submitted() {
+        let mut seen = std::collections::HashSet::new();
+        let mut dups: Vec<&str> = Vec::new();
+        for t in all_tools() {
+            if !seen.insert(t.name) {
+                dups.push(t.name);
+            }
+        }
+        dups.sort_unstable();
+        assert!(dups.is_empty(), "duplicate tool registry entries: {dups:?}");
+    }
 }
 
 /// Return the default install command for a tool, if known.

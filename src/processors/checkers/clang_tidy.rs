@@ -1,9 +1,22 @@
 use anyhow::Result;
 use std::process::Command;
 
-use crate::config::ClangTidyConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::graph::Product;
 use crate::processors::{run_command, check_command_output};
+
+/// `ClangTidy` config. Custom fields: `compiler_args`.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
+pub struct ClangTidyConfig {
+    #[serde(default)]
+    pub compiler_args: Vec<String>,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct ClangTidyProcessor {
     config: ClangTidyConfig,
@@ -55,7 +68,7 @@ impl crate::processors::Processor for ClangTidyProcessor {
             graph, &self.config.standard, file_index,
             &self.config.standard.dep_inputs, &self.config.standard.dep_auto,
             &self.config,
-            <crate::config::ClangTidyConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -78,11 +91,15 @@ inventory::submit! {
         name: "clang_tidy",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::ClangTidyConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::ClangTidyConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::ClangTidyConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::ClangTidyConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::ClangTidyConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "compiler_args", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Compiler flags forwarded to clang-tidy for parsing" },
+        ],
+        omit_standard_fields: &["command", "formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<ClangTidyConfig>,
         keywords: &["c", "cpp", "linter", "clang", "checker", "cc", "h", "hpp"],
         description: "Run clang-tidy static analysis on C/C++ source files",
         is_native: false,

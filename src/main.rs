@@ -491,7 +491,7 @@ fn run() -> (Result<()>, bool) {
         }
         Commands::Terms { action } => {
             let config = Config::load()?;
-            let terms_config: config::TermsConfig =
+            let terms_config: processors::terms::TermsConfig =
                 config.processor.instance_config_or_default("terms")?;
             match action {
                 cli::TermsAction::Fix { remove_non_terms } => {
@@ -526,12 +526,12 @@ fn run() -> (Result<()>, bool) {
                 cli::TagsAction::Coverage => processors::tags_cmd::coverage_tags(&db_path)?,
                 cli::TagsAction::Orphans => processors::tags_cmd::orphan_files(&db_path)?,
                 cli::TagsAction::Check => {
-                    let tags_config: config::TagsConfig =
+                    let tags_config: processors::tags_cmd::TagsConfig =
                         config.processor.instance_config_or_default("tags")?;
                     processors::tags_cmd::check_tags(&tags_config)?;
                 }
                 cli::TagsAction::Suggest { path } => {
-                    let tags_config: config::TagsConfig =
+                    let tags_config: processors::tags_cmd::TagsConfig =
                         config.processor.instance_config_or_default("tags")?;
                     processors::tags_cmd::suggest_tags(&db_path, &path, &tags_config)?;
                 }

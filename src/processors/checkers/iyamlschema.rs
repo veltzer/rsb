@@ -1,9 +1,27 @@
 use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
-use crate::config::IyamlschemaConfig;
+use crate::config::StandardConfig;
 use crate::graph::Product;
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct IyamlschemaConfig {
+    #[serde(default = "crate::config::default_true")]
+    pub check_ordering: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for IyamlschemaConfig {
+    fn default() -> Self {
+        Self {
+            check_ordering: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 /// Custom retriever that fetches remote schemas via the webcache.
 /// Carries the TTL because `Retrieve::retrieve` takes only the URI.
@@ -207,7 +225,7 @@ impl crate::processors::Processor for IyamlschemaProcessor {
             graph, &self.config.standard, file_index,
             &self.config.standard.dep_inputs, &self.config.standard.dep_auto,
             &self.config,
-            <crate::config::IyamlschemaConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -230,11 +248,15 @@ inventory::submit! {
         name: "iyamlschema",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::IyamlschemaConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::IyamlschemaConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::IyamlschemaConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::IyamlschemaConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::IyamlschemaConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "check_ordering", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Require YAML keys to appear in the order defined by the schema" },
+        ],
+        omit_standard_fields: &["command", "formats", "args", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<IyamlschemaConfig>,
         keywords: &["yaml", "yml", "schema", "validator"],
         description: "Validate YAML files against JSON schemas (in-process)",
         is_native: true,

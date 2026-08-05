@@ -511,8 +511,9 @@ pub struct DirectoryProductOpts<'a, H: serde::Serialize> {
     pub file_index: &'a FileIndex,
     pub dep_inputs: &'a [String],
     pub cfg_hash: &'a H,
-    /// Allowlist of field names to include in the config-change checksum.
-    pub checksum_fields: &'static [&'static str],
+    /// Allowlist of field names to include in the config-change checksum,
+    /// derived from the plugin's `FieldSpec` list (`checksum_fields_of`).
+    pub checksum_fields: Vec<&'static str>,
     pub siblings: &'a SiblingFilter<'a>,
     pub processor_name: &'a str,
     pub output_dir_name: Option<&'a str>,
@@ -537,7 +538,7 @@ pub fn discover_directory_products(
         return Ok(());
     }
 
-    let hash = Some(output_config_hash(cfg_hash, checksum_fields));
+    let hash = Some(output_config_hash(cfg_hash, &checksum_fields));
     let extra = resolve_extra_inputs(dep_inputs)?;
 
     for anchor in files {
@@ -1186,7 +1187,7 @@ impl<C> SimpleGenerator<C> {
 
 impl<C> Processor for SimpleGenerator<C>
 where
-    C: AsRef<StandardConfig> + serde::Serialize + crate::config::KnownFields + Send + Sync,
+    C: AsRef<StandardConfig> + serde::Serialize + Send + Sync,
 {
     fn scan_config(&self) -> &StandardConfig {
         self.config.as_ref()
@@ -1223,7 +1224,7 @@ where
             config: &self.config,
             output_dir: &scan.output_dir,
             processor_name: instance_name,
-            checksum_fields: <C as crate::config::KnownFields>::checksum_fields(),
+            checksum_fields: crate::config::checksum_fields_of(instance_name),
         };
         match &self.params.discover_mode {
             DiscoverMode::MultiFormat => {

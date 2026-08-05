@@ -2,10 +2,30 @@ use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
-use crate::config::MdbookConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, SiblingFilter, DirectoryProductOpts, discover_directory_products, run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Mdbook config. Custom: `cache_output_dir`.
+pub struct MdbookConfig {
+    #[serde(default = "crate::config::default_true")]
+    pub cache_output_dir: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for MdbookConfig {
+    fn default() -> Self {
+        Self {
+            cache_output_dir: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct MdbookProcessor {
     config: MdbookConfig,
@@ -55,7 +75,7 @@ impl Processor for MdbookProcessor {
             file_index,
             dep_inputs: &self.config.standard.dep_inputs,
             cfg_hash: &self.config,
-            checksum_fields: <crate::config::MdbookConfig as crate::config::KnownFields>::checksum_fields(),
+            checksum_fields: crate::config::checksum_fields_of(instance_name),
             siblings: &SiblingFilter {
                 extensions: &[".md", ".toml"],
                 excludes: &["/.git/", "/out/", "/.rsconstruct/", "/book/"],
@@ -83,11 +103,15 @@ inventory::submit! {
         name: "mdbook",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::MdbookConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::MdbookConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::MdbookConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::MdbookConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::MdbookConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "cache_output_dir", ty: crate::config::FieldType::Bool,
+                affects_output: false, required: false,
+                doc: "Cache the entire output directory as a unit" },
+        ],
+        omit_standard_fields: &["formats", "dep_auto"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["book.toml"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "mdbook", output_dir: "book", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<MdbookConfig>,
         keywords: &["markdown", "md", "rust", "documentation", "book", "html"],
         description: "Build mdbook documentation",
         is_native: false,

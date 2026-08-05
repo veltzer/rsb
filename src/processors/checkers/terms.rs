@@ -3,10 +3,47 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
-use crate::config::TermsConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, default_true};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::discover_checker_products;
+
+fn default_dir_terms_unambiguous() -> String {
+    "terms/unambiguous".into()
+}
+
+fn default_dir_terms_ambiguous() -> String {
+    "terms/ambiguous".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TermsConfig {
+    #[serde(default = "default_dir_terms_unambiguous")]
+    pub dir_terms_unambiguous: String,
+    #[serde(default = "default_dir_terms_ambiguous")]
+    pub dir_terms_ambiguous: String,
+    /// When true (default), backticking an ambiguous term is a build error
+    /// and `terms fix` strips those backticks. When false, ambiguous terms
+    /// are loaded only to validate the disjoint invariant; their use in
+    /// backticks is neither flagged nor changed.
+    #[serde(default = "default_true")]
+    pub forbid_backticked_ambiguous: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for TermsConfig {
+    fn default() -> Self {
+        Self {
+            dir_terms_unambiguous: "terms/unambiguous".into(),
+            dir_terms_ambiguous: "terms/ambiguous".into(),
+            forbid_backticked_ambiguous: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 /// Single-meaning terms (must be backticked in prose) and ambiguous terms
 /// (must NOT be backticked — using backticks falsely asserts they're the
@@ -107,7 +144,7 @@ impl crate::processors::Processor for TermsProcessor {
         discover_checker_products(
             graph, &self.config.standard, file_index, &dep_inputs,
             &self.config.standard.dep_auto, &self.config,
-            <crate::config::TermsConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -813,11 +850,21 @@ inventory::submit! {
         name: "terms",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::TermsConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::TermsConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::TermsConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::TermsConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::TermsConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "dir_terms_unambiguous", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Directory containing unambiguous term definition files (must be backticked in prose)" },
+            crate::config::FieldSpec { name: "dir_terms_ambiguous", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Optional directory of ambiguous terms; build fails if any term overlaps with dir_terms_unambiguous" },
+            crate::config::FieldSpec { name: "forbid_backticked_ambiguous", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "If true (default), backticking an ambiguous term is a build error and `terms fix` strips those backticks" },
+        ],
+        omit_standard_fields: &["command", "formats", "args", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<TermsConfig>,
         keywords: &["checker", "terminology", "text", "words"],
         description: "Check that technical terms are backtick-quoted in markdown files",
         is_native: true,

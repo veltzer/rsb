@@ -71,7 +71,7 @@ impl crate::processors::Processor for DuplicateFilesProcessor {
         inputs.extend(resolve_extra_inputs(&all_dep_inputs)?);
         let hash = Some(output_config_hash(
             &self.config,
-            <DuplicateFilesConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
         ));
         graph.add_product(inputs, vec![], instance_name, hash)?;
         Ok(())
@@ -93,10 +93,10 @@ inventory::submit! {
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
         defconfig_json: crate::registries::default_config_json::<crate::config::DuplicateFilesConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::DuplicateFilesConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::DuplicateFilesConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::DuplicateFilesConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::DuplicateFilesConfig>,
+        fields: &[],
+        omit_standard_fields: &[],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".md", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css"], src_exclude_dirs: &[] }),
+        defaults: None,
         keywords: &["checker", "duplicates", "files"],
         description: "Detect duplicate files by content (SHA-256)",
         is_native: true,

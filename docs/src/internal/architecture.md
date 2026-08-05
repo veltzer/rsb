@@ -320,7 +320,7 @@ src/processors/
 - **Creators** use `CreatorProcessor` for the generic case, or their own struct for creators with special discovery (cargo profiles, npm siblings, etc.).
 - **Explicit** is a singleton processor type with its own folder because it is neither a checker nor a generator.
 - **Lua** is the only processor type that hosts external scripts rather than wrapping a fixed external tool. It has its own folder because it carries significant runtime state (the Lua VM).
-- All processors self-register via `inventory::submit!` at the bottom of their file — no central registry table to update.
+- **A processor is one file.** Everything that defines a processor lives in its file: the `Processor` impl (or SimpleChecker/SimpleGenerator params), its config struct, and one `inventory::submit!` plugin entry carrying the whole schema — `fields` (a `FieldSpec` list from which known/checksum/must fields, descriptions, and expected types all derive), `scan_defaults`, `defaults`, and `omit_standard_fields`. Tools missing from the central registry are submitted as `ToolInfo` from the processor file. There are no central per-processor tables: the former 92/71/~120-arm match tables in `config/mod.rs` are deleted, and every default value is encoded exactly once. The remaining out-of-file touch-points (the category `mod` declaration, the docs page, the test file) are enforced by completeness tests in `config/tests.rs`.
 
 ## Determinism
 

@@ -19,7 +19,36 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 
-use crate::config::MarpConfig;
+use crate::config::StandardConfig;
+use serde::{Deserialize, Serialize};
+
+const fn default_marp_timeout_secs() -> u64 { 20 }
+const fn default_marp_max_attempts() -> u32 { 3 }
+
+/// Marp config. Adds tunables for the per-invocation timeout and the retry
+/// budget, since marp-cli occasionally hangs under chromium-headless and the
+/// right values are project-dependent.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MarpConfig {
+    /// Per-invocation wall-clock timeout in seconds.
+    #[serde(default = "default_marp_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Total attempts (including the first) when marp times out. Set to 1 to
+    /// disable retrying.
+    #[serde(default = "default_marp_max_attempts")]
+    pub max_attempts: u32,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+impl Default for MarpConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: default_marp_timeout_secs(),
+            max_attempts: default_marp_max_attempts(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{run_command_with_timeout, check_command_output, ensure_output_dir, Processor};
@@ -88,7 +117,7 @@ impl Processor for MarpProcessor {
             config: &self.config,
             output_dir: &self.config.standard.output_dir,
             processor_name: instance_name,
-            checksum_fields: <crate::config::MarpConfig as crate::config::KnownFields>::checksum_fields(),
+            checksum_fields: crate::config::checksum_fields_of(instance_name),
         };
         super::discover_multi_format(graph, file_index, &params, &self.config.standard.formats)
     }
@@ -148,11 +177,19 @@ fn create_marp(toml: &toml::Value) -> anyhow::Result<Box<dyn crate::processors::
 inventory::submit! { crate::registries::ProcessorPlugin {
     version: 1,
     name: "marp", processor_type: crate::processors::ProcessorType::Generator, create: create_marp,
-    known_fields: crate::registries::typed_known_fields::<crate::config::MarpConfig>,
-    checksum_fields: crate::registries::typed_checksum_fields::<crate::config::MarpConfig>,
-    must_fields: crate::registries::typed_must_fields::<crate::config::MarpConfig>,
-    field_descriptions: crate::registries::typed_field_descriptions::<crate::config::MarpConfig>,
-    defconfig_json: crate::registries::default_config_json::<crate::config::MarpConfig>,
+    fields: &[
+        crate::config::FieldSpec { name: "timeout_secs", ty: crate::config::FieldType::Integer,
+            affects_output: false, required: false,
+            doc: "Per-invocation wall-clock timeout in seconds" },
+        crate::config::FieldSpec { name: "max_attempts", ty: crate::config::FieldType::Integer,
+            affects_output: false, required: false,
+            doc: "Total attempts (including the first) when marp times out" },
+    ],
+    omit_standard_fields: &[],
+    scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+    defaults: Some(crate::config::ProcessorDefaults { command: "marp", output_dir: "out/marp", formats: &["pdf"],
+        args: &["--html", "--allow-local-files"], ..crate::config::ProcessorDefaults::EMPTY }),
+    defconfig_json: crate::registries::default_config_json::<MarpConfig>,
     keywords: &["markdown", "presentation", "slides", "pdf", "html"],
     description: "Convert Marp Markdown presentations to PDF/HTML",
     is_native: false,

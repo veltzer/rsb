@@ -2,10 +2,44 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{CargoConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, SiblingFilter, run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+fn default_cargo() -> String {
+    "cargo".into()
+}
+
+fn default_cargo_profiles() -> Vec<String> {
+    vec!["dev".into(), "release".into()]
+}
+
+/// Cargo config. Custom: cargo, profiles, `cache_output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CargoConfig {
+    #[serde(default = "default_cargo")]
+    pub cargo: String,
+    #[serde(default = "default_cargo_profiles")]
+    pub profiles: Vec<String>,
+    #[serde(default = "crate::config::default_true")]
+    pub cache_output_dir: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for CargoConfig {
+    fn default() -> Self {
+        Self {
+            cargo: "cargo".into(),
+            profiles: default_cargo_profiles(),
+            cache_output_dir: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct CargoProcessor {
     config: CargoConfig,
@@ -59,7 +93,7 @@ impl Processor for CargoProcessor {
             extensions: &[".rs", ".toml"],
             excludes: &["/.git/", "/target/", "/.rsconstruct/"],
         };
-        let hash = Some(output_config_hash(&self.config, <crate::config::CargoConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for anchor in files {
@@ -122,11 +156,21 @@ inventory::submit! {
         name: "cargo",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::CargoConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::CargoConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::CargoConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::CargoConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::CargoConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "cargo", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Path to the cargo executable" },
+            crate::config::FieldSpec { name: "profiles", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Build profiles to run (e.g. dev, release)" },
+            crate::config::FieldSpec { name: "cache_output_dir", ty: crate::config::FieldType::Bool,
+                affects_output: false, required: false,
+                doc: "Cache the entire output directory as a unit" },
+        ],
+        omit_standard_fields: &["formats", "dep_auto", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["Cargo.toml"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "build", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<CargoConfig>,
         keywords: &["rust", "builder", "cargo", "rs", "package-manager"],
         description: "Build Rust projects using Cargo",
         is_native: false,

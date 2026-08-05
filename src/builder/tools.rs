@@ -154,7 +154,7 @@ fn run_tools_command(
             // independent of which processors are configured. Mirrors
             // `processors list`, which shows all built-in processors.
             if crate::json_output::is_json_mode() {
-                let entries: Vec<json_output::ToolListEntry> = crate::tools::TOOLS.iter()
+                let entries: Vec<json_output::ToolListEntry> = crate::tools::all_tools()
                     .map(|info| json_output::ToolListEntry {
                         tool: info.name.to_string(),
                         installed: which::which(info.name).is_ok(),
@@ -172,7 +172,7 @@ fn run_tools_command(
                 return Ok(());
             }
 
-            let mut tools: Vec<&crate::tools::ToolInfo> = crate::tools::TOOLS.iter().collect();
+            let mut tools: Vec<&crate::tools::ToolInfo> = crate::tools::all_tools().collect();
             tools.sort_by_key(|t| t.name);
 
             // The install command is noise for the common "what tools exist?"
@@ -446,7 +446,7 @@ fn run_tools_command(
                 // failure the strict-by-default rule exists to prevent.
                 let mut missing = Vec::new();
                 let mut manual_only: Vec<&crate::tools::ToolInfo> = Vec::new();
-                for info in crate::tools::TOOLS {
+                for info in crate::tools::all_tools() {
                     if which::which(info.name).is_ok() {
                         continue;
                     }

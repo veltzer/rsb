@@ -2,10 +2,21 @@ use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
-use crate::config::MakeConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, SiblingFilter, DirectoryProductOpts, discover_directory_products, run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+/// Make config. Custom: target.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct MakeConfig {
+    #[serde(default)]
+    pub target: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct MakeProcessor {
     config: MakeConfig,
@@ -52,7 +63,7 @@ impl Processor for MakeProcessor {
             file_index,
             dep_inputs: &self.config.standard.dep_inputs,
             cfg_hash: &self.config,
-            checksum_fields: <crate::config::MakeConfig as crate::config::KnownFields>::checksum_fields(),
+            checksum_fields: crate::config::checksum_fields_of(instance_name),
             siblings: &SiblingFilter {
                 extensions: &[""],
                 excludes: &["/.git/", "/out/", "/.rsconstruct/"],
@@ -76,11 +87,15 @@ inventory::submit! {
         name: "make",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::MakeConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::MakeConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::MakeConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::MakeConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::MakeConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "target", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Make target to build" },
+        ],
+        omit_standard_fields: &["formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["Makefile"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "make", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<MakeConfig>,
         keywords: &["make", "makefile", "builder", "checker"],
         description: "Run make in directories containing Makefiles",
         is_native: false,

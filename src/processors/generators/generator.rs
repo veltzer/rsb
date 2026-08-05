@@ -2,7 +2,9 @@ use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
-use crate::config::GeneratorConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{
@@ -11,6 +13,28 @@ use crate::processors::{
     config_file_inputs,
 };
 use crate::config::{output_config_hash, resolve_extra_inputs};
+
+fn default_generator_output_extension() -> String {
+    "out".into()
+}
+
+/// Generator config. Custom: `output_extension`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GeneratorConfig {
+    #[serde(default = "default_generator_output_extension")]
+    pub output_extension: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for GeneratorConfig {
+    fn default() -> Self {
+        Self {
+            output_extension: "out".into(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct GeneratorProcessor {
     config: GeneratorConfig,
@@ -86,7 +110,7 @@ impl Processor for GeneratorProcessor {
             return Ok(());
         }
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::GeneratorConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let mut dep_inputs = self.config.standard.dep_inputs.clone();
         for ai in &self.config.standard.dep_auto {
             dep_inputs.extend(config_file_inputs(ai));
@@ -127,11 +151,15 @@ inventory::submit! {
         name: "generator",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::GeneratorConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::GeneratorConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::GeneratorConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::GeneratorConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::GeneratorConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "output_extension", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "File extension for generated output files" },
+        ],
+        omit_standard_fields: &["formats"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { output_dir: "out/generator", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<GeneratorConfig>,
         keywords: &["generator", "generic"],
         description: "Run a user-configured script as a generator",
         is_native: false,

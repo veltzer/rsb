@@ -47,13 +47,6 @@ pub trait KnownFields {
     /// are discovery or execution parameters that don't affect what the tool produces.
     fn checksum_fields() -> &'static [&'static str];
 
-    /// Return fields that must be explicitly set (non-empty) for the processor to work.
-    /// If any of these fields are absent or empty in the user's config, an error is reported.
-    /// Default is no required fields.
-    fn must_fields() -> &'static [&'static str] {
-        &[]
-    }
-
     /// Return (`field_name`, description) pairs for processor-specific fields only.
     /// Shared scan/dep/exec field descriptions are added by the display layer.
     fn field_descriptions() -> &'static [(&'static str, &'static str)] {
@@ -69,6 +62,7 @@ pub trait KnownFields {
 /// `struct_field_names` would desynchronize the struct from the config
 /// format it mirrors.
 #[allow(clippy::struct_field_names)]
+#[derive(Clone, Copy)]
 pub struct ScanDefaultsData {
     /// Always `&[]` — every processor defaults to scanning nothing.
     ///
@@ -87,8 +81,28 @@ pub struct ScanDefaultsData {
     pub src_exclude_dirs: &'static [&'static str],
 }
 
+/// One custom config field of a processor — THE schema entry. Declared once
+/// in the processor's own file (on its `ProcessorPlugin.fields`); every
+/// projection derives from it: `known_fields` (name), `checksum_fields`
+/// (`affects_output`), `must_fields` (`required`), `field_descriptions`
+/// (`doc`), and the validator's expected type (`ty`). The four
+/// hand-maintained parallel lists and the central `(processor, field)` type
+/// table this replaces drifted repeatedly — a field is now declared exactly
+/// once or not at all.
+pub struct FieldSpec {
+    pub name: &'static str,
+    pub ty: FieldType,
+    /// Include in `checksum_fields`: changes to this field alter the
+    /// produced output bytes and must invalidate cached results.
+    pub affects_output: bool,
+    /// Include in `must_fields`: the processor cannot run without this
+    /// field explicitly set non-empty.
+    pub required: bool,
+    pub doc: &'static str,
+}
+
 /// Per-processor default values applied after TOML deserialization.
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct ProcessorDefaults {
     /// Default command binary name. Empty if not applicable.
     pub command: &'static str,
@@ -102,6 +116,14 @@ pub struct ProcessorDefaults {
     pub args: &'static [&'static str],
     /// Override for batch. None means leave the `StandardConfig` default (true).
     pub batch: Option<bool>,
+}
+
+impl ProcessorDefaults {
+    /// All-empty defaults, for `..ProcessorDefaults::EMPTY` in static plugin
+    /// entries (`Default::default()` is not const-evaluable there).
+    pub const EMPTY: Self = Self {
+        command: "", dep_auto: &[], output_dir: "", formats: &[], args: &[], batch: None,
+    };
 }
 
 
@@ -177,6 +199,16 @@ pub const SHARED_FIELD_DESCRIPTIONS: &[(&str, &str)] = &[
 /// This is allowlist-based: any key not in `checksum_fields` is removed before
 /// hashing. Each processor declares its own `checksum_fields()` list, which is the
 /// single source of truth for which config fields trigger cache invalidation.
+/// Checksum-affecting fields for a processor, derived from its plugin's
+/// `FieldSpec` list — the convenience form for processor `discover()` call
+/// sites feeding [`output_config_hash`]. Accepts instance names
+/// ("pylint.core") and strips the suffix, so discover sites can pass their
+/// `instance_name` directly. Empty for unregistered types (Lua).
+pub fn checksum_fields_of(name: &str) -> Vec<&'static str> {
+    let type_name = name.split('.').next().unwrap_or(name);
+    ProcessorConfig::checksum_fields_for(type_name).unwrap_or_default()
+}
+
 pub fn output_config_hash(value: &impl Serialize, checksum_fields: &[&str]) -> String {
     let json_value: serde_json::Value = serde_json::to_value(value).expect(errors::CONFIG_SERIALIZE);
     let filtered = if let serde_json::Value::Object(map) = json_value {
@@ -546,23 +578,61 @@ impl ProcessorConfig {
     }
 
     /// Return known fields for a builtin processor type, or None for Lua plugins.
-    pub(crate) fn known_fields_for(type_name: &str) -> Option<&'static [&'static str]> {
-        find_registry_entry(type_name).map(|e| (e.known_fields)())
+    pub(crate) fn known_fields_for(type_name: &str) -> Option<Vec<&'static str>> {
+        let e = find_registry_entry(type_name)?;
+        // Standard fields (minus this processor's omissions) plus the
+        // plugin's own FieldSpec names. A spec sharing a standard field's
+        // name replaces it, so the dedup keeps one copy.
+        let mut fields: Vec<&'static str> = StandardConfig::known_fields().iter()
+            .copied()
+            .filter(|f| !e.omit_standard_fields.contains(f))
+            .collect();
+        for spec in e.fields {
+            if !fields.contains(&spec.name) {
+                fields.push(spec.name);
+            }
+        }
+        Some(fields)
     }
 
     /// Return checksum-affecting fields for a builtin processor type, or None for Lua plugins.
-    pub(crate) fn checksum_fields_for(type_name: &str) -> Option<&'static [&'static str]> {
-        find_registry_entry(type_name).map(|e| (e.checksum_fields)())
+    pub(crate) fn checksum_fields_for(type_name: &str) -> Option<Vec<&'static str>> {
+        let e = find_registry_entry(type_name)?;
+        // A spec that shadows a standard field owns its checksum membership.
+        let shadowed = |f: &&'static str| e.fields.iter().any(|s| s.name == *f);
+        let mut fields: Vec<&'static str> = StandardConfig::checksum_fields().iter()
+            .copied()
+            .filter(|f| !e.omit_standard_fields.contains(f))
+            .filter(|f| !shadowed(f))
+            .collect();
+        for spec in e.fields {
+            if spec.affects_output {
+                fields.push(spec.name);
+            }
+        }
+        Some(fields)
     }
 
     /// Return must fields (required non-empty fields) for a builtin processor type, or None for Lua plugins.
-    pub(crate) fn must_fields_for(type_name: &str) -> Option<&'static [&'static str]> {
-        find_registry_entry(type_name).map(|e| (e.must_fields)())
+    pub(crate) fn must_fields_for(type_name: &str) -> Option<Vec<&'static str>> {
+        let e = find_registry_entry(type_name)?;
+        Some(e.fields.iter().filter(|s| s.required).map(|s| s.name).collect())
     }
 
     /// Return (field, description) pairs for a builtin processor type, or None for Lua plugins.
-    pub(crate) fn field_descriptions_for(type_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-        find_registry_entry(type_name).map(|e| (e.field_descriptions)())
+    /// Standard-field descriptions come from `StandardConfig` (minus omissions,
+    /// minus shadowed); the plugin's spec docs follow.
+    pub(crate) fn field_descriptions_for(type_name: &str) -> Option<Vec<(&'static str, &'static str)>> {
+        let e = find_registry_entry(type_name)?;
+        let shadowed = |f: &str| e.fields.iter().any(|s| s.name == f);
+        let mut descs: Vec<(&'static str, &'static str)> = StandardConfig::field_descriptions().iter()
+            .copied()
+            .filter(|(f, _)| !e.omit_standard_fields.contains(f) && !shadowed(f))
+            .collect();
+        for spec in e.fields {
+            descs.push((spec.name, spec.doc));
+        }
+        Some(descs)
     }
 
     /// Return the default config for a processor type as pretty JSON, or None if unknown.
@@ -572,188 +642,22 @@ impl ProcessorConfig {
     }
 }
 
-/// Return scan defaults for a builtin processor type.
+/// Return scan defaults for a builtin processor type. The data lives on the
+/// processor's own plugin entry (`ProcessorPlugin.scan_defaults`) — this used
+/// to be a 92-arm name-keyed match table here, which every new processor had
+/// to remember to extend (and `prettier` once shipped without its arm,
+/// silently mis-defaulted).
 pub fn scan_defaults_for(type_name: &str) -> Option<ScanDefaultsData> {
-    Some(match type_name {
-        "tera" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".tera"], src_exclude_dirs: &[] },
-        "ruff" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "pylint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "mypy" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "pyrefly" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "black" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "doctest" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "pytest" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "cc_single_file" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
-        "cc" => ScanDefaultsData { src_dirs: &[], src_extensions: &["cc.yaml"], src_exclude_dirs: &[] },
-        "cppcheck" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
-        "clang_tidy" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc"], src_exclude_dirs: &[] },
-        "zspell" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "shellcheck" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".sh", ".bash"], src_exclude_dirs: &[] },
-        "luacheck" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".lua"], src_exclude_dirs: &[] },
-        "make" => ScanDefaultsData { src_dirs: &[], src_extensions: &["Makefile"], src_exclude_dirs: &[] },
-        "cargo" => ScanDefaultsData { src_dirs: &[], src_extensions: &["Cargo.toml"], src_exclude_dirs: &[] },
-        "clippy" => ScanDefaultsData { src_dirs: &[], src_extensions: &["Cargo.toml"], src_exclude_dirs: &[] },
-        "rumdl" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "yamllint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
-        "jq" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
-        "jsonlint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
-        "taplo" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".toml"], src_exclude_dirs: &[] },
-        "json_schema" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
-        "tags" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "pip" => ScanDefaultsData { src_dirs: &[], src_extensions: &["requirements.txt"], src_exclude_dirs: &[] },
-        "requirements" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] },
-        "sphinx" => ScanDefaultsData { src_dirs: &[], src_extensions: &["conf.py"], src_exclude_dirs: &[] },
-        "mdbook" => ScanDefaultsData { src_dirs: &[], src_extensions: &["book.toml"], src_exclude_dirs: &[] },
-        "npm" => ScanDefaultsData { src_dirs: &[], src_extensions: &["package.json"], src_exclude_dirs: &[] },
-        "gem" => ScanDefaultsData { src_dirs: &[], src_extensions: &["Gemfile"], src_exclude_dirs: &[] },
-        "mdl" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "markdownlint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "aspell" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "marp" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "pandoc" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "markdown2html" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "pdflatex" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".tex"], src_exclude_dirs: &[] },
-        "a2x" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".txt"], src_exclude_dirs: &[] },
-        "ascii" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "terms" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "chromium" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".html"], src_exclude_dirs: &[] },
-        "mako" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".mako"], src_exclude_dirs: &[] },
-        "jinja2" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".j2"], src_exclude_dirs: &[] },
-        "mermaid" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".mmd"], src_exclude_dirs: &[] },
-        "drawio" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".drawio"], src_exclude_dirs: &[] },
-        "libreoffice" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".odp"], src_exclude_dirs: &[] },
-        "protobuf" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".proto"], src_exclude_dirs: &[] },
-        "pdfunite" => ScanDefaultsData { src_dirs: &[], src_extensions: &["course.yaml"], src_exclude_dirs: &[] },
-        "ipdfunite" => ScanDefaultsData { src_dirs: &[], src_extensions: &["course.yaml"], src_exclude_dirs: &[] },
-        "script" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
-        "creator" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
-        "generator" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
-        "explicit" => ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] },
-        "linux_module" => ScanDefaultsData { src_dirs: &[], src_extensions: &["linux-module.yaml"], src_exclude_dirs: &[] },
-        "cpplint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".cc", ".h", ".hh"], src_exclude_dirs: &[] },
-        "checkpatch" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".c", ".h"], src_exclude_dirs: &[] },
-        "objdump" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".elf"], src_exclude_dirs: &[] },
-        "prettier" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".css", ".scss", ".less", ".html", ".json", ".md", ".yaml", ".yml"], src_exclude_dirs: &[] },
-        "eslint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"], src_exclude_dirs: &[] },
-        "jshint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js", ".jsx", ".mjs", ".cjs"], src_exclude_dirs: &[] },
-        "htmlhint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".html", ".htm"], src_exclude_dirs: &[] },
-        "tidy" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".html", ".htm"], src_exclude_dirs: &[] },
-        "stylelint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".css", ".scss", ".sass", ".less"], src_exclude_dirs: &[] },
-        "jslint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js"], src_exclude_dirs: &[] },
-        "standard" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".js"], src_exclude_dirs: &[] },
-        "htmllint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".html", ".htm"], src_exclude_dirs: &[] },
-        "php_lint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".php"], src_exclude_dirs: &[] },
-        "perlcritic" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".pl", ".pm"], src_exclude_dirs: &[] },
-        "xmllint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".xml", ".svg"], src_exclude_dirs: &[] },
-        "svglint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".svg"], src_exclude_dirs: &[] },
-        "svgo" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".svg"], src_exclude_dirs: &[] },
-        "checkstyle" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".java"], src_exclude_dirs: &[] },
-        "yq" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
-        "cmake" => ScanDefaultsData { src_dirs: &[], src_extensions: &["CMakeLists.txt"], src_exclude_dirs: &[] },
-        "hadolint" => ScanDefaultsData { src_dirs: &[], src_extensions: &["Dockerfile"], src_exclude_dirs: &[] },
-        "jekyll" => ScanDefaultsData { src_dirs: &[], src_extensions: &["_config.yml"], src_exclude_dirs: &[] },
-        "sass" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".scss", ".sass"], src_exclude_dirs: &[] },
-        "ijq" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
-        "ijsonlint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".json"], src_exclude_dirs: &[] },
-        "iyamllint" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
-        "iyamlschema" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
-        "itaplo" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".toml"], src_exclude_dirs: &[] },
-        "imarkdown2html" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "isass" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".scss", ".sass"], src_exclude_dirs: &[] },
-        "yaml2json" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".yml", ".yaml"], src_exclude_dirs: &[] },
-        "rust_single_file" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".rs"], src_exclude_dirs: &[] },
-        "slidev" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "encoding" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".bash", ".lua", ".pl", ".pm", ".php", ".md", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".htm", ".css", ".scss", ".sass", ".tex", ".txt"], src_exclude_dirs: &[] },
-        "duplicate_files" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".md", ".yaml", ".yml", ".json", ".toml", ".xml", ".html", ".css"], src_exclude_dirs: &[] },
-        "marp_images" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] },
-        "license_header" => ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".bash"], src_exclude_dirs: &[] },
-        _ => return None,
-    })
+    find_registry_entry(type_name)?.scan_defaults
 }
 
 /// Return per-processor default values (command, `dep_auto`, batch override).
 /// Only needed for processors whose defaults differ from the struct's Default impl.
 pub fn processor_defaults_for(type_name: &str) -> Option<ProcessorDefaults> {
-    let d = ProcessorDefaults::default();
-    Some(match type_name {
-        "ruff" => ProcessorDefaults { command: "ruff", dep_auto: &["ruff.toml", ".ruff.toml", "pyproject.toml"], ..d },
-        "pylint" => ProcessorDefaults { command: "pylint", dep_auto: &[".pylintrc"], ..d },
-        "pytest" => ProcessorDefaults { command: "pytest", dep_auto: &["conftest.py", "pytest.ini", "pyproject.toml"], ..d },
-        "black" => ProcessorDefaults { command: "black", dep_auto: &["pyproject.toml"], ..d },
-        "mypy" => ProcessorDefaults { command: "mypy", dep_auto: &["mypy.ini"], ..d },
-        "pyrefly" => ProcessorDefaults { command: "pyrefly", dep_auto: &["pyproject.toml"], ..d },
-        "rumdl" => ProcessorDefaults { command: "rumdl", dep_auto: &[".rumdl.toml"], ..d },
-        "yamllint" => ProcessorDefaults { command: "yamllint", dep_auto: &[".yamllint", ".yamllint.yml", ".yamllint.yaml"], ..d },
-        "jq" => ProcessorDefaults { command: "jq", ..d },
-        "jsonlint" => ProcessorDefaults { command: "jsonlint", ..d },
-        "taplo" => ProcessorDefaults { command: "taplo", dep_auto: &["taplo.toml", ".taplo.toml"], ..d },
-        "cppcheck" => ProcessorDefaults { command: "cppcheck", args: &["--error-exitcode=1", "--enable=warning,style,performance,portability"], dep_auto: &[".cppcheck"], batch: Some(false), ..d },
-        "cpplint" => ProcessorDefaults { command: "cpplint", ..d },
-        "checkpatch" => ProcessorDefaults { command: "checkpatch.pl", ..d },
-        "shellcheck" => ProcessorDefaults { command: "shellcheck", dep_auto: &[".shellcheckrc"], ..d },
-        "luacheck" => ProcessorDefaults { command: "luacheck", dep_auto: &[".luacheckrc"], ..d },
-        "prettier" => ProcessorDefaults { command: "prettier", dep_auto: &[".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierrc.yml", ".prettierrc.yaml", ".prettierrc.toml", ".prettierrc.cjs", ".prettierrc.mjs", "prettier.config.js", "prettier.config.cjs", "prettier.config.mjs"], ..d },
-        "eslint" => ProcessorDefaults { command: "eslint", dep_auto: &[".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.yml", ".eslintrc.yaml", ".eslintrc.cjs", "eslint.config.js", "eslint.config.mjs", "eslint.config.cjs"], ..d },
-        "jshint" => ProcessorDefaults { command: "jshint", dep_auto: &[".jshintrc"], ..d },
-        "htmlhint" => ProcessorDefaults { command: "htmlhint", dep_auto: &[".htmlhintrc"], ..d },
-        "stylelint" => ProcessorDefaults { command: "stylelint", dep_auto: &[".stylelintrc", ".stylelintrc.json", ".stylelintrc.yml", ".stylelintrc.yaml", ".stylelintrc.js", ".stylelintrc.cjs", "stylelint.config.js", "stylelint.config.cjs"], ..d },
-        "perlcritic" => ProcessorDefaults { command: "perlcritic", dep_auto: &[".perlcriticrc"], ..d },
-        "svglint" => ProcessorDefaults { command: "svglint", dep_auto: &[".svglintrc.js"], ..d },
-        "svgo" => ProcessorDefaults { command: "svgo", dep_auto: &["svgo.config.js", "svgo.config.mjs", "svgo.config.cjs"], ..d },
-        "checkstyle" => ProcessorDefaults { command: "checkstyle", dep_auto: &["checkstyle.xml"], ..d },
-        "cmake" => ProcessorDefaults { command: "cmakelint", ..d },
-        "doctest" => ProcessorDefaults { command: "python3", ..d },
-        "hadolint" => ProcessorDefaults { command: "hadolint", ..d },
-        "htmllint" => ProcessorDefaults { command: "htmllint", ..d },
-        "jslint" => ProcessorDefaults { command: "jslint", ..d },
-        "php_lint" => ProcessorDefaults { command: "php", ..d },
-        "slidev" => ProcessorDefaults { command: "slidev", ..d },
-        "standard" => ProcessorDefaults { command: "standard", ..d },
-        "tidy" => ProcessorDefaults { command: "tidy", ..d },
-        "xmllint" => ProcessorDefaults { command: "xmllint", ..d },
-        "yq" => ProcessorDefaults { command: "yq", ..d },
-        // Generators
-        "marp" => ProcessorDefaults { output_dir: "out/marp", formats: &["pdf"], args: &["--html", "--allow-local-files"], command: "marp", ..d },
-        "markdown2html" => ProcessorDefaults { output_dir: "out/markdown2html", command: "markdown", ..d },
-        "chromium" => ProcessorDefaults { output_dir: "out/chromium", command: "google-chrome", ..d },
-        "mermaid" => ProcessorDefaults { output_dir: "out/mermaid", formats: &["png"], command: "mmdc", ..d },
-        "drawio" => ProcessorDefaults { output_dir: "out/drawio", formats: &["png"], command: "drawio", ..d },
-        "libreoffice" => ProcessorDefaults { output_dir: "out/libreoffice", formats: &["pdf"], command: "libreoffice", ..d },
-        "protobuf" => ProcessorDefaults { output_dir: "out/protobuf", command: "protoc", ..d },
-        "cc_single_file" => ProcessorDefaults { output_dir: "out/cc_single_file", ..d },
-        "cargo" => ProcessorDefaults { command: "build", ..d },
-        "clippy" => ProcessorDefaults { command: "clippy", ..d },
-        "generator" => ProcessorDefaults { output_dir: "out/generator", ..d },
-        "explicit" => d,
-        "sphinx" => ProcessorDefaults { command: "sphinx-build", output_dir: "docs", ..d },
-        "mdbook" => ProcessorDefaults { command: "mdbook", output_dir: "book", ..d },
-        "npm" => ProcessorDefaults { command: "npm", ..d },
-        "sass" => ProcessorDefaults { output_dir: "out/sass", command: "sass", ..d },
-        "pandoc" => ProcessorDefaults { output_dir: "out/pandoc", formats: &["pdf", "html", "docx"], command: "pandoc", ..d },
-        "a2x" => ProcessorDefaults { output_dir: "out/a2x", command: "a2x", ..d },
-        "objdump" => ProcessorDefaults { output_dir: "out/objdump", command: "objdump", ..d },
-        "imarkdown2html" => ProcessorDefaults { output_dir: "out/imarkdown2html", ..d },
-        "isass" => ProcessorDefaults { output_dir: "out/isass", ..d },
-        "yaml2json" => ProcessorDefaults { output_dir: "out/yaml2json", ..d },
-        // Checkers with custom dep_auto
-        "mdl" => ProcessorDefaults { command: "mdl", dep_auto: &[".mdlrc"], ..d },
-        "markdownlint" => ProcessorDefaults { command: "markdownlint", dep_auto: &[".markdownlint.json", ".markdownlint.jsonc", ".markdownlint.yaml"], ..d },
-        "aspell" => ProcessorDefaults { command: "aspell", dep_auto: &[".aspell.conf", ".aspell.en.pws", ".aspell.en.prepl"], ..d },
-        // Generators with custom output_dir
-        "pdflatex" => ProcessorDefaults { command: "pdflatex", output_dir: "out/pdflatex", ..d },
-        "rust_single_file" => ProcessorDefaults { command: "rustc", output_dir: "out/rust_single_file", ..d },
-        "pdfunite" => ProcessorDefaults { command: "pdfunite", output_dir: "out/pdfunite", ..d },
-        "ipdfunite" => ProcessorDefaults { output_dir: "out/ipdfunite", ..d },
-        // Creators with custom command
-        "gem" => ProcessorDefaults { command: "bundle", ..d },
-        "pip" => ProcessorDefaults { command: "pip", ..d },
-        "make" => ProcessorDefaults { command: "make", ..d },
-        "jekyll" => ProcessorDefaults { command: "jekyll", ..d },
-        // Python-script generators: command is the Python interpreter
-        "jinja2" => ProcessorDefaults { command: "python3", ..d },
-        "mako" => ProcessorDefaults { command: "python3", ..d },
-        _ => return None,
-    })
+    // Data lives on the plugin entry — see `scan_defaults_for`'s note; this
+    // was the second of the two hand-synchronized default tables (V6's marp
+    // args divergence was between this table and MarpConfig::default()).
+    find_registry_entry(type_name)?.defaults
 }
 
 /// Apply processor-specific defaults to a config TOML value.
@@ -1294,7 +1198,7 @@ pub struct GraphConfig {
 
 /// Expected TOML type for a config field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FieldType {
+pub enum FieldType {
     String,
     Bool,
     Integer,
@@ -1377,96 +1281,13 @@ fn expected_field_type(processor: &str, field: &str) -> Option<FieldType> {
         _ => {}
     }
 
-    // Processor-specific fields
-    match (processor, field) {
-        // tera
-        // tera has no processor-specific fields
-        // ruff
-        ("ruff", "command") => Some(FieldType::String),
-        // cc_single_file
-        ("cc_single_file", "cc" | "cxx" | "output_suffix") => Some(FieldType::String),
-        ("cc_single_file", "cflags" | "cxxflags" | "ldflags" | "include_paths") => Some(FieldType::StringArray),
-        ("cc_single_file", "include_scanner") => Some(FieldType::String),
-        ("cc_single_file", "compilers") => Some(FieldType::TableArray),
-        // cc (full project builds)
-        ("cc", "cc" | "cxx") => Some(FieldType::String),
-        ("cc", "cflags" | "cxxflags" | "ldflags" | "include_dirs") => Some(FieldType::StringArray),
-        ("cc", "single_invocation" | "cache_output_dir") => Some(FieldType::Bool),
-        // cppcheck — only common fields
-        // clang_tidy
-        ("clang_tidy", "compiler_args") => Some(FieldType::StringArray),
-        // zspell
-        ("zspell", "language" | "words_file") => Some(FieldType::String),
-        ("zspell", "auto_add_words") => Some(FieldType::Bool),
-        // make
-        ("make", "command" | "target") => Some(FieldType::String),
-        // cargo / clippy
-        ("cargo", "profiles") => Some(FieldType::StringArray),
-        ("cargo" | "clippy", "cargo" | "command") => Some(FieldType::String),
-        // tags
-        ("tags", "output" | "tags_dir") => Some(FieldType::String),
-        // pip
-        ("pip", "command") => Some(FieldType::String),
-        // sphinx
-        ("sphinx", "command" | "output_dir" | "working_dir") => Some(FieldType::String),
-        // mdbook
-        ("mdbook", "command" | "output_dir") => Some(FieldType::String),
-        // npm
-        ("npm", "command") => Some(FieldType::String),
-        // gem
-        ("gem", "command" | "gem_home") => Some(FieldType::String),
-        // mdl
-        ("mdl", "gem_home" | "command" | "gem_stamp") => Some(FieldType::String),
-        ("mdl", "local_repo") => Some(FieldType::Bool),
-        // aspell
-        ("aspell", "command" | "conf" | "words_file") => Some(FieldType::String),
-        ("aspell", "auto_add_words") => Some(FieldType::Bool),
-        // marp
-        ("marp", "timeout_secs" | "max_attempts") => Some(FieldType::Integer),
-        // pandoc
-        ("pandoc", "pdf_engine") => Some(FieldType::String),
-        // pdflatex
-        ("pdflatex", "runs") => Some(FieldType::Integer),
-        ("pdflatex", "qpdf" | "shell_escape") => Some(FieldType::Bool),
-        // a2x
-        // pdfunite / ipdfunite
-        ("pdfunite" | "ipdfunite", "source_dir" | "source_ext" | "source_output_dir") => Some(FieldType::String),
-        // cache_output_dir — shared by creators
-        ("cargo" | "sphinx" | "mdbook" | "npm" | "gem", "cache_output_dir") => Some(FieldType::Bool),
-        // creator / explicit — declared output sets
-        ("creator" | "explicit", "output_dirs" | "output_files") => Some(FieldType::StringArray),
-        ("explicit", "inputs" | "input_globs") => Some(FieldType::StringArray),
-        // generator
-        ("generator", "output_extension") => Some(FieldType::String),
-        // rust_single_file
-        ("rust_single_file", "flags") => Some(FieldType::StringArray),
-        ("rust_single_file", "output_suffix") => Some(FieldType::String),
-        // script — config-declared fix capability
-        ("script", "fix_command") => Some(FieldType::String),
-        ("script", "fix_args") => Some(FieldType::StringArray),
-        ("script", "fix_batch") => Some(FieldType::Bool),
-        // iyamlschema
-        ("iyamlschema", "check_ordering") => Some(FieldType::Bool),
-        // license_header
-        ("license_header", "header_lines") => Some(FieldType::StringArray),
-        // zspell
-        ("zspell", "dict_dir") => Some(FieldType::String),
-        // requirements
-        ("requirements", "output") => Some(FieldType::String),
-        ("requirements", "exclude" | "extra" | "python_paths") => Some(FieldType::StringArray),
-        ("requirements", "header" | "sorted") => Some(FieldType::Bool),
-        ("requirements", "mapping") => Some(FieldType::Table),
-        // terms
-        ("terms", "dir_terms_ambiguous" | "dir_terms_unambiguous") => Some(FieldType::String),
-        ("terms", "forbid_backticked_ambiguous") => Some(FieldType::Bool),
-        // tags
-        ("tags", "required_fields" | "required_values" | "unique_fields") => Some(FieldType::StringArray),
-        ("tags", "field_types") => Some(FieldType::Table),
-        ("tags", "required_field_groups") => Some(FieldType::Array),
-        ("tags", "sorted_tags" | "check_unused") => Some(FieldType::Bool),
-        ("tags", "common_tags_limit" | "similar_files_limit" | "suggested_tags_limit") => Some(FieldType::Integer),
-        _ => None,
-    }
+    // Processor-specific fields: the type comes from the processor's own
+    // FieldSpec list (a ~120-arm (processor, field) match table used to
+    // live here — dead arms in it were provably invisible to the tests).
+    find_registry_entry(processor)?
+        .fields.iter()
+        .find(|s| s.name == field)
+        .map(|s| s.ty)
 }
 
 /// Validate fields in a single processor config table.
@@ -1476,7 +1297,7 @@ fn validate_single_processor(
     table: &toml::map::Map<String, toml::Value>,
     errors: &mut Vec<String>,
 ) {
-    let own_fields: &[&str] = match ProcessorConfig::known_fields_for(type_name) {
+    let own_fields: Vec<&'static str> = match ProcessorConfig::known_fields_for(type_name) {
         Some(fields) => fields,
         None => return, // unknown = Lua plugin, skip
     };
@@ -1520,7 +1341,7 @@ fn validate_single_processor(
 
     // Check that all must_fields are present and non-empty
     if let Some(must) = ProcessorConfig::must_fields_for(type_name) {
-        for field in must {
+        for field in &must {
             match table.get(*field) {
                 None => {
                     errors.push(format!(
@@ -2073,7 +1894,7 @@ fn validate_override_field(
     value: &toml::Value,
     instance_label: &str,
 ) -> Result<()> {
-    let own_fields = ProcessorConfig::known_fields_for(type_name).unwrap_or(&[]);
+    let own_fields = ProcessorConfig::known_fields_for(type_name).unwrap_or_default();
     let is_known = own_fields.contains(&field)
         || SCAN_CONFIG_FIELDS.contains(&field)
         || STANDARD_EXTRA_FIELDS.contains(&field);

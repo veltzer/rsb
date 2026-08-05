@@ -3,10 +3,142 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{CcConfig, CcManifest, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output, anchor_display_dir};
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct CcLibraryDef {
+    pub name: String,
+    #[serde(default = "default_cc_lib_type")]
+    pub lib_type: String,
+    pub sources: Vec<String>,
+    #[serde(default)]
+    pub include_dirs: Vec<String>,
+    #[serde(default)]
+    pub cflags: Vec<String>,
+    #[serde(default)]
+    pub cxxflags: Vec<String>,
+    #[serde(default)]
+    pub ldflags: Vec<String>,
+}
+
+fn default_cc_lib_type() -> String {
+    "shared".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct CcProgramDef {
+    pub name: String,
+    pub sources: Vec<String>,
+    #[serde(default)]
+    pub link: Vec<String>,
+    #[serde(default)]
+    pub include_dirs: Vec<String>,
+    #[serde(default)]
+    pub cflags: Vec<String>,
+    #[serde(default)]
+    pub cxxflags: Vec<String>,
+    #[serde(default)]
+    pub ldflags: Vec<String>,
+}
+
+/// Parsed contents of a cc.yaml file, resolved against the `[processor.cc]`
+/// config: the six inheritable fields (`cc`, `cxx`, `cflags`, `cxxflags`,
+/// `ldflags`, `include_dirs`) default to the config's values, so
+/// `rsconstruct.toml` sets project-wide defaults and each cc.yaml overrides
+/// per directory. Construct via [`CcManifest::parse`] — the raw serde shape
+/// lives in `CcManifestRaw` so "field absent" (inherit) is distinguishable
+/// from "field explicitly set".
+#[derive(Debug, Clone)]
+pub struct CcManifest {
+    pub cc: String,
+    pub cxx: String,
+    pub cflags: Vec<String>,
+    pub cxxflags: Vec<String>,
+    pub ldflags: Vec<String>,
+    pub include_dirs: Vec<String>,
+    pub libraries: Vec<CcLibraryDef>,
+    pub programs: Vec<CcProgramDef>,
+}
+
+/// The raw serde shape of cc.yaml. Inheritable fields are optional; absent
+/// means "inherit the `[processor.cc]` config value".
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CcManifestRaw {
+    cc: Option<String>,
+    cxx: Option<String>,
+    cflags: Option<Vec<String>>,
+    cxxflags: Option<Vec<String>>,
+    ldflags: Option<Vec<String>>,
+    include_dirs: Option<Vec<String>>,
+    #[serde(default)]
+    libraries: Vec<CcLibraryDef>,
+    #[serde(default)]
+    programs: Vec<CcProgramDef>,
+}
+
+impl CcManifest {
+    /// Parse cc.yaml content, inheriting unset fields from the config.
+    pub fn parse(content: &str, defaults: &CcConfig) -> Result<Self, serde_yml::Error> {
+        let raw: CcManifestRaw = serde_yml::from_str(content)?;
+        Ok(Self {
+            cc: raw.cc.unwrap_or_else(|| defaults.cc.clone()),
+            cxx: raw.cxx.unwrap_or_else(|| defaults.cxx.clone()),
+            cflags: raw.cflags.unwrap_or_else(|| defaults.cflags.clone()),
+            cxxflags: raw.cxxflags.unwrap_or_else(|| defaults.cxxflags.clone()),
+            ldflags: raw.ldflags.unwrap_or_else(|| defaults.ldflags.clone()),
+            include_dirs: raw.include_dirs.unwrap_or_else(|| defaults.include_dirs.clone()),
+            libraries: raw.libraries,
+            programs: raw.programs,
+        })
+    }
+}
+
+/// CC (full C/C++ project) config. Custom: cc, cxx, cflags, cxxflags, ldflags, `include_dirs`, `single_invocation`, `cache_output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CcConfig {
+    #[serde(default = "crate::config::default_cc_compiler")]
+    pub cc: String,
+    #[serde(default = "crate::config::default_cxx_compiler")]
+    pub cxx: String,
+    #[serde(default)]
+    pub cflags: Vec<String>,
+    #[serde(default)]
+    pub cxxflags: Vec<String>,
+    #[serde(default)]
+    pub ldflags: Vec<String>,
+    #[serde(default)]
+    pub include_dirs: Vec<String>,
+    #[serde(default)]
+    pub single_invocation: bool,
+    #[serde(default = "crate::config::default_true")]
+    pub cache_output_dir: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for CcConfig {
+    fn default() -> Self {
+        Self {
+            cc: "gcc".into(),
+            cxx: "g++".into(),
+            cflags: Vec::new(),
+            cxxflags: Vec::new(),
+            ldflags: Vec::new(),
+            include_dirs: Vec::new(),
+            single_invocation: false,
+            cache_output_dir: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct CcProcessor {
     config: CcConfig,
@@ -317,7 +449,7 @@ impl Processor for CcProcessor {
         let Some(files) = crate::processors::scan_or_skip(&self.config.standard, file_index) else {
             return Ok(());
         };
-        let hash = Some(output_config_hash(&self.config, <crate::config::CcConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for yaml_path in files {
@@ -385,11 +517,36 @@ inventory::submit! {
         name: "cc",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::CcConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::CcConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::CcConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::CcConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::CcConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "cc", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Default C compiler executable (overridable per cc.yaml)" },
+            crate::config::FieldSpec { name: "cxx", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Default C++ compiler executable (overridable per cc.yaml)" },
+            crate::config::FieldSpec { name: "cflags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Default C compiler flags (overridable per cc.yaml)" },
+            crate::config::FieldSpec { name: "cxxflags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Default C++ compiler flags (overridable per cc.yaml)" },
+            crate::config::FieldSpec { name: "ldflags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Default linker flags (overridable per cc.yaml)" },
+            crate::config::FieldSpec { name: "include_dirs", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Default header search directories (overridable per cc.yaml)" },
+            crate::config::FieldSpec { name: "single_invocation", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Compile all sources in one compiler call" },
+            crate::config::FieldSpec { name: "cache_output_dir", ty: crate::config::FieldType::Bool,
+                affects_output: false, required: false,
+                doc: "Cache the entire output directory as a unit" },
+        ],
+        omit_standard_fields: &["command", "formats", "args", "dep_auto", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["cc.yaml"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<CcConfig>,
         keywords: &["c", "cpp", "builder", "compiler", "gcc", "clang", "cc", "h", "hpp"],
         description: "Build C/C++ projects from cc.yaml manifests",
         is_native: false,

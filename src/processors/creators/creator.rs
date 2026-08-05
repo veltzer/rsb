@@ -2,11 +2,30 @@ use std::path::PathBuf;
 use std::process::Command;
 use anyhow::Result;
 
-use crate::config::{CreatorConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{ProcessorBase, Processor,
     run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+/// Config for Creator processors — run a command and cache declared outputs.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Creator processor config.
+/// Custom fields: `output_dirs`, `output_files`.
+/// Unused `StandardConfig` fields: formats, `output_dir`.
+#[derive(Default)]
+pub struct CreatorConfig {
+    /// Directories to cache after the command runs.
+    #[serde(default)]
+    pub output_dirs: Vec<String>,
+    /// Individual files to cache after the command runs.
+    #[serde(default)]
+    pub output_files: Vec<String>,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 /// A data-driven processor that runs a command and caches declared outputs.
 ///
@@ -60,7 +79,7 @@ impl Processor for CreatorProcessor {
             return Ok(());
         };
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::CreatorConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for anchor in files {
@@ -119,11 +138,18 @@ inventory::submit! {
         name: "creator",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::CreatorConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::CreatorConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::CreatorConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::CreatorConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::CreatorConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "output_dirs", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Directories to cache after the command runs" },
+            crate::config::FieldSpec { name: "output_files", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Individual files to cache after the command runs" },
+        ],
+        omit_standard_fields: &["formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<CreatorConfig>,
         keywords: &["builder", "creator", "generic"],
         description: "Run a command and cache declared outputs",
         is_native: false,

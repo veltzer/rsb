@@ -1,8 +1,19 @@
 use anyhow::Result;
 use std::path::Path;
 
-use crate::config::LicenseHeaderConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::graph::Product;
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
+pub struct LicenseHeaderConfig {
+    #[serde(default)]
+    pub header_lines: Vec<String>,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct LicenseHeaderProcessor {
     config: LicenseHeaderConfig,
@@ -93,7 +104,7 @@ impl crate::processors::Processor for LicenseHeaderProcessor {
             graph, &self.config.standard, file_index,
             &self.config.standard.dep_inputs, &self.config.standard.dep_auto,
             &self.config,
-            <crate::config::LicenseHeaderConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -116,11 +127,15 @@ inventory::submit! {
         name: "license_header",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::LicenseHeaderConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::LicenseHeaderConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::LicenseHeaderConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::LicenseHeaderConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::LicenseHeaderConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "header_lines", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Lines of the license header that must appear at the top of each file" },
+        ],
+        omit_standard_fields: &["command", "formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".py", ".rs", ".js", ".ts", ".c", ".cc", ".h", ".hh", ".java", ".rb", ".go", ".sh", ".bash"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<LicenseHeaderConfig>,
         keywords: &["checker", "license", "header", "copyright"],
         description: "Verify source files contain required license headers",
         is_native: true,

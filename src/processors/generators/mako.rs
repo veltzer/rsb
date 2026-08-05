@@ -1,12 +1,24 @@
 use anyhow::Result;
 use std::process::Command;
 
-use crate::config::{MakoConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output};
 
 use super::TemplateItem;
+
+/// Mako template processor config. No custom fields.
+/// `command` is the Python interpreter used to render (default: python3).
+/// Unused `StandardConfig` fields: formats, `output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
+pub struct MakoConfig {
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 /// Render a Mako template via the configured Python interpreter and write to output
 fn render_mako(ctx: &crate::build_context::BuildContext, python: &str, item: &TemplateItem) -> Result<()> {
@@ -86,7 +98,7 @@ impl Processor for MakoProcessor {
                 inputs,
                 vec![item.output_path.clone()],
                 instance_name,
-                Some(output_config_hash(&self.config, <crate::config::MakoConfig as crate::config::KnownFields>::checksum_fields())),
+                Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name))),
             )?;
         }
 
@@ -112,11 +124,11 @@ inventory::submit! {
         name: "mako",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::MakoConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::MakoConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::MakoConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::MakoConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::MakoConfig>,
+        fields: &[],
+        omit_standard_fields: &[],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".mako"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "python3", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<MakoConfig>,
         keywords: &["python", "template", "generator", "pip"],
         description: "Render Mako templates into output files",
         is_native: false,

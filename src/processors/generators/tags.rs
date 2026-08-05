@@ -5,11 +5,88 @@ use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 use crate::tables;
-use crate::config::{TagsConfig, output_config_hash, resolve_extra_inputs};
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor};
+
+fn default_tags_output() -> String {
+    "out/tags/tags.db".into()
+}
+
+fn default_tags_dir() -> String {
+    "tags".into()
+}
+
+const fn default_tags_similar_files_limit() -> usize { 10 }
+const fn default_tags_suggested_tags_limit() -> usize { 15 }
+const fn default_tags_common_tags_limit() -> usize { 20 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TagsConfig {
+    #[serde(default = "default_tags_output")]
+    pub output: String,
+    /// Directory containing tag list files.
+    /// Each `<name>.txt` file defines allowed tags as `<name>:<line>` pairs.
+    #[serde(default = "default_tags_dir")]
+    pub tags_dir: String,
+    /// Frontmatter fields that every markdown file must have.
+    #[serde(default)]
+    pub required_fields: Vec<String>,
+    /// Scalar fields whose values must exist in the corresponding `tag_lists` file.
+    #[serde(default)]
+    pub required_values: Vec<String>,
+    /// Fields whose values must be unique across all files.
+    #[serde(default)]
+    pub unique_fields: Vec<String>,
+    /// Expected types for fields: "scalar", "list", or "number".
+    #[serde(default)]
+    pub field_types: HashMap<String, String>,
+    /// Groups of fields where at least one group must be fully present.
+    /// Each inner Vec is a group; a file passes if all fields in any one group are present.
+    #[serde(default)]
+    pub required_field_groups: Vec<Vec<String>>,
+    /// Require list-type fields to have items in sorted order.
+    #[serde(default)]
+    pub sorted_tags: bool,
+    /// Fail the build when tags in the allowlist are not used by any file.
+    #[serde(default)]
+    pub check_unused: bool,
+    /// How many most-similar files to inspect when generating tag suggestions.
+    #[serde(default = "default_tags_similar_files_limit")]
+    pub similar_files_limit: usize,
+    /// Maximum tag suggestions emitted by `tags suggest`.
+    #[serde(default = "default_tags_suggested_tags_limit")]
+    pub suggested_tags_limit: usize,
+    /// Maximum "most common tags" reported when a file has no tags of its own.
+    #[serde(default = "default_tags_common_tags_limit")]
+    pub common_tags_limit: usize,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for TagsConfig {
+    fn default() -> Self {
+        Self {
+            output: "out/tags/tags.db".into(),
+            tags_dir: "tags".into(),
+            required_fields: Vec::new(),
+            required_values: Vec::new(),
+            unique_fields: Vec::new(),
+            field_types: HashMap::new(),
+            required_field_groups: Vec::new(),
+            sorted_tags: false,
+            check_unused: false,
+            similar_files_limit: default_tags_similar_files_limit(),
+            suggested_tags_limit: default_tags_suggested_tags_limit(),
+            common_tags_limit: default_tags_common_tags_limit(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 const FRONTMATTER: TableDefinition<&str, &str> = TableDefinition::new("frontmatter");
 const TAG_INDEX: TableDefinition<&str, &str> = TableDefinition::new("tag_index");
@@ -83,7 +160,7 @@ impl Processor for TagsProcessor {
             inputs,
             vec![output],
             instance_name,
-            Some(output_config_hash(&self.config, <crate::config::TagsConfig as crate::config::KnownFields>::checksum_fields())),
+            Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name))),
         )?;
 
         Ok(())
@@ -1174,7 +1251,7 @@ pub fn orphan_files(db_path: &str) -> Result<()> {
 }
 
 /// Run all tag validations without building.
-pub fn check_tags(config: &crate::config::TagsConfig) -> Result<()> {
+pub fn check_tags(config: &TagsConfig) -> Result<()> {
     let file_index = crate::file_index::FileIndex::build()?;
     let files = file_index.scan(&config.standard, true);
     if files.is_empty() {
@@ -1378,7 +1455,7 @@ pub fn check_tags(config: &crate::config::TagsConfig) -> Result<()> {
 }
 
 /// Suggest tags for a file based on similarity to other tagged files.
-pub fn suggest_tags(db_path: &str, path: &str, config: &crate::config::TagsConfig) -> Result<()> {
+pub fn suggest_tags(db_path: &str, path: &str, config: &TagsConfig) -> Result<()> {
     let db = open_tags_db(db_path)?;
     let read_txn = crate::errors::ctx(db.begin_read(), "Failed to begin read transaction")?;
     let tag_table = crate::errors::ctx(read_txn.open_table(TAG_INDEX), "Failed to open tag_index table")?;
@@ -1945,11 +2022,48 @@ inventory::submit! {
         name: "tags",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::TagsConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::TagsConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::TagsConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::TagsConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::TagsConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "output", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Output tags database file path" },
+            crate::config::FieldSpec { name: "tags_dir", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Directory containing tag list files" },
+            crate::config::FieldSpec { name: "required_fields", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Frontmatter fields that every markdown file must have" },
+            crate::config::FieldSpec { name: "required_values", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Scalar fields whose values must exist in the tag lists file" },
+            crate::config::FieldSpec { name: "unique_fields", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Fields whose values must be unique across all files" },
+            crate::config::FieldSpec { name: "field_types", ty: crate::config::FieldType::Table,
+                affects_output: true, required: false,
+                doc: "Expected types for fields: scalar, list, or number" },
+            crate::config::FieldSpec { name: "required_field_groups", ty: crate::config::FieldType::Array,
+                affects_output: true, required: false,
+                doc: "Groups of fields where at least one group must be fully present" },
+            crate::config::FieldSpec { name: "sorted_tags", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Require list-type fields to have items in sorted order" },
+            crate::config::FieldSpec { name: "check_unused", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Fail the build when tags in the allowlist are not used by any file" },
+            crate::config::FieldSpec { name: "similar_files_limit", ty: crate::config::FieldType::Integer,
+                affects_output: false, required: false,
+                doc: "How many most-similar files to inspect when generating tag suggestions" },
+            crate::config::FieldSpec { name: "suggested_tags_limit", ty: crate::config::FieldType::Integer,
+                affects_output: false, required: false,
+                doc: "Maximum tag suggestions emitted by `tags suggest`" },
+            crate::config::FieldSpec { name: "common_tags_limit", ty: crate::config::FieldType::Integer,
+                affects_output: false, required: false,
+                doc: "Maximum 'most common tags' reported when a file has no tags of its own" },
+        ],
+        omit_standard_fields: &["command", "formats", "args", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<TagsConfig>,
         keywords: &["ctags", "tags", "generator", "code-navigation"],
         description: "Extract YAML frontmatter tags from markdown files into a searchable database",
         is_native: true,

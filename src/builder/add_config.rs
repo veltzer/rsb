@@ -13,11 +13,11 @@ pub fn add_processor(pname: &str, dry_run: bool) -> Result<()> {
     let plugin = all_plugins().find(|p| p.name == pname)
         .ok_or_else(|| anyhow::anyhow!("Unknown processor '{pname}'"))?;
 
-    let known: Vec<&str> = (plugin.known_fields)().to_vec();
-    let must: Vec<&str> = (plugin.must_fields)().to_vec();
-    let checksum_fields: Vec<&str> = (plugin.checksum_fields)().to_vec();
-    let mut descs: HashMap<&str, &str> = (plugin.field_descriptions)()
-        .iter().copied().collect();
+    let known: Vec<&str> = crate::config::ProcessorConfig::known_fields_for(pname).unwrap_or_default();
+    let must: Vec<&str> = crate::config::ProcessorConfig::must_fields_for(pname).unwrap_or_default();
+    let checksum_fields: Vec<&str> = crate::config::ProcessorConfig::checksum_fields_for(pname).unwrap_or_default();
+    let mut descs: HashMap<&str, &str> = crate::config::ProcessorConfig::field_descriptions_for(pname)
+        .unwrap_or_default().into_iter().collect();
     for (f, d) in crate::config::SHARED_FIELD_DESCRIPTIONS { descs.entry(f).or_insert(d); }
     for (f, d) in crate::config::SCAN_FIELD_DESCRIPTIONS  { descs.entry(f).or_insert(d); }
 

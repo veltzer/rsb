@@ -2,10 +2,33 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{RustSingleFileConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output};
+
+fn default_rust_single_file_output_suffix() -> String { ".elf".into() }
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RustSingleFileConfig {
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default = "default_rust_single_file_output_suffix")]
+    pub output_suffix: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for RustSingleFileConfig {
+    fn default() -> Self {
+        Self {
+            flags: Vec::new(),
+            output_suffix: ".elf".into(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct RustSingleFileProcessor {
     config: RustSingleFileConfig,
@@ -56,7 +79,7 @@ impl Processor for RustSingleFileProcessor {
             return Ok(());
         }
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::RustSingleFileConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for source in &files {
@@ -104,11 +127,18 @@ inventory::submit! {
         name: "rust_single_file",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::RustSingleFileConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::RustSingleFileConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::RustSingleFileConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::RustSingleFileConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::RustSingleFileConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "flags", ty: crate::config::FieldType::StringArray,
+                affects_output: true, required: false,
+                doc: "Extra flags passed to rustc" },
+            crate::config::FieldSpec { name: "output_suffix", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Suffix appended to output binary names" },
+        ],
+        omit_standard_fields: &["formats", "args"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".rs"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "rustc", output_dir: "out/rust_single_file", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<RustSingleFileConfig>,
         keywords: &["rust", "compiler", "rs", "cargo", "binary", "executable"],
         description: "Compile single-file Rust programs into executables",
         is_native: false,

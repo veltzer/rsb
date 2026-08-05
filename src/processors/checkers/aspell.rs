@@ -3,11 +3,44 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::process::Command;
 
-use crate::config::AspellConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::Processor;
 use crate::word_manager::WordManager;
+
+fn default_aspell_conf() -> String {
+    ".aspell.conf".into()
+}
+
+fn default_aspell_words_file() -> String {
+    ".aspell.en.pws".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AspellConfig {
+    #[serde(default = "default_aspell_conf")]
+    pub conf: String,
+    #[serde(default)]
+    pub auto_add_words: bool,
+    #[serde(default = "default_aspell_words_file")]
+    pub words_file: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for AspellConfig {
+    fn default() -> Self {
+        Self {
+            conf: ".aspell.conf".into(),
+            auto_add_words: false,
+            words_file: ".aspell.en.pws".into(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct AspellProcessor {
     config: AspellConfig,
@@ -113,7 +146,7 @@ impl Processor for AspellProcessor {
             &self.config.standard.dep_inputs,
             &dep_auto,
             &self.config,
-            <crate::config::AspellConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -146,11 +179,21 @@ inventory::submit! {
         name: "aspell",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::AspellConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::AspellConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::AspellConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::AspellConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::AspellConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "conf", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Path to the aspell configuration file" },
+            crate::config::FieldSpec { name: "auto_add_words", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "When true, automatically add misspelled words to words_file instead of failing" },
+            crate::config::FieldSpec { name: "words_file", ty: crate::config::FieldType::String,
+                affects_output: false, required: false,
+                doc: "Path to the personal word list file" },
+        ],
+        omit_standard_fields: &["formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "aspell", dep_auto: &[".aspell.conf", ".aspell.en.pws", ".aspell.en.prepl"], ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<AspellConfig>,
         keywords: &["spellcheck", "spelling", "english", "checker"],
         description: "Check spelling using aspell",
         is_native: false,

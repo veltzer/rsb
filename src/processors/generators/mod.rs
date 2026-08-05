@@ -88,8 +88,9 @@ pub struct DiscoverParams<'a, C: Serialize> {
     pub config: &'a C,
     pub output_dir: &'a str,
     pub processor_name: &'a str,
-    /// Allowlist of field names to include in the config-change checksum.
-    pub checksum_fields: &'static [&'static str],
+    /// Allowlist of field names to include in the config-change checksum,
+    /// derived from the plugin's `FieldSpec` list (`checksum_fields_of`).
+    pub checksum_fields: Vec<&'static str>,
 }
 
 /// Compute the output path for a source file.
@@ -120,7 +121,7 @@ pub fn discover_multi_format(
         return Ok(());
     };
 
-    let hash = Some(output_config_hash(params.config, params.checksum_fields));
+    let hash = Some(output_config_hash(params.config, &params.checksum_fields));
     let extra = resolve_extra_inputs(params.dep_inputs)?;
     let src_dirs = params.scan.src_dirs();
 

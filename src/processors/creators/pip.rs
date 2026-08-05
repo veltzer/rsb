@@ -2,10 +2,19 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{PipConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+/// Pip config. Custom: none (uses standard.command as the pip executable).
+pub struct PipConfig {
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct PipProcessor {
     config: PipConfig,
@@ -57,7 +66,7 @@ impl Processor for PipProcessor {
             return Ok(());
         }
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::PipConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for anchor in files {
@@ -85,11 +94,11 @@ inventory::submit! {
         name: "pip",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::PipConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::PipConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::PipConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::PipConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::PipConfig>,
+        fields: &[],
+        omit_standard_fields: &["formats", "dep_auto", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["requirements.txt"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "pip", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<PipConfig>,
         keywords: &["python", "pip", "package-manager", "py"],
         description: "Install Python dependencies using pip",
         is_native: false,

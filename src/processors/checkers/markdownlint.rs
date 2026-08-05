@@ -1,10 +1,18 @@
 use anyhow::Result;
 use std::process::Command;
 
-use crate::config::MarkdownlintConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, check_command_output, run_command};
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct MarkdownlintConfig {
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct MarkdownlintProcessor {
     config: MarkdownlintConfig,
@@ -38,7 +46,7 @@ impl Processor for MarkdownlintProcessor {
             graph, &self.config.standard, file_index,
             &self.config.standard.dep_inputs, &self.config.standard.dep_auto,
             &self.config,
-            <crate::config::MarkdownlintConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -64,11 +72,11 @@ inventory::submit! {
         name: "markdownlint",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::MarkdownlintConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::MarkdownlintConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::MarkdownlintConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::MarkdownlintConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::MarkdownlintConfig>,
+        fields: &[],
+        omit_standard_fields: &["formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "markdownlint", dep_auto: &[".markdownlint.json", ".markdownlint.jsonc", ".markdownlint.yaml"], ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<MarkdownlintConfig>,
         keywords: &["markdown", "md", "linter", "node", "npm"],
         description: "Lint Markdown files using markdownlint",
         is_native: false,

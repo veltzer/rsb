@@ -2,10 +2,30 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{NpmConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, SiblingFilter, run_in_anchor_dir, anchor_display_dir, check_command_output};
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Npm config. Custom: `cache_output_dir`.
+pub struct NpmConfig {
+    #[serde(default = "crate::config::default_true")]
+    pub cache_output_dir: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for NpmConfig {
+    fn default() -> Self {
+        Self {
+            cache_output_dir: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct NpmProcessor {
     config: NpmConfig,
@@ -54,7 +74,7 @@ impl Processor for NpmProcessor {
             return Ok(());
         };
 
-        let hash = Some(output_config_hash(&self.config, <crate::config::NpmConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         let siblings = SiblingFilter {
@@ -105,11 +125,15 @@ inventory::submit! {
         name: "npm",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::NpmConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::NpmConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::NpmConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::NpmConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::NpmConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "cache_output_dir", ty: crate::config::FieldType::Bool,
+                affects_output: false, required: false,
+                doc: "Cache the entire output directory as a unit" },
+        ],
+        omit_standard_fields: &["formats", "dep_auto", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["package.json"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "npm", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<NpmConfig>,
         keywords: &["javascript", "typescript", "node", "npm", "package-manager", "web", "frontend"],
         description: "Install Node.js dependencies using npm",
         is_native: false,

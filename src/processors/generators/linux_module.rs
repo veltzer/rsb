@@ -4,10 +4,62 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{LinuxModuleConfig, LinuxModuleManifest, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command, check_command_output, anchor_display_dir};
+
+/// A single kernel module definition inside linux-module.yaml.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct LinuxModuleModuleDef {
+    pub name: String,
+    pub sources: Vec<String>,
+    #[serde(default)]
+    pub extra_cflags: Vec<String>,
+}
+
+/// Parsed contents of a linux-module.yaml file.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct LinuxModuleManifest {
+    #[serde(default = "default_make_tool")]
+    pub make: String,
+    #[serde(default)]
+    pub kdir: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+    #[serde(default)]
+    pub cross_compile: Option<String>,
+    #[serde(default = "default_linux_module_v")]
+    pub v: u32,
+    #[serde(default = "default_linux_module_w")]
+    pub w: u32,
+    pub modules: Vec<LinuxModuleModuleDef>,
+}
+
+fn default_make_tool() -> String {
+    "make".into()
+}
+
+const fn default_linux_module_v() -> u32 {
+    0
+}
+
+const fn default_linux_module_w() -> u32 {
+    1
+}
+
+/// Linux module config. No custom fields.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`, args.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
+pub struct LinuxModuleConfig {
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 pub struct LinuxModuleProcessor {
     config: LinuxModuleConfig,
@@ -59,7 +111,7 @@ impl LinuxModuleProcessor {
     }
 
     /// Generate a Kbuild file for building a kernel module.
-    fn write_kbuild(module_dir: &Path, module: &crate::config::LinuxModuleModuleDef) -> Result<()> {
+    fn write_kbuild(module_dir: &Path, module: &LinuxModuleModuleDef) -> Result<()> {
         let mut content = format!("obj-m := {}.o\n", module.name);
 
         let objs: Vec<String> = module.sources.iter()
@@ -81,7 +133,7 @@ impl LinuxModuleProcessor {
     }
 
     /// Build a single kernel module. Runs make in the module's source directory.
-    fn build_module(ctx: &crate::build_context::BuildContext, manifest: &LinuxModuleManifest, anchor_dir: &Path, module: &crate::config::LinuxModuleModuleDef, output_dir: &Path) -> Result<()> {
+    fn build_module(ctx: &crate::build_context::BuildContext, manifest: &LinuxModuleManifest, anchor_dir: &Path, module: &LinuxModuleModuleDef, output_dir: &Path) -> Result<()> {
         let cwd = std::env::current_dir()
             .context("Failed to get current directory for linux module build")?;
         let module_dir = if anchor_dir.as_os_str().is_empty() {
@@ -192,7 +244,7 @@ impl Processor for LinuxModuleProcessor {
         let Some(files) = crate::processors::scan_or_skip(&self.config.standard, file_index) else {
             return Ok(());
         };
-        let hash = Some(output_config_hash(&self.config, <crate::config::LinuxModuleConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
 
         for yaml_path in files {
@@ -243,11 +295,11 @@ inventory::submit! {
         name: "linux_module",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::LinuxModuleConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::LinuxModuleConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::LinuxModuleConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::LinuxModuleConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::LinuxModuleConfig>,
+        fields: &[],
+        omit_standard_fields: &[],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["linux-module.yaml"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<LinuxModuleConfig>,
         keywords: &["c", "linux", "kernel", "module", "builder"],
         description: "Build Linux kernel modules from linux-module.yaml manifests",
         is_native: false,

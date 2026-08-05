@@ -2,10 +2,33 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::config::{SphinxConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, SiblingFilter, run_command, anchor_display_dir, check_command_output};
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Sphinx config. Custom: `working_dir`, `cache_output_dir`.
+pub struct SphinxConfig {
+    #[serde(default)]
+    pub working_dir: Option<String>,
+    #[serde(default = "crate::config::default_true")]
+    pub cache_output_dir: bool,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for SphinxConfig {
+    fn default() -> Self {
+        Self {
+            working_dir: None,
+            cache_output_dir: true,
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct SphinxProcessor {
     config: SphinxConfig,
@@ -65,7 +88,7 @@ impl Processor for SphinxProcessor {
         let Some(files) = crate::processors::scan_or_skip(&self.config.standard, file_index) else {
             return Ok(());
         };
-        let hash = Some(output_config_hash(&self.config, <crate::config::SphinxConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let extra = resolve_extra_inputs(&self.config.standard.dep_inputs)?;
         let siblings = SiblingFilter {
             extensions: &[".rst", ".py", ".md"],
@@ -102,11 +125,18 @@ inventory::submit! {
         name: "sphinx",
         processor_type: crate::processors::ProcessorType::Creator,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::SphinxConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::SphinxConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::SphinxConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::SphinxConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::SphinxConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "working_dir", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Working directory for sphinx-build (defaults to conf.py location)" },
+            crate::config::FieldSpec { name: "cache_output_dir", ty: crate::config::FieldType::Bool,
+                affects_output: false, required: false,
+                doc: "Cache the entire output directory as a unit" },
+        ],
+        omit_standard_fields: &["formats", "dep_auto"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &["conf.py"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "sphinx-build", output_dir: "docs", ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<SphinxConfig>,
         keywords: &["python", "sphinx", "documentation", "rst", "html", "pip"],
         description: "Build Sphinx documentation",
         is_native: false,

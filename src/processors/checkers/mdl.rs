@@ -2,10 +2,43 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::config::{MdlConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, check_command_output, config_file_inputs, run_command};
+
+fn default_gem_home() -> String {
+    "gems".into()
+}
+
+fn default_gem_stamp() -> String {
+    "out/gem/root.stamp".into()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MdlConfig {
+    #[serde(default)]
+    pub local_repo: bool,
+    #[serde(default = "default_gem_home")]
+    pub gem_home: String,
+    #[serde(default = "default_gem_stamp")]
+    pub gem_stamp: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for MdlConfig {
+    fn default() -> Self {
+        Self {
+            local_repo: false,
+            gem_home: "gems".into(),
+            gem_stamp: "out/gem/root.stamp".into(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct MdlProcessor {
     config: MdlConfig,
@@ -39,7 +72,7 @@ impl Processor for MdlProcessor {
         if files.is_empty() {
             return Ok(());
         }
-        let hash = Some(output_config_hash(&self.config, <crate::config::MdlConfig as crate::config::KnownFields>::checksum_fields()));
+        let hash = Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name)));
         let mut dep_inputs = self.config.standard.dep_inputs.clone();
         for ai in &self.config.standard.dep_auto {
             dep_inputs.extend(config_file_inputs(ai));
@@ -90,11 +123,21 @@ inventory::submit! {
         name: "mdl",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::MdlConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::MdlConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::MdlConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::MdlConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::MdlConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "local_repo", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "Use a local gem repository instead of system install" },
+            crate::config::FieldSpec { name: "gem_home", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Path to the local gem repository" },
+            crate::config::FieldSpec { name: "gem_stamp", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Stamp file tracking the local gem installation" },
+        ],
+        omit_standard_fields: &["formats", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+        defaults: Some(crate::config::ProcessorDefaults { command: "mdl", dep_auto: &[".mdlrc"], ..crate::config::ProcessorDefaults::EMPTY }),
+        defconfig_json: crate::registries::default_config_json::<MdlConfig>,
         keywords: &["markdown", "md", "linter", "ruby", "gem"],
         description: "Lint Markdown files using mdl (markdownlint)",
         is_native: false,

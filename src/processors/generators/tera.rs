@@ -9,12 +9,23 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tera::{Context as TeraContext, Function, Tera, Value as TeraValue, to_value};
 
-use crate::config::{TeraConfig, output_config_hash, resolve_extra_inputs};
+use serde::{Deserialize, Serialize};
+
+use crate::config::{StandardConfig, output_config_hash, resolve_extra_inputs};
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, run_command_capture};
 
 use super::TemplateItem;
+
+/// Tera template processor config. No custom fields.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
+pub struct TeraConfig {
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
 
 /// Wrapper around a `&BuildContext` reference that can be stored in Tera function structs.
 /// Tera's `Function` trait requires `Send + Sync + 'static`, so we cannot use a borrow.
@@ -154,7 +165,7 @@ impl Processor for TeraProcessor {
                 inputs,
                 vec![item.output_path.clone()],
                 instance_name,
-                Some(output_config_hash(&self.config, <crate::config::TeraConfig as crate::config::KnownFields>::checksum_fields())),
+                Some(output_config_hash(&self.config, &crate::config::checksum_fields_of(instance_name))),
             )?;
         }
 
@@ -755,11 +766,11 @@ inventory::submit! {
         name: "tera",
         processor_type: crate::processors::ProcessorType::Generator,
         create: plugin_create,
-        defconfig_json: registry::default_config_json::<crate::config::TeraConfig>,
-        known_fields: registry::typed_known_fields::<crate::config::TeraConfig>,
-        checksum_fields: registry::typed_checksum_fields::<crate::config::TeraConfig>,
-        must_fields: registry::typed_must_fields::<crate::config::TeraConfig>,
-        field_descriptions: registry::typed_field_descriptions::<crate::config::TeraConfig>,
+        fields: &[],
+        omit_standard_fields: &[],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".tera"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: registry::default_config_json::<TeraConfig>,
         keywords: &["template", "generator", "jinja", "html", "rust"],
         description: "Render Tera templates into output files",
         is_native: true,

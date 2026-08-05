@@ -5,12 +5,56 @@ use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use crate::config::ZspellConfig;
+use serde::{Deserialize, Serialize};
+
+use crate::config::StandardConfig;
 use crate::errors;
 use crate::file_index::FileIndex;
 use crate::graph::{BuildGraph, Product};
 use crate::processors::{Processor, discover_checker_products};
 use crate::word_manager::WordManager;
+
+fn default_zspell_language() -> String {
+    "en_US".into()
+}
+
+fn default_zspell_words_file() -> String {
+    ".zspell-words".into()
+}
+
+fn default_zspell_dict_dir() -> String {
+    "/usr/share/hunspell".into()
+}
+
+/// Zspell config. Custom fields: language, `words_file`, `auto_add_words`, `dict_dir`.
+/// Unused `StandardConfig` fields: command, formats, `output_dir`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ZspellConfig {
+    #[serde(default = "default_zspell_language")]
+    pub language: String,
+    #[serde(default = "default_zspell_words_file")]
+    pub words_file: String,
+    /// When true, automatically add misspelled words to `words_file` instead of failing
+    #[serde(default)]
+    pub auto_add_words: bool,
+    /// Directory holding the hunspell .aff/.dic files for `language`.
+    #[serde(default = "default_zspell_dict_dir")]
+    pub dict_dir: String,
+    #[serde(flatten)]
+    pub standard: StandardConfig,
+}
+
+impl Default for ZspellConfig {
+    fn default() -> Self {
+        Self {
+            language: "en_US".into(),
+            words_file: ".zspell-words".into(),
+            auto_add_words: false,
+            dict_dir: default_zspell_dict_dir(),
+            standard: StandardConfig::default(),
+        }
+    }
+}
 
 pub struct ZspellProcessor {
     config: ZspellConfig,
@@ -201,7 +245,7 @@ impl Processor for ZspellProcessor {
             &self.config.standard.dep_inputs,
             &dep_auto,
             &self.config,
-            <crate::config::ZspellConfig as crate::config::KnownFields>::checksum_fields(),
+            &crate::config::checksum_fields_of(instance_name),
             instance_name,
         )
     }
@@ -234,11 +278,24 @@ inventory::submit! {
         name: "zspell",
         processor_type: crate::processors::ProcessorType::Checker,
         create: plugin_create,
-        defconfig_json: crate::registries::default_config_json::<crate::config::ZspellConfig>,
-        known_fields: crate::registries::typed_known_fields::<crate::config::ZspellConfig>,
-        checksum_fields: crate::registries::typed_checksum_fields::<crate::config::ZspellConfig>,
-        must_fields: crate::registries::typed_must_fields::<crate::config::ZspellConfig>,
-        field_descriptions: crate::registries::typed_field_descriptions::<crate::config::ZspellConfig>,
+        fields: &[
+            crate::config::FieldSpec { name: "language", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Language/locale for spell checking" },
+            crate::config::FieldSpec { name: "words_file", ty: crate::config::FieldType::String,
+                affects_output: false, required: false,
+                doc: "Path to a personal dictionary file" },
+            crate::config::FieldSpec { name: "auto_add_words", ty: crate::config::FieldType::Bool,
+                affects_output: true, required: false,
+                doc: "When true, automatically add misspelled words to words_file instead of failing" },
+            crate::config::FieldSpec { name: "dict_dir", ty: crate::config::FieldType::String,
+                affects_output: true, required: false,
+                doc: "Directory containing hunspell .aff/.dic files" },
+        ],
+        omit_standard_fields: &["command", "formats", "args", "output_dir"],
+        scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".md"], src_exclude_dirs: &[] }),
+        defaults: None,
+        defconfig_json: crate::registries::default_config_json::<ZspellConfig>,
         keywords: &["spellcheck", "spelling", "markdown", "md", "english"],
         description: "Check documentation files for spelling errors",
         is_native: true,
