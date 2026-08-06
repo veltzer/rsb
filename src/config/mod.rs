@@ -378,6 +378,15 @@ pub struct BuildConfig {
     /// all; cache keys then ignore tool identity, as they did before.
     #[serde(default = "default_hash_tool_versions")]
     pub hash_tool_versions: bool,
+    /// When true, every symlink encountered during the file-index walk is
+    /// reported as a warning. The walker never follows symlinks, so a
+    /// symlinked source (or a symlinked directory of sources) is silently
+    /// absent from the index — never checked, never built. Turn this on to
+    /// make that gap visible; it is off by default because projects that
+    /// deliberately keep symlinks around (vendored trees, `node_modules`,
+    /// dotfile farms) drown in the warnings.
+    #[serde(default = "default_warn_symlinks")]
+    pub warn_symlinks: bool,
 }
 
 const fn default_parallel() -> usize {
@@ -400,6 +409,10 @@ const fn default_hash_tool_versions() -> bool {
     true
 }
 
+const fn default_warn_symlinks() -> bool {
+    false
+}
+
 impl Default for BuildConfig {
     fn default() -> Self {
         Self {
@@ -409,6 +422,7 @@ impl Default for BuildConfig {
             max_arg_len: default_max_arg_len(),
             max_discovery_passes: default_max_discovery_passes(),
             hash_tool_versions: default_hash_tool_versions(),
+            warn_symlinks: default_warn_symlinks(),
         }
     }
 }

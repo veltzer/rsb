@@ -1251,8 +1251,8 @@ pub fn orphan_files(db_path: &str) -> Result<()> {
 }
 
 /// Run all tag validations without building.
-pub fn check_tags(config: &TagsConfig) -> Result<()> {
-    let file_index = crate::file_index::FileIndex::build()?;
+pub fn check_tags(config: &TagsConfig, warn_symlinks: bool) -> Result<()> {
+    let file_index = crate::file_index::FileIndex::build(warn_symlinks)?;
     let files = file_index.scan(&config.standard, true);
     if files.is_empty() {
         println!("No files to check.");

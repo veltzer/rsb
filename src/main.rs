@@ -431,7 +431,7 @@ fn run() -> (Result<()>, bool) {
             // outside a project.
             let config = Config::load()?;
             let (exclude_roots, _) = config.file_index_walk_dirs();
-            let file_index = file_index::FileIndex::build_with_force_dirs(&[], &exclude_roots)?;
+            let file_index = file_index::FileIndex::build_with_force_dirs(&[], &exclude_roots, config.build.warn_symlinks)?;
             builder::sloc::run_sloc(&file_index, cocomo, salary)?;
         }
         Commands::Smart { action } => {
@@ -495,7 +495,7 @@ fn run() -> (Result<()>, bool) {
                 config.processor.instance_config_or_default("terms")?;
             match action {
                 cli::TermsAction::Fix { remove_non_terms } => {
-                    processors::terms::fix_all(&terms_config, remove_non_terms)?;
+                    processors::terms::fix_all(&terms_config, remove_non_terms, config.build.warn_symlinks)?;
                 }
                 cli::TermsAction::Merge { path } => {
                     processors::terms::merge_terms(&terms_config, &path)?;
@@ -528,7 +528,7 @@ fn run() -> (Result<()>, bool) {
                 cli::TagsAction::Check => {
                     let tags_config: processors::tags_cmd::TagsConfig =
                         config.processor.instance_config_or_default("tags")?;
-                    processors::tags_cmd::check_tags(&tags_config)?;
+                    processors::tags_cmd::check_tags(&tags_config, config.build.warn_symlinks)?;
                 }
                 cli::TagsAction::Suggest { path } => {
                     let tags_config: processors::tags_cmd::TagsConfig =

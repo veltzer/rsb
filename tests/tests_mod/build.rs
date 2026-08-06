@@ -1265,6 +1265,34 @@ fn state_dir_is_never_indexed() {
         "state-dir file leaked into the build: stdout={stdout} stderr={stderr}");
 }
 
+/// The symlink warning is off by default and on with `[build] warn_symlinks`.
+///
+/// The walker never follows symlinks, so a symlinked source is absent from
+/// the index — never checked, never built. That gap is only reported when
+/// the user asks for it; the default is quiet.
+#[test]
+fn warn_symlinks_knob_controls_the_symlink_warning() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    fs::write(project_path.join("good.json"), "{\"ok\": true}\n").unwrap();
+    std::os::unix::fs::symlink("good.json", project_path.join("linked.json")).unwrap();
+
+    let quiet_config = "[processor.ijsonlint]\nsrc_dirs = [\"\"]\n";
+    let loud_config = "[build]\nwarn_symlinks = true\n\n[processor.ijsonlint]\nsrc_dirs = [\"\"]\n";
+
+    for (config, expect_warning) in [(quiet_config, false), (loud_config, true)] {
+        fs::write(project_path.join("rsconstruct.toml"), config).unwrap();
+        let build = run_rsconstruct(project_path, &["build"]);
+        let stdout = String::from_utf8_lossy(&build.stdout);
+        let stderr = String::from_utf8_lossy(&build.stderr);
+        let warned = stdout.contains("linked.json") || stderr.contains("linked.json");
+        assert_eq!(warned, expect_warning,
+            "warn_symlinks={expect_warning} should {} warn about the symlink: stdout={stdout} stderr={stderr}",
+            if expect_warning { "" } else { "not" });
+    }
+}
+
 /// Configured output roots must never be indexed as project source.
 ///
 /// Regression test: the file index used to pick up generated files under the

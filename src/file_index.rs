@@ -29,8 +29,8 @@ impl FileIndex {
     /// Uses `ignore::WalkBuilder` which natively handles `.gitignore` and
     /// `.rsconstructignore` (via `add_custom_ignore_filename`).
     /// All paths are stored relative to project root (cwd).
-    pub fn build() -> Result<Self> {
-        Self::build_with_force_dirs(&[], &[])
+    pub fn build(warn_symlinks: bool) -> Result<Self> {
+        Self::build_with_force_dirs(&[], &[], warn_symlinks)
     }
 
     /// Build a file index with two config-derived adjustments to the walk:
@@ -50,7 +50,10 @@ impl FileIndex {
     ///   scanning it, even if it is gitignored or sits under an output root.
     ///   Common case: `src_dirs = ["out/generator"]` — the user wants those
     ///   generated files scanned (e.g. for terms checking).
-    pub fn build_with_force_dirs(force_dirs: &[&str], exclude_roots: &[String]) -> Result<Self> {
+    ///
+    /// - `warn_symlinks`: report every skipped symlink (`[build]
+    ///   warn_symlinks`). Off by default — see `BuildConfig::warn_symlinks`.
+    pub fn build_with_force_dirs(force_dirs: &[&str], exclude_roots: &[String], warn_symlinks: bool) -> Result<Self> {
         let exclude: Vec<PathBuf> = exclude_roots.iter().map(PathBuf::from).collect();
         let walker = ignore::WalkBuilder::new(".")
             .add_custom_ignore_filename(".rsconstructignore")
@@ -77,11 +80,10 @@ impl FileIndex {
                     .unwrap_or(&path)
                     .to_path_buf();
                 files.push(relative);
-            } else if entry.file_type().is_some_and(|ft| ft.is_symlink()) {
+            } else if warn_symlinks && entry.file_type().is_some_and(|ft| ft.is_symlink()) {
                 // The walker does not follow symlinks, so a symlinked source
                 // (or a symlinked directory of sources) is never indexed —
-                // never checked, never built. Silent skips are forbidden:
-                // say it out loud so the gap is diagnosable.
+                // never checked, never built. Opt in to hearing about it.
                 crate::output::warn(&format!(
                     "Ignoring symlink (symlinks are not followed): {}",
                     entry.path().display()));

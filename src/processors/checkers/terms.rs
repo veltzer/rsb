@@ -675,7 +675,7 @@ pub fn fix_file(
 
 /// Fix all markdown files: called by `rsconstruct terms fix`.
 /// Uses the same scan config as the terms processor to find files.
-pub fn fix_all(config: &TermsConfig, remove_non_terms: bool) -> Result<()> {
+pub fn fix_all(config: &TermsConfig, remove_non_terms: bool, warn_symlinks: bool) -> Result<()> {
     let terms = load_and_validate_terms(config)?;
     let sorted = sorted_terms(&terms.single);
 
@@ -684,7 +684,7 @@ pub fn fix_all(config: &TermsConfig, remove_non_terms: bool) -> Result<()> {
     // sees those via `add_virtual_files` after the discover loop runs;
     // `terms fix` runs standalone so it must walk them itself.
     let force_dirs: Vec<&str> = config.standard.src_dirs().iter().map(std::string::String::as_str).collect();
-    let file_index = FileIndex::build_with_force_dirs(&force_dirs, &[])?;
+    let file_index = FileIndex::build_with_force_dirs(&force_dirs, &[], warn_symlinks)?;
     let md_files = file_index.scan(&config.standard, true);
 
     if md_files.is_empty() {

@@ -233,7 +233,7 @@ impl Builder {
         })?;
         let (exclude_roots, force_dirs) = config.file_index_walk_dirs();
         let force_refs: Vec<&str> = force_dirs.iter().map(String::as_str).collect();
-        let file_index = FileIndex::build_with_force_dirs(&force_refs, &exclude_roots)?;
+        let file_index = FileIndex::build_with_force_dirs(&force_refs, &exclude_roots, config.build.warn_symlinks)?;
 
         let builder = Self {
             object_store,
