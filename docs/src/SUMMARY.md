@@ -33,6 +33,7 @@
     - [CMake](processors/cmake.md)
     - [Cppcheck](processors/cppcheck.md)
     - [Cpplint](processors/cpplint.md)
+    - [Creator](processors/creator.md)
     - [Doctest](processors/doctest.md)
     - [Drawio](processors/drawio.md)
     - [ESLint](processors/eslint.md)

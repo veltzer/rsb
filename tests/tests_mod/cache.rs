@@ -1,4 +1,5 @@
 use std::fs;
+use tempfile::TempDir;
 use crate::common::{setup_test_project, run_rsconstruct, run_rsconstruct_with_env};
 
 #[test]
@@ -418,4 +419,108 @@ fn hash_tool_versions_false_ignores_tool_upgrade() {
     let stdout2 = String::from_utf8_lossy(&build2.stdout);
     assert!(!stdout2.contains("Processing:"),
         "with hash_tool_versions=false a tool upgrade must not invalidate: {}", stdout2);
+}
+
+/// Two processors over byte-identical input must not share a cache entry.
+///
+/// The descriptor key hashes input *content*, not input *path* (see
+/// `cache_survives_input_rename`), so the input checksum cannot tell two
+/// processors apart when they read the same bytes. What separates them is the
+/// processor name, hashed alongside the version, config digest, and input
+/// checksum (`CacheKey::descriptor_key`).
+///
+/// Isolating that name is the whole difficulty here. Giving the two instances
+/// different commands would separate them by *config hash* instead — `command`
+/// and `args` are checksum fields — and the test would pass even with the
+/// processor name removed from the key. So both instances run the identical
+/// command over the identical input and differ only in `output_dir`, which is
+/// deliberately NOT a checksum field for generators. Config digest, version,
+/// and input checksum are then all equal, and the processor name is the only
+/// remaining discriminator.
+///
+/// The command writes its own output path into the file, so a collision is
+/// visible as content: a shared key restores the first product's blob into the
+/// second product's path, and the recorded path inside it is the wrong one.
+#[test]
+fn distinct_processors_do_not_share_cache_entries() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let project_path = temp_dir.path();
+
+    // One tool, used by both instances — identical `command` and `args`.
+    // The generator contract is `command [args...] <input> <output>`.
+    let bin_dir = project_path.join("toolbin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let tool = bin_dir.join("stamp");
+    fs::write(&tool, "#!/bin/sh\nprintf 'built:%s' \"$2\" > \"$2\"\nexit 0\n").unwrap();
+    crate::common::make_executable(&tool);
+
+    // gen_a and gen_b differ ONLY by instance name and output_dir.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        concat!(
+            "[build]\nhash_tool_versions = false\n\n",
+            "[processor.generator.gen_a]\n",
+            "command = \"stamp\"\n",
+            "output_dir = \"out/a\"\n",
+            "output_extension = \"txt\"\n",
+            "batch = false\n",
+            "src_extensions = [\".src\"]\n",
+            "src_dirs = [\"src\"]\n",
+            "\n",
+            "[processor.generator.gen_b]\n",
+            "command = \"stamp\"\n",
+            "output_dir = \"out/b\"\n",
+            "output_extension = \"txt\"\n",
+            "batch = false\n",
+            "src_extensions = [\".src\"]\n",
+            "src_dirs = [\"src\"]\n",
+        ),
+    ).unwrap();
+
+    fs::create_dir_all(project_path.join("src")).unwrap();
+    fs::write(project_path.join("src/input.src"), "identical content\n").unwrap();
+
+    let path_env = format!("{}:{}", bin_dir.display(), std::env::var("PATH").unwrap_or_default());
+
+    let build = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build.status.success(),
+        "build failed: {}", String::from_utf8_lossy(&build.stderr));
+
+    let out_a = project_path.join("out/a/input.txt");
+    let out_b = project_path.join("out/b/input.txt");
+    assert!(out_a.exists(), "gen_a produced no output");
+    assert!(out_b.exists(), "gen_b produced no output");
+
+    // Each file records the path it was generated for. If the two products
+    // shared a descriptor key, one of these carries the other's path.
+    assert_eq!(fs::read_to_string(&out_a).unwrap(), "built:out/a/input.txt",
+        "gen_a's output came from another processor's cache entry");
+    assert_eq!(fs::read_to_string(&out_b).unwrap(), "built:out/b/input.txt",
+        "gen_b's output came from another processor's cache entry");
+
+    // Restore path: delete both outputs and rebuild from cache. This is where
+    // a shared key does its damage — the blob is content-addressed and
+    // path-free, so the wrong bytes land in the right path and the build
+    // still reports success.
+    fs::remove_file(&out_a).unwrap();
+    fs::remove_file(&out_b).unwrap();
+
+    let build2 = run_rsconstruct_with_env(
+        project_path, &["build", "-v"],
+        &[("NO_COLOR", "1"), ("PATH", &path_env)],
+    );
+    assert!(build2.status.success(),
+        "rebuild failed: {}", String::from_utf8_lossy(&build2.stderr));
+
+    let stdout2 = String::from_utf8_lossy(&build2.stdout);
+    assert!(stdout2.contains("Restored from cache:"),
+        "second build should restore from cache, not rebuild: {}", stdout2);
+
+    assert_eq!(fs::read_to_string(&out_a).unwrap(), "built:out/a/input.txt",
+        "gen_a restored the wrong processor's cached blob");
+    assert_eq!(fs::read_to_string(&out_b).unwrap(), "built:out/b/input.txt",
+        "gen_b restored the wrong processor's cached blob");
 }
