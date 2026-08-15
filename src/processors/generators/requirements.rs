@@ -288,6 +288,10 @@ const MAPPINGS: &[(&str, &str)] = &[
     ("fitz",                   "PyMuPDF"),
     ("git",                    "GitPython"),
     ("google",                 "google-api-python-client"),
+    // `import googleapiclient` comes from the same distribution as `google`;
+    // without this entry the import name is emitted verbatim and pip fails
+    // with "No matching distribution found for googleapiclient".
+    ("googleapiclient",        "google-api-python-client"),
     ("grpc",                   "grpcio"),
     ("gym",                    "gymnasium"),
     ("jwt",                    "PyJWT"),
