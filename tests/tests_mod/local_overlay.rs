@@ -94,6 +94,36 @@ fn missing_tool_fails_when_processor_has_products() {
     );
 }
 
+/// The other half of the preflight rule: a repo-local script command is
+/// something the build requires to EXIST, but never something `tools install`
+/// can provision. Treating the path as a registry tool made `tools install`
+/// fail with "No install method for 'scripts/check_md.py'" for a script
+/// checked into the repo, which broke CI across every repo using the shared
+/// config.
+#[test]
+fn tools_install_skips_repo_local_script_commands() {
+    let temp_dir = setup_project_with_config(concat!(
+        "[processor.script.check_md]\n",
+        "command = \"scripts/check_md.py\"\n",
+        "src_dirs = [\"checked\"]\n",
+        "src_extensions = [\".md\"]\n",
+    ));
+    let project = temp_dir.path();
+    write_file(project, "checked/doc.md", "# doc");
+    write_file(project, "scripts/check_md.py", "#!/usr/bin/env python3\n");
+
+    let output = run_rsconstruct(project, &["tools", "install"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "a repo-local script command is not an installable tool: {stderr}"
+    );
+    assert!(
+        !stderr.contains("No install method"),
+        "script path must not be resolved against the tool registry: {stderr}"
+    );
+}
+
 #[test]
 fn local_overlay_disables_processor() {
     let temp_dir = setup_project_with_config("[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n");

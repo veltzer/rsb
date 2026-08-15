@@ -42,6 +42,20 @@ fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &s
     which::which(pkg).is_ok()
 }
 
+/// Whether a `required_tools()` entry names something the tool registry could
+/// ever install.
+///
+/// A processor `command` that contains a path separator is a repo-local script
+/// (`scripts/check_md.py`), not a binary on `$PATH` — see `ToolInfo::name` in
+/// `src/tools.rs` for why a name with a `/` cannot serve as a registry key.
+/// Such a command is checked into the repo and needs no installing, so
+/// `tools install` must skip it rather than fail with "No install method".
+/// The build-time preflight in `builder/build.rs` still requires it to exist,
+/// so skipping it here does not weaken strictness.
+fn is_installable_tool_name(tool: &str) -> bool {
+    !tool.contains('/')
+}
+
 /// Whether a package manager reports `pkg` as already installed.
 ///
 /// One helper for the pip/npm/gem probes, which were four copies of the same
@@ -525,6 +539,9 @@ fn run_tools_command(
                 let mut missing = Vec::new();
                 let mut any_unknown = false;
                 for tool_name in install_tools.keys() {
+                    if !is_installable_tool_name(tool_name) {
+                        continue;
+                    }
                     if which::which(tool_name).is_ok() {
                         continue;
                     }
