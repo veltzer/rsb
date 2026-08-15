@@ -262,6 +262,18 @@ where
     for (source, product_ids) in &by_source {
         progress.set_message(format!("[{}] {}", analyzer_name, source.display()));
 
+        // A source that does not exist yet is a product of an earlier
+        // processor that has not run in this build (e.g. a generator writing
+        // out/generator/*.md that a markdown checker also scans). It has no
+        // dependencies to contribute now, and it gets scanned on the build
+        // after it exists. Stat'ing it here would abort the whole build with
+        // "Failed to stat file" on any clean checkout — which is precisely
+        // what CI does every run.
+        if !source.exists() {
+            progress.inc(product_ids.len() as u64);
+            continue;
+        }
+
         // Try to get cached dependencies, otherwise scan. The checksum is
         // taken before the scan so a mid-scan edit can't pair the new
         // content's checksum with the old content's dependencies.
@@ -333,6 +345,12 @@ where
 
     for (source, product_ids) in &by_source {
         progress.set_message(format!("[{}] {}", analyzer_name, source.display()));
+
+        // Not generated yet — see the same guard in `analyze_with_scanner`.
+        if !source.exists() {
+            progress.inc(product_ids.len() as u64);
+            continue;
+        }
 
         let source_checksum = DepsCache::source_checksum(ctx, source)?;
         let result = scan(source)?;
