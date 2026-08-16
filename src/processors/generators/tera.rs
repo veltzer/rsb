@@ -63,6 +63,8 @@ fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem
     let ctx_ptr = CtxPtr(std::ptr::from_ref(ctx));
     tera.register_function("load_python", LoadPythonFunction { ctx: ctx_ptr });
     tera.register_function("load_lua", LoadLuaFunction);
+    tera.register_function("load_toml", LoadTomlFunction);
+    tera.register_function("toml_get", TomlGetFunction);
     tera.register_function("version_str", VersionStrFunction { ctx: ctx_ptr });
     tera.register_function("copyright_years", CopyrightYearsFunction { ctx: ctx_ptr });
     tera.register_function("git_count_files", GitCountFilesFunction { ctx: ctx_ptr });
@@ -215,6 +217,64 @@ impl Function for LoadLuaFunction {
             .map_err(|e| tera::Error::msg(format!("Failed to load Lua config: {e}")))?;
 
         to_value(result).map_err(|e| tera::Error::msg(format!("Failed to convert Lua config to template value: {e}")))
+    }
+}
+
+/// Custom Tera function to load TOML data files
+struct LoadTomlFunction;
+
+impl Function for LoadTomlFunction {
+    fn call(&self, args: &HashMap<String, TeraValue>) -> tera::Result<TeraValue> {
+        let path = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| tera::Error::msg("load_toml requires a 'path' argument"))?;
+
+        let result = load_toml_config(Path::new(path))
+            .map_err(|e| tera::Error::msg(format!("Failed to load TOML config: {e}")))?;
+
+        to_value(result).map_err(|e| tera::Error::msg(format!("Failed to convert TOML config to template value: {e}")))
+    }
+}
+
+/// Extract a single value from a TOML file by dotted key path.
+///
+/// A convenience over `load_toml` for the common case of pulling one field out
+/// of a deeply nested document — `toml_get(path="pyproject.toml",
+/// key="project.version")` rather than `load_toml(...).project.version`. A
+/// missing key is an error, not an empty string: silently rendering nothing
+/// would bake a wrong value into a generated file and cache it.
+struct TomlGetFunction;
+
+impl Function for TomlGetFunction {
+    fn call(&self, args: &HashMap<String, TeraValue>) -> tera::Result<TeraValue> {
+        let path = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| tera::Error::msg("toml_get requires a 'path' argument"))?;
+        let key = args
+            .get("key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| tera::Error::msg("toml_get requires a 'key' argument (dotted path, e.g. \"project.version\")"))?;
+
+        let config = load_toml_config(Path::new(path))
+            .map_err(|e| tera::Error::msg(format!("toml_get: failed to load {path}: {e}")))?;
+
+        let root = Value::Object(config);
+        let found = lookup_dotted(&root, key).ok_or_else(|| {
+            tera::Error::msg(format!("toml_get: no key '{key}' in {path}"))
+        })?;
+
+        // Scalars render as their bare text; a table or array would otherwise
+        // interpolate as debug-ish JSON into the output file, which is never
+        // what the caller wanted from a "get me this value" function.
+        match found {
+            Value::Object(_) | Value::Array(_) => Err(tera::Error::msg(format!(
+                "toml_get: key '{key}' in {path} is a table or array, not a scalar; \
+                 use load_toml(path=\"{path}\") and index it in the template"
+            ))),
+            other => to_value(other).map_err(|e| tera::Error::msg(format!("toml_get: {e}"))),
+        }
     }
 }
 
@@ -510,6 +570,64 @@ impl Function for GrepCountFunction {
     }
 }
 
+/// Load a TOML file and return its top-level table as a JSON object.
+///
+/// Unlike the Python and Lua loaders this executes nothing — TOML is data, so
+/// the file is parsed in-process. Values keep their TOML types (integers stay
+/// integers, arrays stay arrays), converted through serde into the same
+/// `serde_json` representation the other loaders produce, so templates index
+/// nested tables the usual way: `cfg.project.version`.
+fn load_toml_config(toml_file: &Path) -> Result<Map<String, Value>> {
+    let absolute_path = if toml_file.is_absolute() {
+        toml_file.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("Failed to get current directory to resolve TOML config path")?
+            .join(toml_file)
+    };
+
+    if !absolute_path.exists() {
+        anyhow::bail!("TOML config file not found: {}", absolute_path.display());
+    }
+
+    let content = fs::read_to_string(&absolute_path)
+        .with_context(|| format!("Failed to read TOML config: {}", absolute_path.display()))?;
+
+    let parsed: Value = toml::from_str(&content)
+        .with_context(|| format!("Failed to parse TOML config '{}'", absolute_path.display()))?;
+
+    // A valid TOML document is always a table at the top level, so this is
+    // total in practice; the error path exists so a future non-table input
+    // (or a `toml` crate change) fails loudly rather than rendering `{}`.
+    match parsed {
+        Value::Object(map) => Ok(map),
+        other => anyhow::bail!(
+            "TOML config '{}' did not parse to a table (got {})",
+            absolute_path.display(),
+            match other {
+                Value::Array(_) => "an array",
+                Value::String(_) => "a string",
+                Value::Number(_) => "a number",
+                Value::Bool(_) => "a boolean",
+                Value::Null => "null",
+                Value::Object(_) => unreachable!(),
+            }
+        ),
+    }
+}
+
+/// Walk a dotted key path (e.g. `project.version`) through a JSON value.
+///
+/// Each segment indexes an object key. Keys containing a literal `.` are not
+/// reachable this way — use `load_toml` and index the object directly.
+fn lookup_dotted<'a>(root: &'a Value, key: &str) -> Option<&'a Value> {
+    let mut current = root;
+    for segment in key.split('.') {
+        current = current.as_object()?.get(segment)?;
+    }
+    Some(current)
+}
+
 /// Load configuration from a Python file
 fn load_python_config(ctx: &crate::build_context::BuildContext, python_file: &Path) -> Result<Map<String, Value>> {
     // Resolve the path relative to current working directory
@@ -689,6 +807,22 @@ pub static TERA_FUNCTIONS: &[TeraFunctionDoc] = &[
         returns: "object (global name → JSON-serializable value)",
         dep_tracking: "The file at `path` is added as an input (content-tracked).",
         example: r#"{% set cfg = load_lua(path="config/project.lua") %}{{ cfg.NAME }}"#,
+    },
+    TeraFunctionDoc {
+        name: "load_toml",
+        summary: "Parse a TOML file and expose its top-level table to the template.",
+        args: "path: string",
+        returns: "object (key → value, nested tables preserved)",
+        dep_tracking: "The file at `path` is added as an input (content-tracked).",
+        example: r#"{% set cfg = load_toml(path="pyproject.toml") %}{{ cfg.project.version }}"#,
+    },
+    TeraFunctionDoc {
+        name: "toml_get",
+        summary: "Read one scalar value from a TOML file by dotted key path.",
+        args: r#"path: string, key: string (dotted, e.g. "project.version")"#,
+        returns: "scalar (string, int, float or bool)",
+        dep_tracking: "The file at `path` is added as an input (content-tracked).",
+        example: r#"{{ toml_get(path="pyproject.toml", key="project.version") }}  {# e.g. "0.0.24" #}"#,
     },
     TeraFunctionDoc {
         name: "version_str",

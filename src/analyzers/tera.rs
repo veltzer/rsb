@@ -3,7 +3,7 @@
 //! Scans Tera template files for `{% include %}`, `{% import %}`, and `{% extends %}`
 //! directives and adds referenced template files as dependencies to products in the build graph.
 //! Also scans for the file-reading template functions (`load_python`/`load_lua`/`load_data`/
-//! `load_json`/`load_toml`/`load_csv` and `version_str`) so the files they read are
+//! `load_json`/`load_toml`/`load_csv`, `toml_get` and `version_str`) so the files they read are
 //! content-tracked inputs, and for `glob`/`git_count_files`/`grep_count`/`shell_output`
 //! whose resolved path sets and command literals enter the cache hash.
 
@@ -97,9 +97,13 @@ fn scan_template_recursive(
     });
 
     // load_python/load_lua/load_data/load_json/load_toml/load_csv(path="...")
+    // and toml_get(path="...", key="..."), whose leading `path=` argument is
+    // read the same way. `toml_get` must be tracked here or a changed value
+    // (e.g. a version bump in pyproject.toml) would leave rendered output
+    // cached against the old content.
     static LOAD_RE: OnceLock<Regex> = OnceLock::new();
     let load_re = LOAD_RE.get_or_init(|| {
-        Regex::new(r#"load_(?:python|lua|data|json|toml|csv)\s*\(\s*path\s*=\s*["']([^"']+)["']"#)
+        Regex::new(r#"(?:load_(?:python|lua|data|json|toml|csv)|toml_get)\s*\(\s*path\s*=\s*["']([^"']+)["']"#)
             .expect(errors::INVALID_REGEX)
     });
 

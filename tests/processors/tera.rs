@@ -1125,3 +1125,114 @@ fn analyzer_tracks_version_str_explicit_lua_path() {
     assert!(content.contains("2.0.1"),
         "Bumping the version_str(path=...) file must rebuild the product: {}", content);
 }
+
+#[test]
+fn load_toml_and_toml_get_read_values() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    fs::write(
+        project_path.join("data.toml"),
+        "[project]\nname = \"demo\"\nversion = \"0.0.24\"\n\n[tool.ruff]\nline-length = 130\n"
+    ).unwrap();
+
+    fs::write(
+        project_path.join("tera.templates/toml_out.txt.tera"),
+        concat!(
+            "get: {{ toml_get(path=\"data.toml\", key=\"project.version\") }}\n",
+            "nested: {{ toml_get(path=\"data.toml\", key=\"tool.ruff.line-length\") }}\n",
+            "load: {% set cfg = load_toml(path=\"data.toml\") %}{{ cfg.project.name }}\n",
+        )
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(output.status.success(), "build failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let content = fs::read_to_string(project_path.join("toml_out.txt")).unwrap();
+    assert!(content.contains("get: 0.0.24"), "Got: {}", content);
+    // Integers must survive as integers, not render as "130.0" or a quoted string.
+    assert!(content.contains("nested: 130"), "Got: {}", content);
+    assert!(content.contains("load: demo"), "Got: {}", content);
+}
+
+#[test]
+fn analyzer_tracks_toml_get_path() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    // Analyzers run only when declared, and the whole point of this test is
+    // the analyzer's own dependency discovery — no dep_inputs anywhere.
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[analyzer.tera]\n\n[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n"
+    ).unwrap();
+
+    fs::write(
+        project_path.join("pyproject.toml"),
+        "[project]\nversion = \"2.0.0\"\n"
+    ).unwrap();
+    fs::write(
+        project_path.join("tera.templates/vtoml.txt.tera"),
+        "version: {{ toml_get(path=\"pyproject.toml\", key=\"project.version\") }}\n"
+    ).unwrap();
+
+    let output1 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output1.status.success(),
+        "First build failed: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output1.stdout),
+        String::from_utf8_lossy(&output1.stderr));
+    let content = fs::read_to_string(project_path.join("vtoml.txt")).unwrap();
+    assert!(content.contains("2.0.0"), "Got: {}", content);
+
+    // Wait so mtime differs
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    fs::write(
+        project_path.join("pyproject.toml"),
+        "[project]\nversion = \"2.0.1\"\n"
+    ).unwrap();
+
+    let output2 = run_rsconstruct_with_env(project_path, &["build", "-v"], &[("NO_COLOR", "1")]);
+    assert!(output2.status.success());
+    let content = fs::read_to_string(project_path.join("vtoml.txt")).unwrap();
+    assert!(content.contains("2.0.1"),
+        "Bumping the toml_get(path=...) file must rebuild the product: {}", content);
+}
+
+#[test]
+fn toml_get_missing_key_is_an_error() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    fs::write(project_path.join("data.toml"), "[project]\nversion = \"1.0\"\n").unwrap();
+    fs::write(
+        project_path.join("tera.templates/bad.txt.tera"),
+        "{{ toml_get(path=\"data.toml\", key=\"project.nope\") }}\n"
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(!output.status.success(), "A missing key must fail the build, not render empty");
+    let combined = format!("{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+    assert!(combined.contains("no key 'project.nope'"), "Got: {}", combined);
+}
+
+#[test]
+fn toml_get_on_a_table_is_an_error() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    fs::write(project_path.join("data.toml"), "[project]\nversion = \"1.0\"\n").unwrap();
+    fs::write(
+        project_path.join("tera.templates/bad2.txt.tera"),
+        "{{ toml_get(path=\"data.toml\", key=\"project\") }}\n"
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(!output.status.success(), "Interpolating a whole table must fail rather than emit JSON");
+    let combined = format!("{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr));
+    assert!(combined.contains("not a scalar"), "Got: {}", combined);
+}
