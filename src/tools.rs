@@ -426,6 +426,16 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
             archive: ArchiveKind::TarGz { inner: "rumdl" },
             dest: "rumdl",
         }),
+        // Pinned rather than tracking latest, unlike taplo/hadolint below.
+        // zola 0.23 renamed config keys (highlight_code -> [markdown.highlighting])
+        // and swapped the syntax highlighter, so an unpinned upgrade can fail a
+        // site build on config alone -- a breakage that lands in the consuming
+        // project's CI, not here. Bump this deliberately.
+        "zola" => Some(BinaryRecipe {
+            url: "https://github.com/getzola/zola/releases/download/v0.23.3/zola-v0.23.3-x86_64-unknown-linux-gnu.tar.gz",
+            archive: ArchiveKind::TarGz { inner: "zola" },
+            dest: "zola",
+        }),
         "taplo" => Some(BinaryRecipe {
             url: "https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-x86_64.gz",
             archive: ArchiveKind::Gunzip,
@@ -546,6 +556,14 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "rumdl", runtime: "rust", install_methods: &[
         InstallMethod { method: "binary", package: "rumdl" },
         InstallMethod { method: "cargo", package: "rumdl" },
+    ]},
+    // Binary only, no cargo fallback: upstream does not publish zola to
+    // crates.io. The `zola` crate there is an unrelated squatter -- version
+    // 0.0.0, yanked, described as "zola installer" -- so `cargo install zola`
+    // would fail or fetch the wrong thing. The GitHub release is the only
+    // automatable route.
+    ToolInfo { name: "zola", runtime: "rust", install_methods: &[
+        InstallMethod { method: "binary", package: "zola" },
     ]},
     ToolInfo { name: "taplo", runtime: "rust", install_methods: &[
         InstallMethod { method: "binary", package: "taplo" },
@@ -745,7 +763,7 @@ mod tests {
     /// chmod, mv) with no shell metacharacters anywhere.
     #[test]
     fn binary_describe_has_no_shell_metachars() {
-        for pkg in &["taplo", "rumdl"] {
+        for pkg in &["taplo", "rumdl", "zola"] {
             let steps = describe("binary", &[pkg]);
             assert!(steps.len() >= 3, "binary {pkg} should have >=3 steps");
             for step in &steps {
