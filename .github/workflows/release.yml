@@ -5,6 +5,13 @@ on:
     tags:
       - 'v*'
 
+# A newer release run supersedes any still-running one, even for a different
+# tag: the group is the workflow name alone (not the ref), so pushing a new
+# tag cancels every in-flight release build.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
