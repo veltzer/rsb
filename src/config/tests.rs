@@ -718,3 +718,36 @@ fn mixed_scalar_and_table_values_are_single_instance() {
         SectionShape::SingleInstance,
     );
 }
+
+/// `required_tools` reaches `required_tools()`, so a wrapper script's real
+/// tool is installable and version-lockable.
+///
+/// Without it, a `command` that shells out to something else leaves that tool
+/// invisible: `tools install` reports nothing missing and the build fails
+/// later, inside the wrapper. veltzer.github.io hit exactly this -- its
+/// `command` is a Python script that runs zola.
+#[test]
+fn required_tools_is_a_known_standard_field() {
+    use crate::config::KnownFields as _;
+    assert!(
+        crate::config::StandardConfig::known_fields().contains(&"required_tools"),
+        "required_tools must be a known field or the validator rejects it"
+    );
+}
+
+/// The field round-trips from TOML rather than being silently dropped by serde.
+#[test]
+fn required_tools_deserializes_from_toml() {
+    let cfg: crate::config::StandardConfig =
+        toml::from_str("command = \"scripts/build.py\"\nrequired_tools = [\"zola\"]\n")
+            .expect("should deserialize");
+    assert_eq!(cfg.required_tools, vec!["zola".to_string()]);
+}
+
+/// Defaults to empty, so every existing stanza keeps its current behaviour.
+#[test]
+fn required_tools_defaults_to_empty() {
+    let cfg: crate::config::StandardConfig =
+        toml::from_str("command = \"eslint\"\n").expect("should deserialize");
+    assert!(cfg.required_tools.is_empty());
+}

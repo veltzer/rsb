@@ -1087,6 +1087,8 @@ impl Processor for SimpleChecker {
         for t in self.params.extra_tools {
             tools.push(t.to_string());
         }
+        // User-declared extras, for a `command` that is a wrapper script.
+        tools.extend(self.config.standard.required_tools.iter().cloned());
         tools
     }
 
@@ -1213,6 +1215,8 @@ where
         if let Some(f) = self.params.extra_tools_fn {
             tools.extend(f(&self.config));
         }
+        // User-declared extras, for a `command` that is a wrapper script.
+        tools.extend(self.config.as_ref().required_tools.iter().cloned());
         tools
     }
 

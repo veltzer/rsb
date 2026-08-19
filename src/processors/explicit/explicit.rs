@@ -89,11 +89,15 @@ impl Processor for ExplicitProcessor {
     }
 
     fn required_tools(&self) -> Vec<String> {
-        if self.config.standard.command.is_empty() {
+        let mut tools = if self.config.standard.command.is_empty() {
             Vec::new()
         } else {
             vec![self.config.standard.command.clone()]
-        }
+        };
+        // `command` here is frequently a wrapper script, so the tool it shells
+        // out to is only visible if the config names it.
+        tools.extend(self.config.standard.required_tools.iter().cloned());
+        tools
     }
 
     fn discover(&self, graph: &mut BuildGraph, file_index: &FileIndex, instance_name: &str) -> Result<()> {

@@ -19,6 +19,15 @@ pub struct StandardConfig {
     pub dep_auto: Vec<String>,
     #[serde(default)]
     pub output_dir: String,
+    /// Extra tools this processor needs beyond `command`.
+    ///
+    /// `required_tools()` normally reports just `command`, which is right when
+    /// the processor invokes the tool directly. It is wrong when `command` is a
+    /// wrapper -- a script that shells out to something else -- because the real
+    /// tool is then invisible to `tools install` and to version locking, and the
+    /// build only fails later, at the point the wrapper runs.
+    #[serde(default)]
+    pub required_tools: Vec<String>,
     #[serde(default = "default_true")]
     pub batch: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,6 +60,7 @@ impl Default for StandardConfig {
             dep_inputs: Vec::new(),
             dep_auto: Vec::new(),
             output_dir: String::new(),
+            required_tools: Vec::new(),
             batch: true,
             max_jobs: None,
             enabled: true,
@@ -106,7 +116,7 @@ impl KnownFields for StandardConfig {
     fn known_fields() -> &'static [&'static str] {
         // Note: "enabled" is universal — declared once in
         // STANDARD_EXTRA_FIELDS and merged in by the validator, not repeated here.
-        &["command", "formats", "args", "dep_inputs", "dep_auto", "output_dir", "batch", "max_jobs"]
+        &["command", "formats", "args", "dep_inputs", "dep_auto", "output_dir", "required_tools", "batch", "max_jobs"]
     }
     fn checksum_fields() -> &'static [&'static str] {
         // formats and output_dir are excluded: format is encoded as a per-product
@@ -121,6 +131,7 @@ impl KnownFields for StandardConfig {
             ("formats",    "Output formats to generate"),
             ("args",       "Extra arguments passed to the tool"),
             ("output_dir", "Directory where generated output files are written"),
+            ("required_tools", "Extra tools needed beyond `command` (for wrapper scripts)"),
         ]
     }
 }
