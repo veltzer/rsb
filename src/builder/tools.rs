@@ -40,8 +40,7 @@ fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &s
         let mut cmd = Command::new("dpkg-query");
         cmd.args(["-W", "-f", "${Status}", pkg]);
         return crate::processors::run_command_capture(ctx, &cmd).is_ok_and(|o| {
-            o.status.success()
-                && String::from_utf8_lossy(&o.stdout).trim() == "install ok installed"
+            o.status.success() && dpkg_status_means_installed(&String::from_utf8_lossy(&o.stdout))
         });
     }
     if which::which("rpm").is_ok() {
@@ -55,6 +54,37 @@ fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &s
     }
     // Fallback: check if the package name is available as a command
     which::which(pkg).is_ok()
+}
+
+/// Whether a `dpkg-query -f '${Status}'` line means the package is on disk.
+///
+/// dpkg's status is three words: want, error, state. Only the `installed`
+/// state means the files are present -- `not-installed` and `config-files`
+/// both leave nothing usable behind, yet dpkg-query still exits 0 for them.
+fn dpkg_status_means_installed(status: &str) -> bool {
+    status.split_whitespace().nth(2) == Some("installed")
+}
+
+#[cfg(test)]
+mod dpkg_status_tests {
+    use super::dpkg_status_means_installed;
+
+    #[test]
+    fn installed_package_is_installed() {
+        assert!(dpkg_status_means_installed("install ok installed"));
+        assert!(dpkg_status_means_installed("install ok installed\n"));
+    }
+
+    /// The regression this guards: dpkg-query exits 0 for a package it merely
+    /// knows about, so the exit code alone reported aspell-en as satisfied on
+    /// a runner that did not have it.
+    #[test]
+    fn known_but_absent_package_is_not_installed() {
+        assert!(!dpkg_status_means_installed("unknown ok not-installed"));
+        assert!(!dpkg_status_means_installed("deinstall ok config-files"));
+        assert!(!dpkg_status_means_installed("install ok half-configured"));
+        assert!(!dpkg_status_means_installed(""));
+    }
 }
 
 /// Whether a `required_tools()` entry names something the tool registry could
