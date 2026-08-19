@@ -27,7 +27,22 @@ fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &s
     };
 
     if which::which("dpkg-query").is_ok() {
-        return probe("dpkg-query", &["-W", "-f", "${Status}", pkg]);
+        // Exit status alone is not enough. dpkg-query exits 0 for a package it
+        // merely knows about -- one removed earlier, or named as a dependency --
+        // printing "unknown ok not-installed" or "deinstall ok config-files".
+        // Only "install ok installed" means the files are actually on disk.
+        //
+        // Trusting the exit code made install-deps silently skip aspell-en on a
+        // runner that had neither aspell nor aspell-en, so apt was never asked
+        // for it and the spellcheck processor then failed on missing
+        // /usr/lib/aspell/en.dat. Packages that ship no binary of their own are
+        // the ones this hides, because the which() fallback cannot catch them.
+        let mut cmd = Command::new("dpkg-query");
+        cmd.args(["-W", "-f", "${Status}", pkg]);
+        return crate::processors::run_command_capture(ctx, &cmd).is_ok_and(|o| {
+            o.status.success()
+                && String::from_utf8_lossy(&o.stdout).trim() == "install ok installed"
+        });
     }
     if which::which("rpm").is_ok() {
         return probe("rpm", &["-q", pkg]);
