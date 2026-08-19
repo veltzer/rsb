@@ -61,26 +61,19 @@ jobs:
           path: ~/.cache/apt-archives
           key: apt-${{ runner.os }}-${{ matrix.target }}-${{ env.APT_CACHE_WEEK }}
 
-      # Acquire options because apt does not fail fast on a bad mirror. The
-      # runner's /etc/apt/apt-mirrors.txt lists azure.archive.ubuntu.com first,
-      # and that host goes unreachable intermittently. apt's defaults turn that
-      # into a hang rather than an error: Acquire::Retries is 0, so there is no
-      # second attempt, and the http timeout is 120s per connection, which the
-      # mirrorlist multiplies across every suite and component. Timeout=15 caps
-      # how long a dead mirror holds each connection and Retries=3 lets apt fall
-      # through to archive.ubuntu.com. veltzer.github.io lost a build to exactly
-      # this on 2026-08-19.
+      # Acquire::Retries because apt's default is 0: when the first mirror in
+      # /etc/apt/apt-mirrors.txt (azure.archive.ubuntu.com) is unreachable there
+      # is no second attempt. Retries=3 lets apt fall through to
+      # archive.ubuntu.com. No Timeout override and no timeout-minutes: a tight
+      # timeout killed the healthy-but-slow v0.9.56 release build at exactly
+      # 5 minutes (run 32261605657), which is worse than waiting out a slow
+      # mirror.
       - name: Install cross-compilation tools (Linux aarch64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
-        env:
-          APT_OPTS: >-
-            -o Acquire::Retries=3
-            -o Acquire::http::Timeout=15
-            -o Acquire::https::Timeout=15
         run: |
           mkdir -p ~/.cache/apt-archives/partial
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS -o Dir::Cache::Archives="$HOME/.cache/apt-archives" install -y gcc-aarch64-linux-gnu
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/.cache/apt-archives" install -y gcc-aarch64-linux-gnu
           sudo chown -R "$USER" ~/.cache/apt-archives
 
       - name: Build
