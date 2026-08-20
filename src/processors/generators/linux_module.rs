@@ -166,23 +166,27 @@ impl LinuxModuleProcessor {
         let output = run_command(ctx, &cmd)?;
         check_command_output(&output, format_args!("make modules for {}", module.name))?;
 
-        // Copy the .ko file to the output directory. A successful make that
-        // produced no .ko (e.g. module name mismatch with obj-m) must fail
-        // here, not later as a missing declared output.
+        // Read the built .ko into memory. A successful make that produced no
+        // .ko (e.g. module name mismatch with obj-m) must fail here, not later
+        // as a missing declared output. We read the bytes now — before the
+        // `make clean` below — because kbuild's clean recursively deletes every
+        // .ko under `M=<module_dir>`. When the manifest sits at the repo root,
+        // module_dir is the repo root and the output directory (out/…) lives
+        // inside it, so cleaning after copying would wipe the copy we just made.
+        // Capturing the bytes first makes the output survive clean regardless of
+        // where output_dir sits relative to module_dir.
         let ko_name = format!("{}.ko", module.name);
         let ko_src = module_dir.join(&ko_name);
-        if !ko_src.exists() {
-            anyhow::bail!(
-                "make reported success but did not produce {} (check the module name in linux-module.yaml)",
-                ko_src.display()
-            );
-        }
-        crate::errors::ctx(fs::create_dir_all(output_dir), &format!("Failed to create output dir: {}", output_dir.display()))?;
-        fs::copy(&ko_src, output_dir.join(&ko_name))
-            .with_context(|| format!("Failed to copy {ko_name} to output"))?;
+        let ko_bytes = fs::read(&ko_src).map_err(|e| anyhow::anyhow!(
+            "make reported success but did not produce {} (check the module name in linux-module.yaml): {}",
+            ko_src.display(), e
+        ))?;
+        let ko_mode = fs::metadata(&ko_src).ok().map(|m| crate::platform::get_mode(&m));
 
         // Clean up build artifacts from the source directory. Failures leave
-        // the source tree polluted — report them.
+        // the source tree polluted — report them. This may delete the source
+        // .ko (and any .ko already written under module_dir), which is why the
+        // output is written from the in-memory bytes afterwards.
         let mut clean_cmd = Command::new(&manifest.make);
         clean_cmd.arg("-C").arg(&kdir);
         if let Some(ref arch) = manifest.arch {
@@ -200,6 +204,17 @@ impl LinuxModuleProcessor {
         // Remove the Kbuild we generated
         fs::remove_file(module_dir.join("Kbuild"))
             .with_context(|| format!("Failed to remove generated Kbuild in {}", module_dir.display()))?;
+
+        // Write the captured .ko to the output directory, after clean, so it
+        // cannot be swept away by the clean above.
+        crate::errors::ctx(fs::create_dir_all(output_dir), &format!("Failed to create output dir: {}", output_dir.display()))?;
+        let ko_dst = output_dir.join(&ko_name);
+        fs::write(&ko_dst, &ko_bytes)
+            .with_context(|| format!("Failed to write {ko_name} to output"))?;
+        if let Some(mode) = ko_mode {
+            crate::platform::set_permissions_mode(&ko_dst, mode)
+                .with_context(|| format!("Failed to set mode on {}", ko_dst.display()))?;
+        }
 
         Ok(())
     }

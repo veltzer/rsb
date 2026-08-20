@@ -5,8 +5,8 @@
 Builds Linux kernel modules (`.ko` files) from source, driven by a
 `linux-module.yaml` manifest. The processor generates a temporary `Kbuild`
 file, invokes the kernel build system (`make -C <kdir> M=<src> modules`),
-copies the resulting `.ko` to the output directory, and cleans up build
-artifacts from the source tree.
+captures the resulting `.ko`, cleans up build artifacts from the source tree,
+and writes the module to the output directory.
 
 ## How It Works
 
@@ -15,9 +15,17 @@ or more kernel modules to build. For each module the processor:
 
 1. Generates a `Kbuild` file in the source directory (next to the yaml).
 2. Runs `make -C <kdir> M=<absolute-source-dir> modules` to compile.
-3. Copies the `.ko` file to `out/linux-module/<yaml-relative-dir>/`.
+3. Reads the resulting `.ko` into memory.
 4. Runs `make ... clean` and removes the generated `Kbuild` so the source
    directory stays clean.
+5. Writes the captured `.ko` to `out/linux-module/<yaml-relative-dir>/`.
+
+Steps 3–5 are ordered deliberately: kbuild's `make clean` recursively deletes
+every `.ko` under `M=<source-dir>`. When the manifest sits at the repo root the
+source directory *is* the repo root, so the output directory (`out/…`) lives
+inside the clean's scope. Capturing the module before cleaning and writing it
+out afterwards keeps the output intact regardless of where it lands relative to
+the source directory.
 
 Because the kernel build system requires `M=` to point at an absolute path
 containing the sources and `Kbuild`, the make command runs in the yaml

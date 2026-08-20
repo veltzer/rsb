@@ -57,6 +57,7 @@ mod processors {
     pub mod json_schema;
     pub mod jsonlint;
     pub mod libreoffice;
+    pub mod linux_module;
     pub mod luacheck;
     pub mod mako;
     pub mod make;
