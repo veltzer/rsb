@@ -87,7 +87,12 @@ impl Builder {
             }
 
             for pkg in &deps.system {
-                if which::which(pkg).is_ok() {
+                // A system dependency is a package, not a tool: ask the
+                // package manager whether it is installed. which() is wrong
+                // here — packages like aspell-en (a dictionary) ship no
+                // binary named after themselves, so which() reported them
+                // as missing even right after install-deps put them on.
+                if super::tools::is_system_package_installed(ctx, pkg) {
                     record(format!("{pkg} (system)"), "ok", "dependency", None, None, &mut ok_count, &mut fail_count, &mut warn_count);
                 } else {
                     record(format!("{pkg} not found"), "fail", "dependency", Some("system".to_string()), Some("rsconstruct tools install-deps".to_string()), &mut ok_count, &mut fail_count, &mut warn_count);

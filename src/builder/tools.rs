@@ -18,7 +18,13 @@ use super::{Builder, sorted_keys};
 /// Probes run through the central runner so a `tools check` over a long
 /// package list stays interruptible — `dpkg-query` on a large system is not
 /// instant, and one probe runs per declared package.
-fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &str) -> bool {
+///
+/// Shared with `doctor`: a `[dependencies] system` entry is a package, not a
+/// tool, so every probe of one must go through the package manager. Checking
+/// it with `which()` misreports in both directions — a binary-less package
+/// like aspell-en shows as missing forever, and a binary that happens to share
+/// the package's name shows as installed without the package being on.
+pub(super) fn is_system_package_installed(ctx: &crate::build_context::BuildContext, pkg: &str) -> bool {
     let probe = |program: &str, args: &[&str]| -> bool {
         let mut cmd = Command::new(program);
         cmd.args(args);

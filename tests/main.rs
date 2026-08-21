@@ -9,6 +9,8 @@ mod build;
 mod cache;
 #[path = "tests_mod/complete.rs"]
 mod complete;
+#[path = "tests_mod/doctor.rs"]
+mod doctor;
 #[path = "tests_mod/dry_run.rs"]
 mod dry_run;
 #[path = "tests_mod/explain.rs"]

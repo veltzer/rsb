@@ -521,7 +521,11 @@ rsconstruct terms merge ../other-project/terms
 
 **Requires config.** (no subcommands)
 
-Diagnose build environment — checks config, tools, and versions.
+Diagnose build environment — checks config, tools, versions, and declared
+`[dependencies]`. Tools are probed by running them; `system` dependencies are
+packages, not tools, so they are probed through the platform's package manager
+(dpkg-query/rpm/pacman/brew) — a binary-less package like `aspell-en` counts
+as installed even though no binary carries its name.
 
 ```bash
 rsconstruct doctor
