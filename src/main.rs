@@ -120,6 +120,10 @@ use std::time::Instant;
 
 fn main() -> std::process::ExitCode {
     platform::reset_sigpipe();
+    // Must run before any thread exists (see platform::set_env): make
+    // user-installed gem executables resolvable for tool probes and every
+    // child process.
+    tools::augment_path_with_user_gem_bins();
 
     let (result, show_status) = run();
     let exit_code = match result {

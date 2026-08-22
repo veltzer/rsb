@@ -34,8 +34,33 @@ pub fn get_mode(metadata: &std::fs::Metadata) -> u32 {
 /// Returns true otherwise (the normal local-dev case: non-root user with
 /// passwordless or interactive sudo configured).
 pub fn needs_sudo() -> bool {
-    let is_root = unsafe { libc::geteuid() } == 0;
-    !is_root && which::which("sudo").is_ok()
+    !is_root() && which::which("sudo").is_ok()
+}
+
+/// Whether the current process runs as root (effective uid 0).
+pub fn is_root() -> bool {
+    (unsafe { libc::geteuid() }) == 0
+}
+
+/// Whether the current user may write to `path` (access(2) with `W_OK`).
+/// A path that doesn't exist is "not writable" — callers that care about
+/// creatability must check an existing ancestor themselves.
+pub fn path_is_writable(path: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(cpath) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    unsafe { libc::access(cpath.as_ptr(), libc::W_OK) == 0 }
+}
+
+/// Set an environment variable for this process and everything it spawns.
+///
+/// `std::env::set_var` is unsafe in edition 2024 because mutating the
+/// environment while another thread reads it is a data race. The one caller
+/// is the PATH augmentation at the top of `main()`, before any thread —
+/// tokio's included — exists. Do not call this after startup.
+pub fn set_env(key: &str, value: &std::ffi::OsStr) {
+    unsafe { std::env::set_var(key, value) }
 }
 
 /// Create a symbolic link to a file.

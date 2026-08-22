@@ -432,6 +432,18 @@ provision CI — one command covers the whole matrix, and a registry entry that
 loses its install method fails the provisioning step instead of quietly
 shrinking the matrix. `--all` cannot be combined with a tool name.
 
+### Ruby gems without a writable gem dir
+
+Only system package managers (apt/dnf/pacman/snap) are sudo-wrapped; `pip`,
+`npm`, `cargo`, and `gem` run unprivileged. With a distro ruby, that would
+make `gem install` die on the root-owned system gem dir (`/var/lib/gems` on
+Debian/Ubuntu), so when the default gem dir isn't writable, gem installs get
+`--user-install` appended automatically. To make the resulting executables
+resolvable, every rsconstruct invocation appends the user gem bin dirs that
+exist (`$GEM_HOME/bin`, `~/.gem/ruby/*/bin`, `~/.local/share/gem/ruby/*/bin`)
+to its own `PATH` at startup — tool probes and spawned processors see them
+without any workflow- or shell-level `GEM_HOME`/`PATH` setup.
+
 ## `rsconstruct tags`
 
 Search and query frontmatter tags from markdown files.

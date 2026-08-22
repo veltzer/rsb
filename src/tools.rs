@@ -87,7 +87,7 @@ pub fn describe(method: &str, packages: &[&str]) -> Vec<Vec<String>> {
         "pip"   => vec![{ let mut a = strs(&["pip", "install"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
         "npm"   => vec![{ let mut a = strs(&["npm", "install", "-g"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
         "cargo" => vec![{ let mut a = strs(&["cargo", "install"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
-        "gem"   => vec![{ let mut a = strs(&["gem", "install"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
+        "gem"   => vec![{ let mut a = gem_install_argv(); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
         "binary" => packages.iter().flat_map(|p| describe_binary(p)).collect(),
         "manual" => packages.iter()
             .map(|p| vec!["# manual:".to_string(), (*p).to_string()])
@@ -190,9 +190,14 @@ pub fn run(method: &str, packages: &[&str], ctx: &InstallCtx) -> anyhow::Result<
             exec(&argv)
         }
         "gem" => {
-            let mut argv = vec!["gem".to_string(), "install".to_string()];
+            let mut argv = gem_install_argv();
             argv.extend(packages.iter().map(|s| (*s).to_string()));
             exec(&argv)
+            // The bin dir a `--user-install` just created becomes visible to
+            // the NEXT rsconstruct invocation, via the PATH augmentation at
+            // startup. Nothing in this process probes for the tool after
+            // installing it, and re-augmenting here would mutate the
+            // environment with tokio threads alive (see platform::set_env).
         }
         "binary" => {
             for pkg in packages {
@@ -210,6 +215,126 @@ pub fn run(method: &str, packages: &[&str], ctx: &InstallCtx) -> anyhow::Result<
 
 fn sudo_argv() -> &'static [&'static str] {
     if crate::platform::needs_sudo() { &["sudo"] } else { &[] }
+}
+
+/// The argv prefix for installing gems. Appends `--user-install` when a
+/// plain `gem install` would die on an unwritable default gem dir — the
+/// apt-ruby case, where gems go to root-owned `/var/lib/gems` and rsconstruct
+/// deliberately doesn't sudo-wrap language package managers. Used by both
+/// `describe` and `run` so the printed plan matches what executes.
+fn gem_install_argv() -> Vec<String> {
+    let mut argv = vec!["gem".to_string(), "install".to_string()];
+    if gem_needs_user_install() {
+        argv.push("--user-install".to_string());
+    }
+    argv
+}
+
+/// Whether the default gem dir is unwritable for the current user (never
+/// true for root). Asks `gem env gemdir` once per process; a missing or
+/// broken `gem` reports false and lets the install fail with gem's own
+/// message.
+fn gem_needs_user_install() -> bool {
+    static NEEDS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *NEEDS.get_or_init(|| {
+        if crate::platform::is_root() {
+            return false;
+        }
+        let Ok(out) = std::process::Command::new("gem").args(["env", "gemdir"]).output() else {
+            return false;
+        };
+        if !out.status.success() {
+            return false;
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let gemdir = std::path::Path::new(stdout.trim());
+        if gemdir.as_os_str().is_empty() {
+            return false;
+        }
+        !nearest_existing_ancestor_is_writable(gemdir)
+    })
+}
+
+/// `access(W_OK)` on the path, or — when it doesn't exist yet — on its
+/// nearest existing ancestor, which is what decides whether the path could
+/// be created.
+fn nearest_existing_ancestor_is_writable(path: &std::path::Path) -> bool {
+    let mut p = path;
+    loop {
+        if p.exists() {
+            return crate::platform::path_is_writable(p);
+        }
+        match p.parent() {
+            Some(parent) => p = parent,
+            None => return false,
+        }
+    }
+}
+
+/// Make user-installed gem executables resolvable: append the user gem bin
+/// dirs that exist to this process's PATH, so `which`-based tool probes and
+/// every spawned child (tools, processor scripts) see them. `gem install
+/// --user-install` puts binaries in a dir that is on nobody's PATH by
+/// default, which would otherwise leave a just-installed tool reported as
+/// missing.
+///
+/// Called once at the top of `main()`, before any thread exists — the
+/// safety condition of `platform::set_env`.
+pub fn augment_path_with_user_gem_bins() {
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let gem_home = std::env::var_os("GEM_HOME");
+    let dirs = user_gem_bin_dirs(std::path::Path::new(&home), gem_home.as_deref());
+    if dirs.is_empty() {
+        return;
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if let Some(new_path) = path_with_appended_dirs(&path, &dirs) {
+        crate::platform::set_env("PATH", &new_path);
+    }
+}
+
+/// Existing user-level gem executable dirs: `$GEM_HOME/bin` plus the
+/// per-ruby-version `bin` dirs of both user-install layouts —
+/// `~/.gem/ruby/<version>/bin` (upstream rubygems) and
+/// `~/.local/share/gem/ruby/<version>/bin` (the Debian/Ubuntu XDG patch).
+/// Only dirs that exist are returned; globbing the layouts costs two
+/// readdirs and avoids spawning ruby at every startup.
+fn user_gem_bin_dirs(home: &std::path::Path, gem_home: Option<&std::ffi::OsStr>) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(gem_home) = gem_home {
+        let bin = std::path::Path::new(gem_home).join("bin");
+        if bin.is_dir() {
+            dirs.push(bin);
+        }
+    }
+    for base in [home.join(".gem/ruby"), home.join(".local/share/gem/ruby")] {
+        let Ok(entries) = std::fs::read_dir(&base) else { continue };
+        let mut versions: Vec<std::path::PathBuf> = entries
+            .flatten()
+            .map(|e| e.path().join("bin"))
+            .filter(|p| p.is_dir())
+            .collect();
+        versions.sort();
+        dirs.append(&mut versions);
+    }
+    dirs
+}
+
+/// `path` with the dirs not already on it appended, or None when every dir
+/// is already present. Append rather than prepend: a system-installed tool
+/// keeps winning over a user gem of the same name.
+fn path_with_appended_dirs(path: &std::ffi::OsStr, dirs: &[std::path::PathBuf]) -> Option<std::ffi::OsString> {
+    let existing: Vec<std::path::PathBuf> = std::env::split_paths(path).collect();
+    let missing: Vec<std::path::PathBuf> = dirs.iter()
+        .filter(|d| !existing.contains(d))
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    // join_paths only errors on an entry containing the separator, which
+    // can't happen: every entry came from split_paths or is a real dir.
+    std::env::join_paths(existing.into_iter().chain(missing)).ok()
 }
 
 fn join_argv(argv: &[String]) -> String {
@@ -709,6 +834,57 @@ mod tests {
             assert_eq!(prefix, &["sudo"]);
         } else {
             assert!(prefix.is_empty());
+        }
+    }
+
+    /// Only bin dirs that actually exist are collected, from all three
+    /// layouts: $GEM_HOME/bin, ~/.gem/ruby/<v>/bin (upstream) and
+    /// ~/.local/share/gem/ruby/<v>/bin (Debian/Ubuntu).
+    #[test]
+    fn user_gem_bin_dirs_collects_existing_layouts() {
+        let home = tempfile::TempDir::new().unwrap();
+        assert!(user_gem_bin_dirs(home.path(), None).is_empty());
+
+        let upstream = home.path().join(".gem/ruby/3.2.0/bin");
+        let debian = home.path().join(".local/share/gem/ruby/3.3.0/bin");
+        let gem_home = home.path().join("mygems");
+        std::fs::create_dir_all(&upstream).unwrap();
+        std::fs::create_dir_all(&debian).unwrap();
+        std::fs::create_dir_all(gem_home.join("bin")).unwrap();
+        // A version dir without bin/ must not be collected.
+        std::fs::create_dir_all(home.path().join(".gem/ruby/2.7.0")).unwrap();
+
+        let dirs = user_gem_bin_dirs(home.path(), Some(gem_home.as_os_str()));
+        assert_eq!(dirs, vec![gem_home.join("bin"), upstream, debian]);
+    }
+
+    /// Appending keeps the original PATH order, adds only what's missing,
+    /// and reports None when there is nothing to add.
+    #[test]
+    fn path_with_appended_dirs_appends_only_missing() {
+        use std::path::PathBuf;
+        let path = std::ffi::OsString::from("/usr/bin:/home/u/.gem/ruby/3.2.0/bin");
+        let dirs = vec![
+            PathBuf::from("/home/u/.gem/ruby/3.2.0/bin"),
+            PathBuf::from("/home/u/mygems/bin"),
+        ];
+        let new_path = path_with_appended_dirs(&path, &dirs).unwrap();
+        assert_eq!(new_path, "/usr/bin:/home/u/.gem/ruby/3.2.0/bin:/home/u/mygems/bin");
+
+        assert!(path_with_appended_dirs(&new_path, &dirs).is_none());
+        assert!(path_with_appended_dirs(&path, &[]).is_none());
+    }
+
+    /// A missing path is judged by its nearest existing ancestor — that is
+    /// what decides whether the path could be created.
+    #[test]
+    fn ancestor_writability_walks_to_existing_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(nearest_existing_ancestor_is_writable(&dir.path().join("a/b/c")));
+        if !crate::platform::is_root() {
+            crate::platform::set_permissions_mode(dir.path(), 0o555).unwrap();
+            assert!(!nearest_existing_ancestor_is_writable(&dir.path().join("a/b/c")));
+            crate::platform::set_permissions_mode(dir.path(), 0o755).unwrap();
         }
     }
 
