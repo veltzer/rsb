@@ -57,6 +57,9 @@ pip = ["pyyaml", "jinja2"]    # Python packages
 npm = ["eslint", "prettier"]  # Node.js packages
 gem = ["mdl"]                 # Ruby gems
 system = ["pandoc", "graphviz"]  # System packages (checked but not auto-installed)
+
+[pages]
+dir = "out/web"  # Directory published to GitHub Pages (omit the section entirely for non-Pages repos)
 ```
 
 Per-processor configuration is documented on each processor's page under [Processors](processors.md).
@@ -298,3 +301,11 @@ The mechanism is a [post-config hook](processors.md): `eatmydata_ci_default` run
 ##### What's never wrapped
 
 `brew` is never wrapped (eatmydata is Linux-only). `pip`, `npm`, `cargo`, and `gem` are never wrapped either — those don't fsync excessively, so the wrap adds nothing.
+
+### `[pages]`
+
+Declares that this repo publishes a directory to GitHub Pages. The section is optional — its *presence* is the signal. `rsconstruct pages dir` prints the directory when the section exists and prints nothing (exit 0) when it doesn't, which lets a single shared CI workflow decide whether to run the Pages upload/deploy steps. See [GitHub Actions](github-actions.md#github-pages-deployment) for the workflow pattern.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `dir` | string | required | Directory whose contents are published to GitHub Pages (e.g., `"out/web"` or `"_site"`). |

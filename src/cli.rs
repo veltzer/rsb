@@ -207,6 +207,11 @@ pub enum Commands {
     },
     /// Initialize a new rsconstruct project (no config needed)
     Init,
+    /// Query GitHub Pages publishing settings from [pages] (requires config)
+    Pages {
+        #[command(subcommand)]
+        action: PagesAction,
+    },
     /// Manage processors
     Processors {
         #[command(subcommand)]
@@ -508,6 +513,14 @@ pub enum ProcessorAction {
     Types,
     /// Show which processors are enabled and detected (requires config)
     Used,
+}
+
+#[derive(Subcommand)]
+pub enum PagesAction {
+    /// Print the directory published to GitHub Pages. Prints nothing (still
+    /// exit 0) when [pages] is not configured, so CI can branch on the
+    /// output being empty without parsing exit codes.
+    Dir,
 }
 
 #[derive(Subcommand)]

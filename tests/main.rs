@@ -25,6 +25,8 @@ mod init;
 mod iset_pset;
 #[path = "tests_mod/local_overlay.rs"]
 mod local_overlay;
+#[path = "tests_mod/pages.rs"]
+mod pages;
 #[path = "tests_mod/processor_cmd.rs"]
 mod processor_cmd;
 #[path = "tests_mod/product.rs"]

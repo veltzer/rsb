@@ -374,6 +374,24 @@ fn run() -> (Result<()>, bool) {
         Commands::Init => {
             init_project()?;
         }
+        Commands::Pages { action } => {
+            match action {
+                cli::PagesAction::Dir => {
+                    config::Config::require_config()?;
+                    let config = config::Config::load()?;
+                    if json_output::is_json_mode() {
+                        println!("{}", serde_json::json!({
+                            "configured": config.pages.is_some(),
+                            "dir": config.pages.as_ref().map_or("", |p| p.dir.as_str()),
+                        }));
+                    } else if let Some(pages) = &config.pages {
+                        println!("{}", pages.dir);
+                    }
+                    // Not configured: print nothing, exit 0 — CI branches on
+                    // empty output, not on exit codes.
+                }
+            }
+        }
         Commands::Hooks => {
             list_hooks(cli.verbose)?;
         }

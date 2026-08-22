@@ -307,6 +307,11 @@ pub struct Config {
     pub dependencies: DependenciesConfig,
     #[serde(default)]
     pub command: CommandsConfig,
+    /// Present only when this repo publishes to GitHub Pages; absence means
+    /// "not a Pages repo", which is why this is an Option and not a struct
+    /// with defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<PagesConfig>,
     /// Field-level provenance for every top-level `[section]` (build, cache,
     /// graph, plugins, dependencies, command, completions). Each key is the
     /// section name; the inner map's keys are field names within that section.
@@ -327,6 +332,17 @@ pub struct SymlinkInstallConfig {
     /// Target folders where symlinks are created (same length as sources)
     #[serde(default)]
     pub targets: Vec<String>,
+}
+
+/// Configuration for publishing to GitHub Pages. Declaring this section marks
+/// the repo as a Pages site; CI asks via `rsconstruct pages dir` and only
+/// then uploads/deploys, so one workflow file serves Pages and non-Pages
+/// repos alike.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct PagesConfig {
+    /// Directory whose contents are published (e.g. "out/web" or "_site")
+    pub dir: String,
 }
 
 /// Configuration for custom commands.

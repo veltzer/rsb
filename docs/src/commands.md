@@ -543,6 +543,21 @@ Show project information.
 rsconstruct info source          # Show source file counts by extension
 ```
 
+## `rsconstruct pages`
+
+Query GitHub Pages publishing settings from the [`[pages]`](configuration.md#pages) config section.
+
+| Subcommand | Config required? |
+|------------|-----------------|
+| `dir` | Yes |
+
+```bash
+rsconstruct pages dir            # Print the published directory ([pages].dir)
+rsconstruct --json pages dir     # {"configured": true, "dir": "out/web"}
+```
+
+`pages dir` prints nothing and still exits 0 when `[pages]` is not configured — CI branches on the output being empty, not on exit codes. See [GitHub Actions](github-actions.md#github-pages-deployment) for the workflow pattern this enables.
+
 ## `rsconstruct sloc`
 
 **No config needed.** (no subcommands)
