@@ -13,19 +13,24 @@ RSConstruct publishes pre-built binaries as GitHub releases when a version tag
 | macOS aarch64 (Apple Silicon) | `rsconstruct-macos-aarch64` |
 
 RSConstruct is unix-only. There is no Windows build: the release matrix in
-`.github/workflows/release.yml` has never contained a Windows target, and the
+`.github/workflows/ci.yml` has never contained a Windows target, and the
 codebase assumes unix throughout (`flock`, `/dev/null`, `$HOME`, apt-based
 tool installation).
 
 ## How It Works
 
-The release workflow (`.github/workflows/release.yml`) has two jobs:
+Everything runs from the single CI workflow (`.github/workflows/ci.yml`).
+On a version tag push, three release jobs run after the test suite:
 
 1. **build** — a matrix job that builds the release binary for each platform
-   and uploads it as a GitHub Actions artifact.
+   and uploads it as a GitHub Actions artifact. It runs only after the
+   **test** job passes, so a release never ships from a commit whose tests
+   fail.
 2. **release** — waits for all builds to finish, downloads the artifacts,
    and creates a GitHub release with auto-generated release notes and all
    binaries attached.
+3. **docs** — builds the mdBook documentation and deploys it to GitHub
+   Pages.
 
 ## Creating a Release
 
