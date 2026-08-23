@@ -399,7 +399,7 @@ fn inside_ranges(pos: usize, end: usize, ranges: &[(usize, usize)]) -> bool {
 /// Check if the character at a byte position is a word-boundary character.
 /// A term match is valid if the characters immediately before and after it
 /// are not alphanumeric (or the match is at the start/end of text).
-fn is_word_boundary(text: &[u8], pos: usize) -> bool {
+const fn is_word_boundary(text: &[u8], pos: usize) -> bool {
     if pos >= text.len() {
         return true;
     }
