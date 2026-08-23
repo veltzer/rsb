@@ -362,8 +362,7 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
             if let Some(note) = note {
                 steps.push(vec![note]);
             }
-            steps.push(vec!["curl".to_string(), "-fsSL".to_string(), "-o".to_string(),
-                            deb.clone(), url]);
+            steps.push(crate::download::curl_argv(&url, &deb));
             steps.push(sudo.iter().chain(["apt-get", "install", "-y", &deb].iter())
                 .map(|s| (*s).to_string()).collect());
             steps
@@ -372,8 +371,7 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
             let tmp = format!("/tmp/{dest}");
             let dl = format!("/tmp/{dest}.dl");
             let final_path = format!("/usr/local/bin/{dest}");
-            let download = vec!["curl".to_string(), "-fsSL".to_string(), "-o".to_string(),
-                                dl.clone(), url.to_string()];
+            let download = crate::download::curl_argv(url, &dl);
             let extract = match archive {
                 ArchiveKind::TarGz { inner } => vec![
                     "tar".to_string(), "-xzf".to_string(),
@@ -407,14 +405,19 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
 fn resolve_latest_deb_asset(repo: &str, asset_pattern: &str) -> anyhow::Result<String> {
     use anyhow::Context as _;
     let api = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let body = ureq::get(&api)
-        // GitHub rejects API requests without a User-Agent.
-        .header("User-Agent", "rsconstruct")
-        .call()
-        .with_context(|| format!("Failed to query GitHub releases API for {repo}"))?
-        .body_mut()
-        .read_to_string()
-        .with_context(|| format!("Failed to read GitHub releases response for {repo}"))?;
+    // Retried via download::with_retry for the same reason downloads are:
+    // a connection reset here fails the whole install. See
+    // docs/src/internal/download-policy.md.
+    let body = crate::download::with_retry(|| {
+        ureq::get(&api)
+            // GitHub rejects API requests without a User-Agent.
+            .header("User-Agent", "rsconstruct")
+            .call()
+            .with_context(|| format!("Failed to query GitHub releases API for {repo}"))?
+            .body_mut()
+            .read_to_string()
+            .with_context(|| format!("Failed to read GitHub releases response for {repo}"))
+    })?;
     let release: serde_json::Value = serde_json::from_str(&body)
         .with_context(|| format!("Failed to parse GitHub releases JSON for {repo}"))?;
     release["assets"].as_array()
@@ -469,7 +472,8 @@ fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
             }
             DebSource::Url(url) => url.to_string(),
         };
-        exec(&["curl", "-fsSL", "-o", &deb, &asset_url])?;
+        let dl = crate::download::curl_argv(&asset_url, &deb);
+        exec(&dl.iter().map(String::as_str).collect::<Vec<_>>())?;
         let sudo = sudo_argv();
         let mut install: Vec<&str> = sudo.to_vec();
         install.extend(["apt-get", "install", "-y", &deb]);
@@ -477,7 +481,8 @@ fn run_binary(pkg: &str, ctx: &InstallCtx) -> anyhow::Result<()> {
         std::fs::remove_file(&deb).ok();
         return result;
     }
-    exec(&["curl", "-fsSL", "-o", &download, recipe.url])?;
+    let dl = crate::download::curl_argv(recipe.url, &download);
+    exec(&dl.iter().map(String::as_str).collect::<Vec<_>>())?;
     match recipe.archive {
         ArchiveKind::Deb { .. } => unreachable!("returned early by the Deb branch above"),
         ArchiveKind::TarGz { inner } => {

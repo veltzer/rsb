@@ -106,12 +106,16 @@ pub fn fetch(url: &str, ttl_secs: u64) -> Result<String> {
         return Ok(body);
     }
 
-    let body = ureq::get(url)
-        .call()
-        .with_context(|| format!("Failed to fetch {url}"))?
-        .body_mut()
-        .read_to_string()
-        .with_context(|| format!("Failed to read response body from {url}"))?;
+    // Retried via download::with_retry — see
+    // docs/src/internal/download-policy.md.
+    let body = crate::download::with_retry(|| {
+        ureq::get(url)
+            .call()
+            .with_context(|| format!("Failed to fetch {url}"))?
+            .body_mut()
+            .read_to_string()
+            .with_context(|| format!("Failed to read response body from {url}"))
+    })?;
 
     if ttl_secs == 0 {
         return Ok(body);

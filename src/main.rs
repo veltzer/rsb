@@ -86,6 +86,7 @@ mod config;
 mod db;
 mod deps_cache;
 mod display;
+mod download;
 mod executor;
 mod exit_code;
 mod file_index;

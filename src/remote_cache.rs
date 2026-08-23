@@ -153,6 +153,7 @@ impl HttpBackend {
 impl RemoteCache for HttpBackend {
     fn exists(&self, ctx: &crate::build_context::BuildContext, key: &str) -> Result<bool> {
         let mut cmd = Command::new("curl");
+        crate::download::apply_retry_args(&mut cmd);
         cmd.args([
             "-s", "-o", "/dev/null", "-w", "%{http_code}", "--head",
             &self.full_url(key),
@@ -175,6 +176,7 @@ impl RemoteCache for HttpBackend {
 
     fn upload(&self, ctx: &crate::build_context::BuildContext, key: &str, src: &Path) -> Result<()> {
         let mut cmd = Command::new("curl");
+        crate::download::apply_retry_args(&mut cmd);
         cmd.args([
             "-s", "-f", "-X", "PUT",
             "--data-binary", &format!("@{}", src.display()),
@@ -191,6 +193,7 @@ impl RemoteCache for HttpBackend {
         let url = self.full_url(key);
         let tmp = std::env::temp_dir().join(format!("rsconstruct-download-{}", uuid_simple()));
         let mut cmd = Command::new("curl");
+        crate::download::apply_retry_args(&mut cmd);
         cmd.args(["-s", "-o"]).arg(&tmp).args(["-w", "%{http_code}", &url]);
         let output = run_command_capture(ctx, &cmd);
         let result = (|| {
