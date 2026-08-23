@@ -71,28 +71,6 @@ fn dpkg_status_means_installed(status: &str) -> bool {
     status.split_whitespace().nth(2) == Some("installed")
 }
 
-#[cfg(test)]
-mod dpkg_status_tests {
-    use super::dpkg_status_means_installed;
-
-    #[test]
-    fn installed_package_is_installed() {
-        assert!(dpkg_status_means_installed("install ok installed"));
-        assert!(dpkg_status_means_installed("install ok installed\n"));
-    }
-
-    /// The regression this guards: dpkg-query exits 0 for a package it merely
-    /// knows about, so the exit code alone reported aspell-en as satisfied on
-    /// a runner that did not have it.
-    #[test]
-    fn known_but_absent_package_is_not_installed() {
-        assert!(!dpkg_status_means_installed("unknown ok not-installed"));
-        assert!(!dpkg_status_means_installed("deinstall ok config-files"));
-        assert!(!dpkg_status_means_installed("install ok half-configured"));
-        assert!(!dpkg_status_means_installed(""));
-    }
-}
-
 /// Whether a `required_tools()` entry names something the tool registry could
 /// ever install.
 ///
@@ -982,4 +960,26 @@ fn tools_graph_svg(
     tool_map: &BTreeMap<String, Vec<String>>,
 ) -> Result<String> {
     crate::processors::dot_to_svg(ctx, &tools_graph_dot(tool_map))
+}
+
+#[cfg(test)]
+mod dpkg_status_tests {
+    use super::dpkg_status_means_installed;
+
+    #[test]
+    fn installed_package_is_installed() {
+        assert!(dpkg_status_means_installed("install ok installed"));
+        assert!(dpkg_status_means_installed("install ok installed\n"));
+    }
+
+    /// The regression this guards: dpkg-query exits 0 for a package it merely
+    /// knows about, so the exit code alone reported aspell-en as satisfied on
+    /// a runner that did not have it.
+    #[test]
+    fn known_but_absent_package_is_not_installed() {
+        assert!(!dpkg_status_means_installed("unknown ok not-installed"));
+        assert!(!dpkg_status_means_installed("deinstall ok config-files"));
+        assert!(!dpkg_status_means_installed("install ok half-configured"));
+        assert!(!dpkg_status_means_installed(""));
+    }
 }

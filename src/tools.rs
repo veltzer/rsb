@@ -838,8 +838,8 @@ mod tests {
     }
 
     /// Only bin dirs that actually exist are collected, from all three
-    /// layouts: $GEM_HOME/bin, ~/.gem/ruby/<v>/bin (upstream) and
-    /// ~/.local/share/gem/ruby/<v>/bin (Debian/Ubuntu).
+    /// layouts: `$GEM_HOME/bin`, `~/.gem/ruby/<v>/bin` (upstream) and
+    /// `~/.local/share/gem/ruby/<v>/bin` (Debian/Ubuntu).
     #[test]
     fn user_gem_bin_dirs_collects_existing_layouts() {
         let home = tempfile::TempDir::new().unwrap();

@@ -10,6 +10,7 @@ use crate::common::{make_executable, run_rsconstruct, write_file};
 ///   * `clean`   — recursively deletes every `*.ko` under M=<dir> (kbuild's
 ///     clean is destructive over the whole module tree — this is exactly the
 ///     behavior that used to wipe an output written under the module dir).
+///
 /// It ignores `-C <kdir>`, ARCH=, CROSS_COMPILE=, V=, W=.
 const FAKE_MAKE: &str = r#"#!/usr/bin/env python3
 import os

@@ -1,5 +1,10 @@
 name: CI
 
+# This file is byte-identical across all rs* repos. Do not edit it in one
+# repo: edit the canonical copy in rsconstruct and sync it out. Everything
+# repo-specific lives outside this file — scripts/ci-install-tools.sh installs
+# the tools this repo's tests shell out to, and docs/ carries the mdBook.
+
 on:
   push:
   workflow_dispatch:
@@ -21,6 +26,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -28,16 +35,13 @@ jobs:
       - name: Build
         run: cargo build
 
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
       # Language runtimes come from the standard setup actions. Each installs
-      # into the runner's toolcache, which the runner user owns — so
-      # `tools install --all` below can `pip install` / `npm install -g` /
+      # into the runner's toolcache, which the runner user owns — so the
+      # install-tools script below can `pip install` / `npm install -g` /
       # `gem install` with no venv, no GEM_HOME, no npm prefix, and no sudo.
-      #
-      # These replaced three hand-rolled shell steps that worked around the
-      # *distro* runtimes: PEP 668 blocks pip on Ubuntu's system python, and
-      # the system gem/npm directories are root-owned. None of that applies to
-      # a toolcache runtime, so the workarounds were solving a problem the
-      # platform already solves.
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -53,21 +57,17 @@ jobs:
         with:
           ruby-version: '3.3'
 
-      # The whole tool matrix, in one registry-driven command. rsconstruct is
-      # the only thing this workflow installs by name (via the `cargo build`
-      # step); every external tool comes from its own registry, so adding a
-      # processor never requires touching this file.
-      #
-      # Nothing is skipped and nothing is filtered here — `--all` treats a
-      # tool it cannot install automatically as a hard error rather than a
-      # warning, so a registry entry that loses its install method fails this
-      # step instead of quietly shrinking the matrix and surfacing later as a
-      # confusing test failure.
-      - name: Install all registry tools
-        run: ./target/debug/rsconstruct tools install --all
+      # Every repo owns scripts/ci-install-tools.sh: it installs the external
+      # tools that repo's tests shell out to, and is an explicit no-op where
+      # there are none. The script is required — a repo without it fails here
+      # rather than silently skipping its tool setup. Nothing in the script
+      # may be best-effort: a tool that cannot be installed must fail this
+      # step instead of surfacing later as a confusing test failure.
+      - name: Install test tools
+        run: ./scripts/ci-install-tools.sh
 
       # The suite hard-fails on any missing tool (tests never skip), so a
-      # gap in the matrix fails the run loudly instead of shrinking it.
+      # gap in the tool setup fails the run loudly instead of shrinking it.
       - name: Run tests
         run: cargo test
 
@@ -218,7 +218,7 @@ jobs:
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           file="docs/src/release-info.md"
           sed -i \
-            -e "s|__RSCONSTRUCT_VERSION__|${version}|g" \
+            -e "s|__VERSION__|${version}|g" \
             -e "s|__GIT_TAG__|${tag}|g" \
             -e "s|__GIT_COMMIT__|${commit}|g" \
             -e "s|__RELEASE_DATE__|${released_at}|g" \

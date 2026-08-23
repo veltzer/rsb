@@ -2,7 +2,7 @@
 
 This page is generated automatically by the docs deployment workflow.
 
-- **rsconstruct version:** `__RSCONSTRUCT_VERSION__`
+- **Version:** `__VERSION__`
 - **Git tag:** `__GIT_TAG__`
 - **Git commit:** `__GIT_COMMIT__`
 - **Released at:** `__RELEASE_DATE__`
