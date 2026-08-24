@@ -2039,7 +2039,7 @@ dependencies = [
 
 [[package]]
 name = "rsconstruct"
-version = "0.9.60"
+version = "0.9.61"
 dependencies = [
  "anyhow",
  "chrono",
