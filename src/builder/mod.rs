@@ -513,6 +513,10 @@ impl Builder {
 
     /// Return the set of configured processor instance names that have 0 products
     /// (i.e., don't match any files).
+    ///
+    /// Processors with `enabled = false` are excluded: discovery skips them, so they
+    /// produce 0 products by definition. Reporting them would flag a deliberately
+    /// disabled stanza as dead config and invite its removal.
     pub fn no_file_processors(&self, ctx: &crate::build_context::BuildContext) -> Result<Vec<String>> {
         let processors = self.create_processors()?;
         let graph = self.build_graph_with_processors(ctx, &processors)?;
@@ -524,6 +528,7 @@ impl Builder {
 
         let mut empty: Vec<String> = sorted_keys(&processors)
             .into_iter()
+            .filter(|name| processors[name.as_str()].scan_config().enabled)
             .filter(|name| !has_products.contains(name.as_str()))
             .cloned()
             .collect();

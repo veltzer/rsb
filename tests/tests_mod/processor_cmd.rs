@@ -1,6 +1,6 @@
 use std::fs;
 use tempfile::TempDir;
-use crate::common::{setup_test_project, run_rsconstruct_with_env, run_rsconstruct_json_with_env};
+use crate::common::{setup_test_project, setup_project_with_config, run_rsconstruct_with_env, run_rsconstruct_json_with_env};
 
 #[test]
 fn processors_list_shows_declared() {
@@ -290,4 +290,62 @@ fn removing_processor_section_disables_it() {
     let result = run_rsconstruct_json_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
     assert!(result.exit_success, "Build should succeed");
     assert_eq!(result.total_products, 0, "Expected 0 products with no processor declared");
+}
+
+#[test]
+fn remove_no_file_processors_keeps_disabled_stanza() {
+    // A processor with `enabled = false` produces 0 products because discovery
+    // skips it — that is the documented purpose of the flag, not dead config.
+    // It must survive `smart remove-no-file-processors`.
+    let temp_dir = setup_project_with_config(
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n\n[processor.shellcheck]\nsrc_dirs = [\"src\"]\nenabled = false\n"
+    );
+    let project_path = temp_dir.path();
+    fs::create_dir_all(project_path.join("tera.templates")).unwrap();
+    fs::write(project_path.join("tera.templates/output.txt.tera"), "hello").unwrap();
+
+    let output = run_rsconstruct_with_env(
+        project_path,
+        &["smart", "remove-no-file-processors"],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(output.status.success(), "command failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("shellcheck"),
+        "Disabled processor must not be reported as having no files, got: {stdout}"
+    );
+
+    let toml = fs::read_to_string(project_path.join("rsconstruct.toml")).unwrap();
+    assert!(
+        toml.contains("[processor.shellcheck]"),
+        "Disabled stanza must be preserved, got: {toml}"
+    );
+    assert!(toml.contains("enabled = false"), "enabled = false must be preserved, got: {toml}");
+}
+
+#[test]
+fn remove_no_file_processors_removes_enabled_stanza_with_no_files() {
+    // An *enabled* processor matching nothing is still dead config and must go.
+    let temp_dir = setup_project_with_config(
+        "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n\n[processor.shellcheck]\nsrc_dirs = [\"src\"]\n"
+    );
+    let project_path = temp_dir.path();
+    fs::create_dir_all(project_path.join("tera.templates")).unwrap();
+    fs::write(project_path.join("tera.templates/output.txt.tera"), "hello").unwrap();
+
+    let output = run_rsconstruct_with_env(
+        project_path,
+        &["smart", "remove-no-file-processors"],
+        &[("NO_COLOR", "1")],
+    );
+    assert!(output.status.success(), "command failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    let toml = fs::read_to_string(project_path.join("rsconstruct.toml")).unwrap();
+    assert!(
+        !toml.contains("[processor.shellcheck]"),
+        "Enabled stanza with no files must be removed, got: {toml}"
+    );
+    assert!(toml.contains("[processor.tera]"), "Processor with files must be kept, got: {toml}");
 }

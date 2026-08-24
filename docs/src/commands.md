@@ -355,7 +355,7 @@ rsconstruct smart enable-if-available    # Add sections for detected processors 
 rsconstruct smart minimal                # Remove all, then add only detected processors
 rsconstruct smart only ruff pylint       # Remove all, then add only listed processors
 rsconstruct smart reset                  # Remove all processor sections
-rsconstruct smart remove-no-file-processors  # Remove processors that don't match any files
+rsconstruct smart remove-no-file-processors  # Remove processors that don't match any files (skips enabled = false)
 ```
 
 ## `rsconstruct processors`

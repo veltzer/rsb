@@ -196,7 +196,7 @@ Common fields available to all processors:
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | boolean | `true` | Set to `false` to disable this processor without removing the stanza. Accepted on every processor. |
+| `enabled` | boolean | `true` | Set to `false` to disable this processor without removing the stanza. Accepted on every processor. A disabled processor is skipped during discovery, so it produces no products; `smart remove-no-file-processors` ignores disabled stanzas rather than reporting them as matching no files. |
 | `args` | array of strings | `[]` | Extra command-line arguments passed to the tool. |
 | `dep_inputs` | array of strings | `[]` | Additional input files that trigger rebuild when changed. |
 | `dep_auto` | array of strings | varies | Config files auto-detected as inputs (e.g., `.pylintrc`). |
