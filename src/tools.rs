@@ -710,7 +710,18 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "perl", runtime: "perl", install_methods: &[InstallMethod { method: "apt", package: "perl" }] },
     ToolInfo { name: "markdown", runtime: "perl", install_methods: &[InstallMethod { method: "apt", package: "markdown" }] },
     ToolInfo { name: "checkpatch.pl", runtime: "perl", install_methods: &[InstallMethod { method: "binary", package: "checkpatch.pl" }] },
+    ToolInfo { name: "perltidy", runtime: "perl", install_methods: &[InstallMethod { method: "apt", package: "perltidy" }] },
     // System tools
+    // xelatex ships in texlive-xetex, not in a package of its own; pandoc's
+    // `pdf_engine = "xelatex"` needs the binary, so probe the binary and
+    // install the distribution that provides it.
+    ToolInfo { name: "xelatex", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "texlive-xetex" }] },
+    // ARM bare-metal cross toolchain. Debian splits it the same way as the
+    // native one: the compiler driver comes from gcc-arm-none-eabi, while ar
+    // and objcopy come from binutils-arm-none-eabi.
+    ToolInfo { name: "arm-none-eabi-gcc", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "gcc-arm-none-eabi" }] },
+    ToolInfo { name: "arm-none-eabi-ar", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "binutils-arm-none-eabi" }] },
+    ToolInfo { name: "arm-none-eabi-objcopy", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "binutils-arm-none-eabi" }] },
     ToolInfo { name: "shellcheck", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "shellcheck" }] },
     ToolInfo { name: "luacheck", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "lua-check" }] },
     ToolInfo { name: "cppcheck", runtime: "system", install_methods: &[InstallMethod { method: "apt", package: "cppcheck" }] },
