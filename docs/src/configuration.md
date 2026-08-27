@@ -262,6 +262,24 @@ Declare project dependencies by package manager. Used by `rsconstruct doctor` to
 | `gem` | array of strings | `[]` | Ruby gems to install via `gem install`. |
 | `system` | array of strings | `[]` | System packages installed via the detected package manager (`apt-get`, `dnf`, `pacman`, or `brew`). |
 
+#### Python dependencies come from `pyproject.toml` too
+
+`pyproject.toml` is the canonical dependency list for Python repos. When the
+project root contains one, both `install-deps` and `doctor` read, in addition
+to `[dependencies].pip`:
+
+- `[project].dependencies`
+- every list in `[project.optional-dependencies]`
+- every [PEP 735](https://peps.python.org/pep-0735/) `[dependency-groups]`
+  list (entries that are `{include-group = "..."}` tables are skipped, since
+  every group is read anyway)
+
+The two sources are merged and deduplicated by PEP 503-normalized
+distribution name; `[dependencies].pip` entries come first, so a pinned entry
+there wins over an unpinned pyproject one. Use `[dependencies].pip` for repos
+without a `pyproject.toml` and for packages CI needs that the project itself
+does not declare.
+
 #### Install order
 
 `rsconstruct tools install-deps` always installs in this fixed order:

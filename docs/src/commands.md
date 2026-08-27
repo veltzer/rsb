@@ -415,7 +415,7 @@ rsconstruct tools install ruff      # Install a specific tool by name
 rsconstruct tools install --all     # Install every tool in the registry, ignoring the config (no config needed)
 rsconstruct tools install -i        # Ask for confirmation first (default: install without asking)
 rsconstruct tools install --no-eatmydata        # Don't wrap apt/dnf/pacman with eatmydata
-rsconstruct tools install-deps      # Install declared [dependencies] in fixed order: system → pip → npm → gem
+rsconstruct tools install-deps      # Install declared [dependencies] (pip also reads pyproject.toml) in fixed order: system → pip → npm → gem
 rsconstruct tools install-deps -i   # Ask for confirmation first (default: install without asking)
 rsconstruct tools install-deps --no-eatmydata   # Don't wrap apt/dnf/pacman with eatmydata
 rsconstruct tools stats             # Show tool availability and language runtime breakdown
@@ -534,7 +534,9 @@ rsconstruct terms merge ../other-project/terms
 **Requires config.** (no subcommands)
 
 Diagnose build environment — checks config, tools, versions, and declared
-`[dependencies]`. Tools are probed by running them; `system` dependencies are
+`[dependencies]` (Python deps declared in `pyproject.toml` are checked too;
+see the `[dependencies]` section in Configuration). Tools are probed by
+running them; `system` dependencies are
 packages, not tools, so they are probed through the platform's package manager
 (dpkg-query/rpm/pacman/brew) — a binary-less package like `aspell-en` counts
 as installed even though no binary carries its name.

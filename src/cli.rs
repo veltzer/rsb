@@ -566,7 +566,7 @@ pub enum ToolsAction {
         #[arg(long)]
         no_eatmydata: bool,
     },
-    /// Install declared dependencies from the [dependencies] config section (uses config if available)
+    /// Install declared dependencies from the [dependencies] config section plus pyproject.toml's Python deps (uses config if available)
     InstallDeps {
         /// Prompt for confirmation before installing (default: install
         /// without asking, so CI and scripts work with no extra flags)

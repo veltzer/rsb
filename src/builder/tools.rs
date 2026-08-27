@@ -671,8 +671,12 @@ fn run_tools_command(
                 && config.eatmydata
                 && which::which("eatmydata").is_ok();
 
-            if config.is_empty() {
-                println!("No dependencies declared in [dependencies].");
+            // pyproject.toml is the canonical Python dependency list;
+            // [dependencies].pip entries are merged in front of it.
+            let pip_deps = config.effective_pip(std::path::Path::new("pyproject.toml"))?;
+
+            if config.is_empty() && pip_deps.is_empty() {
+                println!("No dependencies declared in [dependencies] or pyproject.toml.");
                 return Ok(());
             }
 
@@ -713,10 +717,10 @@ fn run_tools_command(
                 groups.push((system_method, system_missing));
             }
 
-            let pip_missing: Vec<String> = config.pip.iter()
+            let pip_missing: Vec<String> = pip_deps.iter()
                 .filter(|pkg| {
-                    let name = pkg.split(&['>', '<', '=', '!', '~'][..]).next().unwrap_or(pkg);
-                    let installed = package_probe_succeeds(ctx, "pip", &["show", name]);
+                    let name = crate::config::normalized_distribution_name(pkg);
+                    let installed = package_probe_succeeds(ctx, "pip", &["show", name.as_str()]);
                     if installed { skipped.push(format!("[pip] {pkg}")); }
                     !installed
                 })

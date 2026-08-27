@@ -78,9 +78,11 @@ impl Builder {
             }
         }
 
-        // Check declared dependencies
+        // Check declared dependencies. Python deps come from both
+        // [dependencies].pip and pyproject.toml (the canonical list).
         let deps = &self.config.dependencies;
-        if !deps.is_empty() {
+        let pip_deps = deps.effective_pip(std::path::Path::new("pyproject.toml"))?;
+        if !deps.is_empty() || !pip_deps.is_empty() {
             if !json_mode {
                 println!();
                 println!("{}:", color::bold("Declared dependencies"));
@@ -99,9 +101,9 @@ impl Builder {
                 }
             }
 
-            for pkg in &deps.pip {
-                let name = pkg.split(&['>', '<', '=', '!', '~'][..]).next().unwrap_or(pkg);
-                let found = package_installed(ctx, "pip", &["show", "--quiet", name]);
+            for pkg in &pip_deps {
+                let name = crate::config::normalized_distribution_name(pkg);
+                let found = package_installed(ctx, "pip", &["show", "--quiet", name.as_str()]);
                 if found {
                     record(format!("{pkg} (pip)"), "ok", "dependency", None, None, &mut ok_count, &mut fail_count, &mut warn_count);
                 } else {

@@ -751,3 +751,86 @@ fn required_tools_defaults_to_empty() {
         toml::from_str("command = \"eslint\"\n").expect("should deserialize");
     assert!(cfg.required_tools.is_empty());
 }
+
+// Tests for pyproject.toml dependency reading (effective_pip and friends)
+
+#[test]
+fn normalized_distribution_name_strips_specifiers_extras_markers() {
+    use crate::config::normalized_distribution_name as norm;
+    assert_eq!(norm("Flask"), "flask");
+    assert_eq!(norm("types_PyYAML"), "types-pyyaml");
+    assert_eq!(norm("ruamel.yaml"), "ruamel-yaml");
+    assert_eq!(norm("requests>=2.0"), "requests");
+    assert_eq!(norm("uvicorn[standard]==0.30"), "uvicorn");
+    assert_eq!(norm("tomli; python_version < \"3.11\""), "tomli");
+    assert_eq!(norm("A.-_b"), "a-b");
+}
+
+#[test]
+fn pyproject_python_deps_missing_file_is_empty() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let deps = crate::config::pyproject_python_deps(&tmp.path().join("pyproject.toml"))
+        .expect("missing file should not error");
+    assert!(deps.is_empty());
+}
+
+#[test]
+fn pyproject_python_deps_collects_all_sections() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("pyproject.toml");
+    std::fs::write(&path, r#"
+[project]
+name = "demo"
+dependencies = ["flask", "requests>=2.0"]
+
+[project.optional-dependencies]
+docs = ["sphinx"]
+
+[dependency-groups]
+dev = ["mypy", {include-group = "test"}]
+test = ["pytest"]
+"#).unwrap();
+    let deps = crate::config::pyproject_python_deps(&path).expect("should parse");
+    let mut sorted = deps.clone();
+    sorted.sort();
+    assert_eq!(sorted, vec!["flask", "mypy", "pytest", "requests>=2.0", "sphinx"]);
+    // include-group tables are skipped, not errors, and groups are read anyway
+    assert!(deps.contains(&"pytest".to_string()));
+}
+
+#[test]
+fn pyproject_python_deps_invalid_toml_errors() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("pyproject.toml");
+    std::fs::write(&path, "not [ valid toml").unwrap();
+    assert!(crate::config::pyproject_python_deps(&path).is_err());
+}
+
+#[test]
+fn effective_pip_merges_and_dedupes_by_normalized_name() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("pyproject.toml");
+    std::fs::write(&path, r#"
+[project]
+name = "demo"
+dependencies = ["Flask", "gunicorn"]
+"#).unwrap();
+    let deps = crate::config::DependenciesConfig {
+        pip: vec!["flask==2.0".to_string(), "types-requests".to_string()],
+        ..Default::default()
+    };
+    let merged = deps.effective_pip(&path).expect("should merge");
+    // [dependencies].pip first and its pinned flask wins over pyproject's Flask
+    assert_eq!(merged, vec!["flask==2.0", "types-requests", "gunicorn"]);
+}
+
+#[test]
+fn effective_pip_without_pyproject_is_pip_list() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let deps = crate::config::DependenciesConfig {
+        pip: vec!["termcolor".to_string()],
+        ..Default::default()
+    };
+    let merged = deps.effective_pip(&tmp.path().join("pyproject.toml")).expect("no pyproject is fine");
+    assert_eq!(merged, vec!["termcolor"]);
+}

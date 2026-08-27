@@ -284,6 +284,94 @@ impl DependenciesConfig {
     pub const fn is_empty(&self) -> bool {
         self.pip.is_empty() && self.npm.is_empty() && self.gem.is_empty() && self.system.is_empty()
     }
+
+    /// The full pip requirement list for the project: `[dependencies].pip`
+    /// entries followed by the Python dependencies declared in `pyproject`
+    /// (see `pyproject_python_deps`), deduplicated by distribution name —
+    /// the first occurrence wins, so a pinned entry in `[dependencies].pip`
+    /// overrides an unpinned pyproject one.
+    ///
+    /// `pyproject.toml` is the canonical dependency list for Python repos;
+    /// `[dependencies].pip` remains for repos without one and for packages
+    /// that CI needs but the project does not declare.
+    pub fn effective_pip(&self, pyproject: &Path) -> Result<Vec<String>> {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut merged: Vec<String> = Vec::new();
+        for req in self.pip.iter().cloned().chain(pyproject_python_deps(pyproject)?) {
+            if seen.insert(normalized_distribution_name(&req)) {
+                merged.push(req);
+            }
+        }
+        Ok(merged)
+    }
+}
+
+/// Python dependencies declared in a `pyproject.toml`, or an empty list when
+/// the file does not exist. Collects, in order: `[project].dependencies`,
+/// every list in `[project.optional-dependencies]`, and every PEP 735
+/// `[dependency-groups]` list. Group entries that are tables
+/// (`{include-group = "..."}`) are skipped — the included group's own
+/// entries are already collected because every group is read.
+pub fn pyproject_python_deps(pyproject: &Path) -> Result<Vec<String>> {
+    if !pyproject.exists() {
+        return Ok(Vec::new());
+    }
+    let content = fs::read_to_string(pyproject)
+        .with_context(|| format!("Failed to read {}", pyproject.display()))?;
+    let root: toml::Value = toml::from_str(&content)
+        .map_err(|e| crate::exit_code::config_error(
+            format!("Failed to parse {}: {e}", pyproject.display())))?;
+
+    let string_items = |v: &toml::Value| -> Vec<String> {
+        v.as_array().map(|items| {
+            items.iter()
+                .filter_map(|i| i.as_str().map(str::to_string))
+                .collect()
+        }).unwrap_or_default()
+    };
+
+    let mut deps: Vec<String> = Vec::new();
+    if let Some(project) = root.get("project") {
+        if let Some(list) = project.get("dependencies") {
+            deps.extend(string_items(list));
+        }
+        if let Some(extras) = project.get("optional-dependencies").and_then(toml::Value::as_table) {
+            for list in extras.values() {
+                deps.extend(string_items(list));
+            }
+        }
+    }
+    if let Some(groups) = root.get("dependency-groups").and_then(toml::Value::as_table) {
+        for list in groups.values() {
+            deps.extend(string_items(list));
+        }
+    }
+    Ok(deps)
+}
+
+/// The PEP 503-normalized distribution name of a requirement string: the
+/// name is everything before the first extras bracket, version specifier,
+/// environment marker, or whitespace; runs of `-`, `_`, and `.` compare
+/// equal and case is ignored.
+pub fn normalized_distribution_name(requirement: &str) -> String {
+    let name = requirement
+        .split(['[', '<', '>', '=', '!', '~', ';', ' ', '\t'])
+        .next()
+        .unwrap_or(requirement);
+    let mut normalized = String::with_capacity(name.len());
+    let mut prev_sep = false;
+    for c in name.chars() {
+        if matches!(c, '-' | '_' | '.') {
+            if !prev_sep {
+                normalized.push('-');
+            }
+            prev_sep = true;
+        } else {
+            normalized.extend(c.to_lowercase());
+            prev_sep = false;
+        }
+    }
+    normalized
 }
 
 #[derive(Debug, Deserialize, Serialize, Default)]
