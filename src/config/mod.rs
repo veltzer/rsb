@@ -287,9 +287,11 @@ impl DependenciesConfig {
 
     /// The full pip requirement list for the project: `[dependencies].pip`
     /// entries followed by the Python dependencies declared in `pyproject`
-    /// (see `pyproject_python_deps`), deduplicated by distribution name —
-    /// the first occurrence wins, so a pinned entry in `[dependencies].pip`
-    /// overrides an unpinned pyproject one.
+    /// (see `pyproject_python_deps`), deduplicated by distribution name plus
+    /// extras — the first occurrence wins, so a pinned entry in
+    /// `[dependencies].pip` overrides an unpinned pyproject one. Extras are
+    /// part of the key because `pkg[extra]` pulls in dependencies that plain
+    /// `pkg` does not, so the two are different install requests.
     ///
     /// `pyproject.toml` is the canonical dependency list for Python repos;
     /// `[dependencies].pip` remains for repos without one and for packages
@@ -298,7 +300,9 @@ impl DependenciesConfig {
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut merged: Vec<String> = Vec::new();
         for req in self.pip.iter().cloned().chain(pyproject_python_deps(pyproject)?) {
-            if seen.insert(normalized_distribution_name(&req)) {
+            let key = format!("{}[{}]",
+                normalized_distribution_name(&req), requirement_extras(&req));
+            if seen.insert(key) {
                 merged.push(req);
             }
         }
@@ -347,6 +351,21 @@ pub fn pyproject_python_deps(pyproject: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(deps)
+}
+
+/// The normalized extras of a requirement string (`"gtts"` for
+/// `"manim-voiceover[gtts]"`), sorted and comma-joined so equivalent extras
+/// lists compare equal; empty when the requirement names no extras.
+pub fn requirement_extras(requirement: &str) -> String {
+    let Some(open) = requirement.find('[') else { return String::new() };
+    let Some(close) = requirement[open..].find(']') else { return String::new() };
+    let mut extras: Vec<String> = requirement[open + 1..open + close]
+        .split(',')
+        .map(|e| e.trim().to_lowercase())
+        .filter(|e| !e.is_empty())
+        .collect();
+    extras.sort();
+    extras.join(",")
 }
 
 /// The PEP 503-normalized distribution name of a requirement string: the

@@ -834,3 +834,26 @@ fn effective_pip_without_pyproject_is_pip_list() {
     let merged = deps.effective_pip(&tmp.path().join("pyproject.toml")).expect("no pyproject is fine");
     assert_eq!(merged, vec!["termcolor"]);
 }
+
+#[test]
+fn requirement_extras_parses_and_normalizes() {
+    use crate::config::requirement_extras as ex;
+    assert_eq!(ex("manim-voiceover[gtts]"), "gtts");
+    assert_eq!(ex("uvicorn[standard,Watchfiles]>=0.30"), "standard,watchfiles");
+    assert_eq!(ex("uvicorn[watchfiles, standard]"), "standard,watchfiles");
+    assert_eq!(ex("flask"), "");
+}
+
+#[test]
+fn effective_pip_keeps_extras_variant_distinct_from_bare_name() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("pyproject.toml");
+    std::fs::write(&path, r#"
+[project]
+name = "demo"
+dependencies = ["manim_voiceover", "manim-voiceover[gtts]"]
+"#).unwrap();
+    let deps = crate::config::DependenciesConfig::default();
+    let merged = deps.effective_pip(&path).expect("should merge");
+    assert_eq!(merged, vec!["manim_voiceover", "manim-voiceover[gtts]"]);
+}

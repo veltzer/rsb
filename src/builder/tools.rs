@@ -719,6 +719,13 @@ fn run_tools_command(
 
             let pip_missing: Vec<String> = pip_deps.iter()
                 .filter(|pkg| {
+                    // `pip show` only proves the base distribution is present;
+                    // it says nothing about an extras entry like `pkg[extra]`,
+                    // whose extra dependencies may still be missing. Always
+                    // hand extras entries to pip — the install is idempotent.
+                    if pkg.contains('[') {
+                        return true;
+                    }
                     let name = crate::config::normalized_distribution_name(pkg);
                     let installed = package_probe_succeeds(ctx, "pip", &["show", name.as_str()]);
                     if installed { skipped.push(format!("[pip] {pkg}")); }
