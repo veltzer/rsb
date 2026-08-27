@@ -1,3 +1,4 @@
+mod actionlint;
 mod ruff;
 mod pylint;
 mod pytest;

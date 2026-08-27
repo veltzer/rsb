@@ -113,6 +113,7 @@ mod processors {
     pub mod yq;
     pub mod cmake;
     pub mod creator;
+    pub mod actionlint;
     pub mod hadolint;
     pub mod jekyll;
     pub mod slidev;

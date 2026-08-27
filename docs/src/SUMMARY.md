@@ -19,6 +19,7 @@
 - [Processors](processors.md)
     - [Processor Types](processor-types.md)
     - [A2x](processors/a2x.md)
+    - [Actionlint](processors/actionlint.md)
     - [ASCII](processors/ascii.md)
     - [Aspell](processors/aspell.md)
     - [Black](processors/black.md)

@@ -571,6 +571,15 @@ fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
             archive: ArchiveKind::Gunzip,
             dest: "taplo",
         }),
+        // Pinned like zola: actionlint's release assets embed the version in
+        // the filename (actionlint_1.7.12_linux_amd64.tar.gz), so there is no
+        // stable `releases/latest/download/...` URL to track the way taplo
+        // and hadolint do. Bump this deliberately.
+        "actionlint" => Some(BinaryRecipe {
+            url: "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+            archive: ArchiveKind::TarGz { inner: "actionlint" },
+            dest: "actionlint",
+        }),
         "hadolint" => Some(BinaryRecipe {
             url: "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64",
             archive: ArchiveKind::Raw,
