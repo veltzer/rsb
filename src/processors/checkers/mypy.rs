@@ -12,7 +12,10 @@ inventory::submit! { crate::registries::ProcessorPlugin {
     fields: &[],
     omit_standard_fields: &[],
     scan_defaults: Some(crate::config::ScanDefaultsData { src_dirs: &[], src_extensions: &[".py"], src_exclude_dirs: &[] }),
-    defaults: Some(crate::config::ProcessorDefaults { command: "mypy", dep_auto: &["mypy.ini"], ..crate::config::ProcessorDefaults::EMPTY }),
+    // Every config file mypy's discovery order consults: an edit to any of
+    // them must invalidate cached results. pyproject.toml is where the
+    // fleet keeps [tool.mypy] since the .mypy.ini unification.
+    defaults: Some(crate::config::ProcessorDefaults { command: "mypy", dep_auto: &["mypy.ini", ".mypy.ini", "pyproject.toml"], ..crate::config::ProcessorDefaults::EMPTY }),
     defconfig_json: crate::registries::default_config_json::<crate::config::StandardConfig>,
     keywords: &["python", "type-checker", "types", "py", "pip"],
     description: "Type-check Python files using mypy",
