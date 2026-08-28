@@ -239,12 +239,62 @@ fn gem_install_argv() -> Vec<String> {
 /// The argv prefix for installing Python packages with uv. `--python
 /// python3` targets whichever interpreter `python3` on PATH resolves to —
 /// the same environment a bare `pip install` would touch (the active venv
-/// when one is on PATH, the system interpreter on a CI runner). Without it,
-/// `uv pip install` refuses to run when no venv is active. Used by both
-/// `describe` and `run` so the printed plan matches what executes.
+/// when one is on PATH, the system interpreter on a CI runner). `--system`
+/// is required for the non-venv case — without it uv refuses with "No
+/// virtual environment found" even when `--python` names the interpreter —
+/// and is harmless for a venv target (uv installs into the venv the
+/// interpreter belongs to). When the target is a non-venv interpreter
+/// whose site-packages is unwritable (a CI runner's apt python), pip would
+/// silently fall back to a user install; uv has no user scheme, so
+/// `--prefix <user base>` reproduces that fallback's exact layout
+/// (`~/.local/lib/pythonX.Y/site-packages` + `~/.local/bin` on Linux).
+/// PEP 668 externally-managed markers are still respected — no
+/// `--break-system-packages` — matching what a bare `pip install` refuses.
+/// Used by both `describe` and `run` so the printed plan matches what
+/// executes.
 fn uv_pip_install_argv() -> Vec<String> {
-    ["uv", "pip", "install", "--python", "python3"]
-        .iter().map(|s| (*s).to_string()).collect()
+    let mut argv: Vec<String> = ["uv", "pip", "install", "--python", "python3", "--system"]
+        .iter().map(|s| (*s).to_string()).collect();
+    if let Some(user_base) = uv_user_prefix() {
+        argv.push("--prefix".to_string());
+        argv.push(user_base);
+    }
+    argv
+}
+
+/// The `--prefix` for a uv install that must emulate pip's user-install
+/// fallback, or None when uv can write the target environment directly:
+/// a venv is active, site-packages is writable, or `python3` is missing or
+/// broken (the install then fails with uv's own message, like the gem
+/// probe below). Asks `python3` once per process for its venv-ness,
+/// purelib, and user base.
+fn uv_user_prefix() -> Option<String> {
+    static PREFIX: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    PREFIX.get_or_init(|| {
+        let Ok(out) = std::process::Command::new("python3")
+            .args(["-c", "import sys, sysconfig, site; \
+                    print(int(sys.prefix != sys.base_prefix)); \
+                    print(sysconfig.get_path('purelib')); \
+                    print(site.getuserbase())"])
+            .output() else {
+            return None;
+        };
+        if !out.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let mut lines = stdout.lines();
+        let in_venv = lines.next()? == "1";
+        let purelib = lines.next()?.trim();
+        let user_base = lines.next()?.trim();
+        if in_venv || purelib.is_empty() || user_base.is_empty() {
+            return None;
+        }
+        if nearest_existing_ancestor_is_writable(std::path::Path::new(purelib)) {
+            return None;
+        }
+        Some(user_base.to_string())
+    }).clone()
 }
 
 /// Whether the default gem dir is unwritable for the current user (never
@@ -979,15 +1029,19 @@ mod tests {
     }
 
     /// `uv` describe targets `python3` from PATH (the environment a bare
-    /// `pip install` would touch), passes requirements — markers included —
-    /// as single argv elements, and never uses sudo.
+    /// `pip install` would touch) with `--system` so a non-venv interpreter
+    /// is accepted, passes requirements — markers included — as single argv
+    /// elements at the end, and never uses sudo. `--prefix <user base>` may
+    /// appear between flags and requirements depending on the machine's
+    /// python3 (venv-ness, site-packages writability), so the middle is not
+    /// pinned here.
     #[test]
     fn uv_describe_targets_path_python3_without_sudo() {
         let steps = describe("uv", &["flask==3.1.0", "pywin32==312 ; sys_platform == 'win32'"]);
         assert_eq!(steps.len(), 1);
         let argv = &steps[0];
-        assert_eq!(argv[..5], ["uv", "pip", "install", "--python", "python3"].map(String::from));
-        assert_eq!(&argv[5..], &["flask==3.1.0", "pywin32==312 ; sys_platform == 'win32'"]);
+        assert_eq!(argv[..6], ["uv", "pip", "install", "--python", "python3", "--system"].map(String::from));
+        assert_eq!(&argv[argv.len() - 2..], &["flask==3.1.0", "pywin32==312 ; sys_platform == 'win32'"]);
         assert!(!argv.contains(&"sudo".to_string()));
     }
 
