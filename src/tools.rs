@@ -85,6 +85,7 @@ pub fn describe(method: &str, packages: &[&str]) -> Vec<Vec<String>> {
             vec![argv]
         }
         "pip"   => vec![{ let mut a = strs(&["pip", "install"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
+        "uv"    => vec![{ let mut a = uv_pip_install_argv(); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
         "npm"   => vec![{ let mut a = strs(&["npm", "install", "-g"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
         "cargo" => vec![{ let mut a = strs(&["cargo", "install"]); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
         "gem"   => vec![{ let mut a = gem_install_argv(); a.extend(packages.iter().map(|s| (*s).to_string())); a }],
@@ -179,6 +180,11 @@ pub fn run(method: &str, packages: &[&str], ctx: &InstallCtx) -> anyhow::Result<
             argv.extend(packages.iter().map(|s| (*s).to_string()));
             exec(&argv)
         }
+        "uv" => {
+            let mut argv = uv_pip_install_argv();
+            argv.extend(packages.iter().map(|s| (*s).to_string()));
+            exec(&argv)
+        }
         "npm" => {
             let mut argv = vec!["npm".to_string(), "install".to_string(), "-g".to_string()];
             argv.extend(packages.iter().map(|s| (*s).to_string()));
@@ -228,6 +234,17 @@ fn gem_install_argv() -> Vec<String> {
         argv.push("--user-install".to_string());
     }
     argv
+}
+
+/// The argv prefix for installing Python packages with uv. `--python
+/// python3` targets whichever interpreter `python3` on PATH resolves to —
+/// the same environment a bare `pip install` would touch (the active venv
+/// when one is on PATH, the system interpreter on a CI runner). Without it,
+/// `uv pip install` refuses to run when no venv is active. Used by both
+/// `describe` and `run` so the printed plan matches what executes.
+fn uv_pip_install_argv() -> Vec<String> {
+    ["uv", "pip", "install", "--python", "python3"]
+        .iter().map(|s| (*s).to_string()).collect()
 }
 
 /// Whether the default gem dir is unwritable for the current user (never
@@ -664,6 +681,7 @@ pub static TOOLS: &[ToolInfo] = &[
     ToolInfo { name: "yamllint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "yamllint" }] },
     ToolInfo { name: "sphinx-build", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "sphinx" }] },
     ToolInfo { name: "pip", runtime: "python", install_methods: &[InstallMethod { method: "apt", package: "python3-pip" }] },
+    ToolInfo { name: "uv", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "uv" }] },
     ToolInfo { name: "jsonlint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "demjson3" }] },
     ToolInfo { name: "cpplint", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "cpplint" }] },
     ToolInfo { name: "black", runtime: "python", install_methods: &[InstallMethod { method: "pip", package: "black" }] },
@@ -957,6 +975,19 @@ mod tests {
         assert_eq!(steps.len(), 1);
         let argv = &steps[0];
         assert_eq!(argv[0], "pip");
+        assert!(!argv.contains(&"sudo".to_string()));
+    }
+
+    /// `uv` describe targets `python3` from PATH (the environment a bare
+    /// `pip install` would touch), passes requirements — markers included —
+    /// as single argv elements, and never uses sudo.
+    #[test]
+    fn uv_describe_targets_path_python3_without_sudo() {
+        let steps = describe("uv", &["flask==3.1.0", "pywin32==312 ; sys_platform == 'win32'"]);
+        assert_eq!(steps.len(), 1);
+        let argv = &steps[0];
+        assert_eq!(argv[..5], ["uv", "pip", "install", "--python", "python3"].map(String::from));
+        assert_eq!(&argv[5..], &["flask==3.1.0", "pywin32==312 ; sys_platform == 'win32'"]);
         assert!(!argv.contains(&"sudo".to_string()));
     }
 

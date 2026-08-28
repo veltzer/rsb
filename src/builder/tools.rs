@@ -101,6 +101,22 @@ fn package_probe_succeeds(
         .is_ok_and(|o| o.status.success())
 }
 
+/// The project's pinned Python closure as `uv export` renders it from
+/// uv.lock — one requirement per line, environment markers included.
+/// `--frozen` keeps the lock untouched (and fails when it is out of sync
+/// with pyproject.toml instead of silently re-resolving).
+fn uv_export_reqs(ctx: &crate::build_context::BuildContext) -> Result<Vec<String>> {
+    let mut cmd = Command::new("uv");
+    cmd.args(["export", "--frozen", "--no-hashes", "--no-annotate", "--no-header", "--no-emit-project"]);
+    let out = crate::processors::run_command_capture(ctx, &cmd)
+        .context("failed to run `uv export` — is uv installed? (`rsconstruct tools install uv`, \
+                  or set `python_installer = \"pip\"` under [dependencies] to install with pip)")?;
+    if !out.status.success() {
+        bail!("`uv export` failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    Ok(crate::config::parse_uv_export(&String::from_utf8_lossy(&out.stdout)))
+}
+
 /// Return the language runtime category for a tool.
 /// Delegates to the central `TOOLS` registry in `src/tools.rs`.
 fn tool_runtime(tool: &str) -> &'static str {
@@ -673,7 +689,37 @@ fn run_tools_command(
 
             // The Python set comes from uv.lock by default (pyproject.toml
             // in pyproject mode); [dependencies].pip entries merge in front.
-            let pip_deps = config.effective_pip(std::path::Path::new("."))?;
+            // The uv installer (the default) takes the lock's pins from
+            // `uv export`, whose environment markers let uv skip other
+            // platforms' packages; the pip installer flattens the lock.
+            let python_installer = config.python_installer;
+            let pip_deps = match python_installer {
+                crate::config::PythonInstaller::Uv => {
+                    // Bootstrap uv with pip when it is not on PATH — CI
+                    // runner images ship pip but not necessarily uv (the
+                    // ubuntu-26.04 image does not), and requiring every
+                    // consuming repo's workflow to install uv first would
+                    // put installer knowledge back into the yml this
+                    // command exists to keep generic. pip's scripts dir is
+                    // already on PATH wherever pip itself runs from, so
+                    // the uv binary is spawnable right after.
+                    // Only when there is Python work to do — a repo with no
+                    // pyproject.toml and no pip list needs no uv.
+                    let has_python_deps = std::path::Path::new("pyproject.toml").exists()
+                        || !config.pip.is_empty();
+                    if has_python_deps && which::which("uv").is_err() {
+                        println!("uv not found on PATH; bootstrapping it with pip");
+                        crate::tools::run("pip", &["uv"], &crate::tools::InstallCtx {
+                            verbose, use_eatmydata: false,
+                        }).context("failed to bootstrap uv with pip; install uv manually \
+                                    or set `python_installer = \"pip\"` under [dependencies]")?;
+                    }
+                    config.effective_pip_uv(std::path::Path::new("."), || uv_export_reqs(ctx))?
+                }
+                crate::config::PythonInstaller::Pip => {
+                    config.effective_pip(std::path::Path::new("."))?
+                }
+            };
 
             if config.is_empty() && pip_deps.is_empty() {
                 println!("No dependencies declared in [dependencies] or pyproject.toml.");
@@ -717,24 +763,36 @@ fn run_tools_command(
                 groups.push((system_method, system_missing));
             }
 
-            let pip_missing: Vec<String> = pip_deps.iter()
-                .filter(|pkg| {
-                    // `pip show` only proves the base distribution is present;
-                    // it says nothing about an extras entry like `pkg[extra]`,
-                    // whose extra dependencies may still be missing. Always
-                    // hand extras entries to pip — the install is idempotent.
-                    if pkg.contains('[') {
-                        return true;
+            match python_installer {
+                crate::config::PythonInstaller::Uv => {
+                    // No per-package probing: uv audits the whole set itself
+                    // in one pass, faster and version-aware where `pip show`
+                    // only proves some version of the name is present.
+                    if !pip_deps.is_empty() {
+                        groups.push(("uv", pip_deps));
                     }
-                    let name = crate::config::normalized_distribution_name(pkg);
-                    let installed = package_probe_succeeds(ctx, "pip", &["show", name.as_str()]);
-                    if installed { skipped.push(format!("[pip] {pkg}")); }
-                    !installed
-                })
-                .cloned()
-                .collect();
-            if !pip_missing.is_empty() {
-                groups.push(("pip", pip_missing));
+                }
+                crate::config::PythonInstaller::Pip => {
+                    let pip_missing: Vec<String> = pip_deps.iter()
+                        .filter(|pkg| {
+                            // `pip show` only proves the base distribution is present;
+                            // it says nothing about an extras entry like `pkg[extra]`,
+                            // whose extra dependencies may still be missing. Always
+                            // hand extras entries to pip — the install is idempotent.
+                            if pkg.contains('[') {
+                                return true;
+                            }
+                            let name = crate::config::normalized_distribution_name(pkg);
+                            let installed = package_probe_succeeds(ctx, "pip", &["show", name.as_str()]);
+                            if installed { skipped.push(format!("[pip] {pkg}")); }
+                            !installed
+                        })
+                        .cloned()
+                        .collect();
+                    if !pip_missing.is_empty() {
+                        groups.push(("pip", pip_missing));
+                    }
+                }
             }
 
             let npm_missing: Vec<String> = config.npm.iter()

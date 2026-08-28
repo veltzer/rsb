@@ -259,6 +259,7 @@ Declare project dependencies by package manager. Used by `rsconstruct doctor` to
 |---|---|---|---|
 | `pip` | array of strings | `[]` | Python packages to install via `pip install`. Supports version specifiers (e.g., `"ruff>=0.4"`). |
 | `pip_source` | string | `"uv-lock"` | Where the Python package set comes from: `"uv-lock"` installs the pinned closure from `uv.lock`; `"pyproject"` resolves the names pyproject.toml declares at install time. |
+| `python_installer` | string | `"uv"` | Which tool installs the Python package set: `"uv"` runs `uv pip install --python python3`; `"pip"` runs `pip install`. See below for why the two differ on the same lock. |
 | `npm` | array of strings | `[]` | Node.js packages to install via `npm install`. |
 | `gem` | array of strings | `[]` | Ruby gems to install via `gem install`. |
 | `system` | array of strings | `[]` | System packages installed via the detected package manager (`apt-get`, `dnf`, `pacman`, or `brew`). |
@@ -288,6 +289,36 @@ deduplicated by PEP 503-normalized distribution name plus extras, so a
 `[dependencies].pip` entry wins over a lock or pyproject one. Use
 `[dependencies].pip` for repos without a `pyproject.toml` and for packages
 CI needs that the project itself does not declare.
+
+#### uv installs the Python set by default
+
+With the default `python_installer = "uv"`, `install-deps` hands the Python
+set to `uv pip install --python python3` — targeting whichever interpreter
+`python3` on PATH resolves to, the same environment a bare `pip install`
+would touch. Installing a uv-produced lock with uv matters for two reasons:
+
+- **Requires-Python upper bounds.** uv deliberately ignores a package's
+  declared *upper* Requires-Python bound when resolving (upper bounds are
+  almost always stale metadata), so `uv lock` can pin a version whose bound
+  excludes the running interpreter. uv installs that pin; pip enforces the
+  bound and refuses it with "No matching distribution found".
+- **Environment markers.** In uv-lock mode the pins come from `uv export`
+  (run with `--frozen`, so an out-of-sync lock is an error, not a silent
+  re-resolve), which annotates platform-conditional packages with markers
+  like `pywin32==312 ; sys_platform == 'win32'`. uv skips a pin whose
+  marker does not match the current platform, where the flattened lock
+  closure would ask for another platform's package and fail.
+
+uv also audits the whole installed set itself in one pass, so uv mode skips
+the per-package `pip show` preflight probing.
+
+When uv is not on PATH and there is Python work to do, `install-deps`
+bootstraps it with `pip install uv` first — CI runner images ship pip but
+not necessarily uv, and the consuming repo's workflow should not need to
+know which installer rsconstruct uses.
+
+Set `python_installer = "pip"` to keep the pre-uv behavior: per-package
+`pip show` probing followed by `pip install` of the flattened set.
 
 #### Install order
 

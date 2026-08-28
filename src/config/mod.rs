@@ -261,6 +261,26 @@ pub enum PipSource {
     Pyproject,
 }
 
+/// Which tool `install-deps` hands the Python package set to.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PythonInstaller {
+    /// Install with `uv pip install` (the default). uv applies uv's own
+    /// resolution policy to the lock it produced, so a pin whose
+    /// Requires-Python upper bound excludes the running interpreter (which
+    /// uv deliberately ignores but pip enforces) still installs, and in
+    /// uv-lock mode the pins come from `uv export`, whose environment
+    /// markers make uv skip other platforms' packages instead of failing
+    /// on them.
+    #[default]
+    Uv,
+    /// Install with `pip install` (the pre-uv behavior). pip enforces
+    /// Requires-Python bounds that uv ignored when locking, so a uv.lock
+    /// pin can be uninstallable for pip even though uv itself would
+    /// install it.
+    Pip,
+}
+
 /// Declared project dependencies by package manager.
 /// Used by `rsconstruct doctor` to verify and `rsconstruct tools install-deps` to install.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -274,6 +294,11 @@ pub struct DependenciesConfig {
     /// names at install time.
     #[serde(default)]
     pub pip_source: PipSource,
+    /// Which tool installs the Python package set: `"uv"` (default) or
+    /// `"pip"`. See `PythonInstaller` for why the two differ on the same
+    /// lock.
+    #[serde(default)]
+    pub python_installer: PythonInstaller,
     /// Node.js packages (installed via npm)
     #[serde(default)]
     pub npm: Vec<String>,
@@ -325,14 +350,41 @@ impl DependenciesConfig {
     /// `pkg[extra]` pulls in dependencies that plain `pkg` does not, so the
     /// two are different install requests.
     pub fn effective_pip(&self, project_root: &Path) -> Result<Vec<String>> {
+        let from_project = self.project_python_reqs(project_root, uv_lock_pinned_deps)?;
+        Ok(self.merge_with_pip(from_project))
+    }
+
+    /// Like `effective_pip`, but for the uv installer: in uv-lock mode the
+    /// pinned closure comes from `uv export` (run by `export`, since
+    /// subprocess execution belongs to the caller's context) rather than
+    /// from flattening the lock. The export carries environment markers, so
+    /// uv skips another platform's pin (`pywin32 ; sys_platform == 'win32'`
+    /// on Linux) where the flattened list would try to install it and fail.
+    pub fn effective_pip_uv(
+        &self,
+        project_root: &Path,
+        export: impl FnOnce() -> Result<Vec<String>>,
+    ) -> Result<Vec<String>> {
+        let from_project = self.project_python_reqs(project_root, |_lock| export())?;
+        Ok(self.merge_with_pip(from_project))
+    }
+
+    /// The project-declared part of the Python set: `pinned` on the lock in
+    /// uv-lock mode, pyproject's declared names in pyproject mode. Owns the
+    /// "declared dependencies but no lock" error both modes' callers rely on.
+    fn project_python_reqs(
+        &self,
+        project_root: &Path,
+        pinned: impl FnOnce(&Path) -> Result<Vec<String>>,
+    ) -> Result<Vec<String>> {
         let pyproject = project_root.join("pyproject.toml");
-        let from_project: Vec<String> = match self.pip_source {
+        match self.pip_source {
             PipSource::UvLock => {
                 let lock = project_root.join("uv.lock");
                 if lock.exists() {
-                    uv_lock_pinned_deps(&lock)?
+                    pinned(&lock)
                 } else if pyproject_python_deps(&pyproject)?.is_empty() {
-                    Vec::new()
+                    Ok(Vec::new())
                 } else {
                     anyhow::bail!(
                         "{} declares Python dependencies but {} does not exist; \
@@ -342,8 +394,14 @@ impl DependenciesConfig {
                     );
                 }
             }
-            PipSource::Pyproject => pyproject_python_deps(&pyproject)?,
-        };
+            PipSource::Pyproject => pyproject_python_deps(&pyproject),
+        }
+    }
+
+    /// `[dependencies].pip` entries followed by `from_project`, deduplicated
+    /// by distribution name plus extras — first occurrence wins, so a
+    /// `[dependencies].pip` entry overrides a pyproject or lock one.
+    fn merge_with_pip(&self, from_project: Vec<String>) -> Vec<String> {
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut merged: Vec<String> = Vec::new();
         for req in self.pip.iter().cloned().chain(from_project) {
@@ -353,8 +411,20 @@ impl DependenciesConfig {
                 merged.push(req);
             }
         }
-        Ok(merged)
+        merged
     }
+}
+
+/// Parse the stdout of `uv export --format requirements.txt` into requirement
+/// strings, one per line, environment markers included. Comment lines, blank
+/// lines, and option lines (`-e .`, `--index-url ...`) are not requirements
+/// and are dropped.
+pub fn parse_uv_export(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with('-'))
+        .map(str::to_string)
+        .collect()
 }
 
 /// Python dependencies declared in a `pyproject.toml`, or an empty list when
