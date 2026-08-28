@@ -415,7 +415,7 @@ rsconstruct tools install ruff      # Install a specific tool by name
 rsconstruct tools install --all     # Install every tool in the registry, ignoring the config (no config needed)
 rsconstruct tools install -i        # Ask for confirmation first (default: install without asking)
 rsconstruct tools install --no-eatmydata        # Don't wrap apt/dnf/pacman with eatmydata
-rsconstruct tools install-deps      # Install declared [dependencies] (pip also reads pyproject.toml) in fixed order: system → pip → npm → gem
+rsconstruct tools install-deps      # Install declared [dependencies] (pip set from uv.lock by default) in fixed order: system → pip → npm → gem
 rsconstruct tools install-deps -i   # Ask for confirmation first (default: install without asking)
 rsconstruct tools install-deps --no-eatmydata   # Don't wrap apt/dnf/pacman with eatmydata
 rsconstruct tools stats             # Show tool availability and language runtime breakdown

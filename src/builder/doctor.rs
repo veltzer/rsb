@@ -78,10 +78,10 @@ impl Builder {
             }
         }
 
-        // Check declared dependencies. Python deps come from both
-        // [dependencies].pip and pyproject.toml (the canonical list).
+        // Check declared dependencies. The Python set comes from uv.lock by
+        // default (pyproject.toml in pyproject mode) plus [dependencies].pip.
         let deps = &self.config.dependencies;
-        let pip_deps = deps.effective_pip(std::path::Path::new("pyproject.toml"))?;
+        let pip_deps = deps.effective_pip(std::path::Path::new("."))?;
         if !deps.is_empty() || !pip_deps.is_empty() {
             if !json_mode {
                 println!();

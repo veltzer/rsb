@@ -671,9 +671,9 @@ fn run_tools_command(
                 && config.eatmydata
                 && which::which("eatmydata").is_ok();
 
-            // pyproject.toml is the canonical Python dependency list;
-            // [dependencies].pip entries are merged in front of it.
-            let pip_deps = config.effective_pip(std::path::Path::new("pyproject.toml"))?;
+            // The Python set comes from uv.lock by default (pyproject.toml
+            // in pyproject mode); [dependencies].pip entries merge in front.
+            let pip_deps = config.effective_pip(std::path::Path::new("."))?;
 
             if config.is_empty() && pip_deps.is_empty() {
                 println!("No dependencies declared in [dependencies] or pyproject.toml.");

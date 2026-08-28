@@ -258,15 +258,24 @@ Declare project dependencies by package manager. Used by `rsconstruct doctor` to
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `pip` | array of strings | `[]` | Python packages to install via `pip install`. Supports version specifiers (e.g., `"ruff>=0.4"`). |
+| `pip_source` | string | `"uv-lock"` | Where the Python package set comes from: `"uv-lock"` installs the pinned closure from `uv.lock`; `"pyproject"` resolves the names pyproject.toml declares at install time. |
 | `npm` | array of strings | `[]` | Node.js packages to install via `npm install`. |
 | `gem` | array of strings | `[]` | Ruby gems to install via `gem install`. |
 | `system` | array of strings | `[]` | System packages installed via the detected package manager (`apt-get`, `dnf`, `pacman`, or `brew`). |
 
-#### Python dependencies come from `pyproject.toml` too
+#### Python dependencies come from `uv.lock` by default
 
-`pyproject.toml` is the canonical dependency list for Python repos. When the
-project root contains one, both `install-deps` and `doctor` read, in addition
-to `[dependencies].pip`:
+In the default `pip_source = "uv-lock"` mode, `install-deps` and `doctor`
+take the Python package set from `uv.lock`: the exact pinned closure —
+including transitive dependencies — that `uv lock` resolved, so CI installs
+are reproducible instead of floating to whatever pip resolves that day. Only
+registry packages are read from the lock; the project's own entry is
+skipped, and any other source kind (git, path) is an error. A project whose
+`pyproject.toml` declares Python dependencies but has no `uv.lock` is an
+error: run `uv lock`, or opt out per repo with `pip_source = "pyproject"`.
+
+In `pip_source = "pyproject"` mode the set is instead the dependency *names*
+pyproject.toml declares, resolved by pip at install time:
 
 - `[project].dependencies`
 - every list in `[project.optional-dependencies]`
@@ -274,11 +283,11 @@ to `[dependencies].pip`:
   list (entries that are `{include-group = "..."}` tables are skipped, since
   every group is read anyway)
 
-The two sources are merged and deduplicated by PEP 503-normalized
-distribution name; `[dependencies].pip` entries come first, so a pinned entry
-there wins over an unpinned pyproject one. Use `[dependencies].pip` for repos
-without a `pyproject.toml` and for packages CI needs that the project itself
-does not declare.
+In both modes `[dependencies].pip` entries merge in front and the result is
+deduplicated by PEP 503-normalized distribution name plus extras, so a
+`[dependencies].pip` entry wins over a lock or pyproject one. Use
+`[dependencies].pip` for repos without a `pyproject.toml` and for packages
+CI needs that the project itself does not declare.
 
 #### Install order
 

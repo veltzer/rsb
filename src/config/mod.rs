@@ -245,6 +245,22 @@ impl Default for PluginsConfig {
     }
 }
 
+/// Where `install-deps` and `doctor` take the Python package set from.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum PipSource {
+    /// Install the exact pinned closure from `uv.lock` (plus any
+    /// `[dependencies].pip` extras). A project that declares Python
+    /// dependencies in pyproject.toml but has no `uv.lock` is an error:
+    /// run `uv lock`, or set `pip_source = "pyproject"`.
+    #[default]
+    UvLock,
+    /// Resolve `[dependencies].pip` plus pyproject.toml's declared
+    /// dependency names at install time (the pre-lockfile behavior;
+    /// versions float to whatever pip resolves that day).
+    Pyproject,
+}
+
 /// Declared project dependencies by package manager.
 /// Used by `rsconstruct doctor` to verify and `rsconstruct tools install-deps` to install.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -253,6 +269,11 @@ pub struct DependenciesConfig {
     /// Python packages (installed via pip)
     #[serde(default)]
     pub pip: Vec<String>,
+    /// Source of the Python package set: `"uv-lock"` (default) installs the
+    /// pinned closure from `uv.lock`; `"pyproject"` resolves the declared
+    /// names at install time.
+    #[serde(default)]
+    pub pip_source: PipSource,
     /// Node.js packages (installed via npm)
     #[serde(default)]
     pub npm: Vec<String>,
@@ -285,21 +306,47 @@ impl DependenciesConfig {
         self.pip.is_empty() && self.npm.is_empty() && self.gem.is_empty() && self.system.is_empty()
     }
 
-    /// The full pip requirement list for the project: `[dependencies].pip`
-    /// entries followed by the Python dependencies declared in `pyproject`
-    /// (see `pyproject_python_deps`), deduplicated by distribution name plus
-    /// extras — the first occurrence wins, so a pinned entry in
-    /// `[dependencies].pip` overrides an unpinned pyproject one. Extras are
-    /// part of the key because `pkg[extra]` pulls in dependencies that plain
-    /// `pkg` does not, so the two are different install requests.
+    /// The full pip requirement list for the project rooted at
+    /// `project_root`, according to `pip_source`.
     ///
-    /// `pyproject.toml` is the canonical dependency list for Python repos;
-    /// `[dependencies].pip` remains for repos without one and for packages
-    /// that CI needs but the project does not declare.
-    pub fn effective_pip(&self, pyproject: &Path) -> Result<Vec<String>> {
+    /// In `uv-lock` mode (the default) the list is the `[dependencies].pip`
+    /// entries followed by the exact pinned closure from `uv.lock` (see
+    /// `uv_lock_pinned_deps`). A project that declares Python dependencies
+    /// in pyproject.toml but has no `uv.lock` is an error — the lockfile is
+    /// what makes CI installs reproducible.
+    ///
+    /// In `pyproject` mode the list is the `[dependencies].pip` entries
+    /// followed by the dependency names pyproject.toml declares (see
+    /// `pyproject_python_deps`), resolved by pip at install time.
+    ///
+    /// Both modes deduplicate by distribution name plus extras — the first
+    /// occurrence wins, so a `[dependencies].pip` entry overrides a
+    /// pyproject or lock one. Extras are part of the key because
+    /// `pkg[extra]` pulls in dependencies that plain `pkg` does not, so the
+    /// two are different install requests.
+    pub fn effective_pip(&self, project_root: &Path) -> Result<Vec<String>> {
+        let pyproject = project_root.join("pyproject.toml");
+        let from_project: Vec<String> = match self.pip_source {
+            PipSource::UvLock => {
+                let lock = project_root.join("uv.lock");
+                if lock.exists() {
+                    uv_lock_pinned_deps(&lock)?
+                } else if pyproject_python_deps(&pyproject)?.is_empty() {
+                    Vec::new()
+                } else {
+                    anyhow::bail!(
+                        "{} declares Python dependencies but {} does not exist; \
+                         run `uv lock` to create it, or set `pip_source = \"pyproject\"` \
+                         under [dependencies] to resolve the declared names at install time",
+                        pyproject.display(), lock.display(),
+                    );
+                }
+            }
+            PipSource::Pyproject => pyproject_python_deps(&pyproject)?,
+        };
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut merged: Vec<String> = Vec::new();
-        for req in self.pip.iter().cloned().chain(pyproject_python_deps(pyproject)?) {
+        for req in self.pip.iter().cloned().chain(from_project) {
             let key = format!("{}[{}]",
                 normalized_distribution_name(&req), requirement_extras(&req));
             if seen.insert(key) {
@@ -351,6 +398,48 @@ pub fn pyproject_python_deps(pyproject: &Path) -> Result<Vec<String>> {
         }
     }
     Ok(deps)
+}
+
+/// The pinned Python package closure of a `uv.lock` file, as
+/// `name==version` requirement strings in the lock's order.
+///
+/// The project itself (`source = { editable = "." }` or
+/// `{ virtual = "." }`) is skipped — it is not something install-deps
+/// installs. Every other entry must be a registry package; a source kind
+/// this function does not understand (git, path, url) is an error rather
+/// than a silently dropped dependency.
+pub fn uv_lock_pinned_deps(lock: &Path) -> Result<Vec<String>> {
+    let content = fs::read_to_string(lock)
+        .with_context(|| format!("Failed to read {}", lock.display()))?;
+    let root: toml::Value = toml::from_str(&content)
+        .map_err(|e| crate::exit_code::config_error(
+            format!("Failed to parse {}: {e}", lock.display())))?;
+    let packages = root.get("package")
+        .and_then(toml::Value::as_array)
+        .map_or(&[] as &[toml::Value], Vec::as_slice);
+    let mut pins: Vec<String> = Vec::new();
+    for pkg in packages {
+        let name = pkg.get("name").and_then(toml::Value::as_str)
+            .with_context(|| format!("{}: package entry without a name", lock.display()))?;
+        let source = pkg.get("source").and_then(toml::Value::as_table);
+        let is_project = source.is_some_and(|s|
+            s.contains_key("editable") || s.contains_key("virtual"));
+        if is_project {
+            continue;
+        }
+        let is_registry = source.is_some_and(|s| s.contains_key("registry"));
+        if !is_registry {
+            anyhow::bail!(
+                "{}: package {name} has a source kind install-deps does not support \
+                 (only registry packages and the project itself are understood)",
+                lock.display(),
+            );
+        }
+        let version = pkg.get("version").and_then(toml::Value::as_str)
+            .with_context(|| format!("{}: package {name} has no version", lock.display()))?;
+        pins.push(format!("{name}=={version}"));
+    }
+    Ok(pins)
 }
 
 /// The normalized extras of a requirement string (`"gtts"` for
