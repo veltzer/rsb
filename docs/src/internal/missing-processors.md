@@ -107,7 +107,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### pytest
 - **What it does:** Python test framework.
-- **Projects:** 50+ py* projects (pyanyzip, pyapikey, pyapt, pyawskit, pyblueprint, pybookmarks, pyclassifiers, pycmdtools, pyconch, pycontacts, pycookie, pydatacheck, pydbmtools, pydmt, pydockerutils, pyeventroute, pyeventsummary, pyfakeuse, pyflexebs, pyfoldercheck, pygcal, pygitpub, pygooglecloud, pygooglehelper, pygpeople, pylogconf, pymakehelper, pymount, pymultienv, pymultigit, pymyenv, pynetflix, pyocutil, pypathutil, pypipegzip, pypitools, pypluggy, pypowerline, pypptkit, pyrelist, pyscrapers, pysigfd, pyslider, pysvgview, pytagimg, pytags, pytconf, pytimer, pytsv, pytubekit, pyunique, pyvardump, pyweblight, and archive.*)
+- **Projects:** 50+ py* projects (pyanyzip, pyapikey, pyapt, pyawskit, pyblueprint, pybookmarks, pyclassifiers, pycmdtools, pyconch, pycontacts, pycookie, pydatacheck, pydbmtools, pydockerutils, pyeventroute, pyeventsummary, pyfakeuse, pyflexebs, pyfoldercheck, pygcal, pygitpub, pygooglecloud, pygooglehelper, pygpeople, pylogconf, pymakehelper, pymount, pymultienv, pymultigit, pymyenv, pynetflix, pyocutil, pypathutil, pypipegzip, pypitools, pypluggy, pypowerline, pypptkit, pyrelist, pyscrapers, pysigfd, pyslider, pysvgview, pytagimg, pytags, pytconf, pytimer, pytsv, pytubekit, pyunique, pyvardump, pyweblight, and archive.*)
 - **Invocation:** `pytest tests` or `python -m pytest tests`
 - **Processor type:** Checker (mass, per-directory)
 
