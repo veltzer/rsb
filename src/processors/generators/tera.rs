@@ -83,9 +83,17 @@ fn render_template(ctx: &crate::build_context::BuildContext, item: &TemplateItem
         if *path == item.source_path {
             continue;
         }
+        // A template that is itself a build output (e.g. a generated driver
+        // template) may not exist yet while an unrelated template renders:
+        // the includable set contains virtual files from the discovery loop.
+        // Skip it — a product that actually includes it is ordered behind
+        // its producer by the graph, so by the time that render runs the
+        // file is on disk; a genuinely missing include still fails the
+        // render with tera's "template not found".
+        let Ok(content) = fs::read_to_string(path) else {
+            continue;
+        };
         let name = path.to_string_lossy().to_string();
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read template: {}", path.display()))?;
         tera.add_raw_template(&name, &content)
             .with_context(|| format!("Failed to parse template: {}", path.display()))?;
     }

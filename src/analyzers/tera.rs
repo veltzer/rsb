@@ -84,6 +84,18 @@ fn scan_template_recursive(
         return Ok(());
     }
 
+    // A template that is itself a build output (e.g. a generated driver
+    // template) does not exist before its producer runs, which is exactly
+    // the situation on a cold build. Skip it: the consuming product is
+    // already ordered behind the producer by the graph's input/output
+    // edges, and the next dependency scan — with the file on disk — picks
+    // up its transitive dependencies. A genuinely missing hand-written
+    // template still fails loudly when the tera processor tries to render
+    // it.
+    if !source.exists() {
+        return Ok(());
+    }
+
     let content = crate::errors::ctx(
         fs::read_to_string(source),
         &format!("Failed to read template: {}", source.display()),
