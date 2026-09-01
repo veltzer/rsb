@@ -16,6 +16,11 @@ type-checks `${{ }}` expressions, checks `runs-on` labels and cron syntax,
 flags untrusted-input injection in `run:` steps, and (when `shellcheck` is
 installed) lints the shell scripts inside `run:` blocks.
 
+actionlint reads its own configuration from `.github/actionlint.yaml` (or
+`.yml`) in the repository — e.g. a `self-hosted-runner.labels` allowlist for
+runner labels its built-in database doesn't know. Both paths are tracked via
+`dep_auto`, so editing the config retriggers the check.
+
 This processor supports batch mode.
 
 ## Source Files
