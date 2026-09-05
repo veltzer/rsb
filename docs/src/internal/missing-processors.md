@@ -199,7 +199,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### pygmentize
 - **What it does:** Syntax highlighter — converts source code to HTML, SVG, PNG.
-- **Projects:** demos-highlight
+- **Projects:** demos-misc-highlight
 - **Invocation:** `pygmentize -f html -O full -o $@ $<`
 - **Processor type:** Generator (single-file)
 
@@ -223,7 +223,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### wkhtmltoimage
 - **What it does:** Renders HTML to image using WebKit engine.
-- **Projects:** demos-highlight
+- **Projects:** demos-misc-highlight
 - **Invocation:** `wkhtmltoimage $(WK_OPTIONS) $< $@`
 - **Processor type:** Generator (single-file)
 
