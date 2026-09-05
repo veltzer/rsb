@@ -123,7 +123,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### javac
 - **What it does:** Java compiler.
-- **Projects:** demos-lang-java, jenable, keynote
+- **Projects:** demos-lang-java, java-jenable, keynote
 - **Invocation:** `javac -Werror -Xlint:all $(JAVA_SOURCES) -d out/classes`
 - **Processor type:** Generator
 
@@ -231,7 +231,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### jsdoc
 - **What it does:** API documentation generator for JavaScript.
-- **Projects:** jschess, keynote
+- **Projects:** js-jschess, keynote
 - **Invocation:** `node_modules/.bin/jsdoc -d $(JSDOC_FOLDER) -c support/jsdoc.json out/src`
 - **Processor type:** MassGenerator
 
@@ -239,13 +239,13 @@ Organized by category, with priority based on breadth of usage.
 
 ### jsmin
 - **What it does:** JavaScript minifier (removes whitespace and comments).
-- **Projects:** jschess
+- **Projects:** js-jschess
 - **Invocation:** `node_modules/.bin/jsmin < $< > $(JSMIN_JSMIN)`
 - **Processor type:** Generator (single-file)
 
 ### yuicompressor
 - **What it does:** JavaScript/CSS minifier and compressor (Yahoo).
-- **Projects:** jschess
+- **Projects:** js-jschess
 - **Invocation:** `node_modules/.bin/yuicompressor $< -o $(JSMIN_YUI)`
 - **Processor type:** Generator (single-file)
 
@@ -303,7 +303,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### sloccount
 - **What it does:** Counts source lines of code and estimates development cost.
-- **Projects:** demos-lang-java, demos-lang-r, demos-os-linux, jschess
+- **Projects:** demos-lang-java, demos-lang-r, demos-os-linux, js-jschess
 - **Invocation:** `sloccount .`
 - **Processor type:** Checker (whole-project)
 
