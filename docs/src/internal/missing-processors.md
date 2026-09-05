@@ -19,7 +19,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### tidy (HTML Tidy)
 - **What it does:** HTML/XHTML validator and formatter.
-- **Projects:** demos-lang-js, gcp-gemini-cli, gcp-machines, gcp-miflaga, gcp-nikuda, gcp-randomizer, openbook, riddles-book
+- **Projects:** demos-lang-js, gcp-gemini-cli, gcp-machines, gcp-miflaga, gcp-nikuda, gcp-randomizer, book-openbook, book-riddles
 - **Invocation:** `tidy -errors -quiet -config .tidy.config $<`
 - **Processor type:** Checker
 
@@ -217,7 +217,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### lilypond
 - **What it does:** Music engraving program — compiles .ly files to PDF sheet music.
-- **Projects:** demos-lang-lilypond, openbook
+- **Projects:** demos-lang-lilypond, book-openbook
 - **Invocation:** `scripts/wrapper_lilypond.py ... $<`
 - **Processor type:** Generator (single-file)
 
