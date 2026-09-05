@@ -55,19 +55,19 @@ Organized by category, with priority based on breadth of usage.
 
 ### jsl (JavaScript Lint)
 - **What it does:** JavaScript lint tool.
-- **Projects:** keynote, myworld-php
+- **Projects:** java-keynote, myworld-php
 - **Invocation:** `jsl --conf=support/jsl.conf --quiet --nologo --nosummary --nofilelisting $(SOURCES_JS)`
 - **Processor type:** Checker
 
 ### gjslint (Google Closure Linter)
 - **What it does:** JavaScript style checker following Google JS style guide.
-- **Projects:** keynote, myworld-php
+- **Projects:** java-keynote, myworld-php
 - **Invocation:** `$(TOOL_GJSLINT) --flagfile support/gjslint.cfg $(JS_SRC)`
 - **Processor type:** Checker
 
 ### checkstyle
 - **What it does:** Java source code style checker.
-- **Projects:** demos-lang-java, keynote
+- **Projects:** demos-lang-java, java-keynote
 - **Invocation:** `java -cp $(scripts/cp.py) $(MAINCLASS_CHECKSTYLE) -c support/checkstyle_config.xml $(find . -name "*.java")`
 - **Processor type:** Checker
 
@@ -123,7 +123,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### javac
 - **What it does:** Java compiler.
-- **Projects:** demos-lang-java, java-jenable, keynote
+- **Projects:** demos-lang-java, java-jenable, java-keynote
 - **Invocation:** `javac -Werror -Xlint:all $(JAVA_SOURCES) -d out/classes`
 - **Processor type:** Generator
 
@@ -191,7 +191,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### ant (Apache Ant)
 - **What it does:** Java build tool (XML-based).
-- **Projects:** demos-lang-java, keynote
+- **Projects:** demos-lang-java, java-keynote
 - **Invocation:** `ant checkstyle`
 - **Processor type:** MassGenerator
 
@@ -231,7 +231,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### jsdoc
 - **What it does:** API documentation generator for JavaScript.
-- **Projects:** js-jschess, keynote
+- **Projects:** js-jschess, java-keynote
 - **Invocation:** `node_modules/.bin/jsdoc -d $(JSDOC_FOLDER) -c support/jsdoc.json out/src`
 - **Processor type:** MassGenerator
 
@@ -251,7 +251,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### closure compiler
 - **What it does:** JavaScript optimizer and minifier (Google Closure).
-- **Projects:** keynote
+- **Projects:** java-keynote
 - **Invocation:** `tools/closure.jar $< --js_output_file $@`
 - **Processor type:** Generator (single-file)
 
