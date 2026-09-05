@@ -189,7 +189,7 @@ pub const SCAN_FIELD_DESCRIPTIONS: &[(&str, &str)] = &[
 /// Descriptions for execution/dependency fields shared by most processors.
 pub const SHARED_FIELD_DESCRIPTIONS: &[(&str, &str)] = &[
     ("dep_inputs",  "Extra files that trigger a rebuild when their content changes"),
-    ("dep_auto",    "Config files silently added as dep_inputs when they exist on disk"),
+    ("dep_auto",    "Config files added as dep_inputs; processor defaults are skipped when absent, entries you list must exist"),
     ("batch",       "Pass all matched files to the tool in a single invocation"),
     ("max_jobs",    "Maximum parallel jobs for this processor (overrides global --jobs)"),
     ("enabled",     "Set to false to disable this processor without removing the stanza"),
@@ -669,6 +669,16 @@ pub struct BuildConfig {
     /// dotfile farms) drown in the warnings.
     #[serde(default = "default_warn_symlinks")]
     pub warn_symlinks: bool,
+    /// When true, a `dep_auto` entry the user listed that names a missing
+    /// file is skipped, as every `dep_auto` entry used to be. Off by default:
+    /// an entry written into the config is a claim about the project, and a
+    /// missing file there is a typo or a stale copy of a shared config —
+    /// either way a dependency that silently tracks nothing, so the build
+    /// fails at config load naming the entry. Processor defaults
+    /// (`.pylintrc`, `ruff.toml`, ...) are optional by nature and are never
+    /// checked, whatever this is set to.
+    #[serde(default = "default_allow_missing_dep_auto")]
+    pub allow_missing_dep_auto: bool,
 }
 
 const fn default_parallel() -> usize {
@@ -695,6 +705,10 @@ const fn default_warn_symlinks() -> bool {
     false
 }
 
+const fn default_allow_missing_dep_auto() -> bool {
+    false
+}
+
 impl Default for BuildConfig {
     fn default() -> Self {
         Self {
@@ -705,6 +719,7 @@ impl Default for BuildConfig {
             max_discovery_passes: default_max_discovery_passes(),
             hash_tool_versions: default_hash_tool_versions(),
             warn_symlinks: default_warn_symlinks(),
+            allow_missing_dep_auto: default_allow_missing_dep_auto(),
         }
     }
 }
@@ -1683,6 +1698,47 @@ fn validate_build_config(build: &BuildConfig) -> Result<()> {
     Ok(())
 }
 
+/// Every `dep_auto` entry the user listed must exist on disk.
+///
+/// Only user-set lists are checked (main config, local overlay, or a CLI
+/// override): a processor's default `dep_auto` (`.pylintrc`, `ruff.toml`,
+/// ...) is optional by nature and stays skip-if-absent, and entries a
+/// processor computes at discovery time never pass through here. Disabled
+/// instances are skipped, as they are everywhere else. `[build]
+/// allow_missing_dep_auto = true` turns the check off. Runs after the span
+/// maps are applied so the message can point at the config line.
+fn validate_dep_auto_exist(instances: &[ProcessorInstance], build: &BuildConfig) -> Result<()> {
+    if build.allow_missing_dep_auto {
+        return Ok(());
+    }
+    let mut errors = Vec::new();
+    for inst in instances {
+        let Some(source) = inst.provenance.get("dep_auto") else { continue };
+        let user_set = matches!(source,
+            FieldProvenance::UserToml { .. } | FieldProvenance::LocalToml { .. } | FieldProvenance::CliOverride);
+        if !user_set {
+            continue;
+        }
+        let disabled = inst.config_toml.get("enabled").and_then(toml::Value::as_bool) == Some(false);
+        if disabled {
+            continue;
+        }
+        let Some(entries) = inst.config_toml.get("dep_auto").and_then(toml::Value::as_array) else { continue };
+        for entry in entries.iter().filter_map(toml::Value::as_str) {
+            if !Path::new(entry).exists() {
+                errors.push(format!("  [processor.{}] dep_auto file not found: {entry} ({source})", inst.instance_name));
+            }
+        }
+    }
+    if errors.is_empty() {
+        return Ok(());
+    }
+    Err(crate::exit_code::config_error(format!(
+        "Invalid config:\n{}\nEvery dep_auto entry listed in the config must exist — remove the entry, \
+         or set [build] allow_missing_dep_auto = true to skip absent entries as before",
+        errors.join("\n"))))
+}
+
 fn validate_processor_fields_raw(raw: &toml::Value) -> Vec<String> {
     let Some(processor_table) = raw.get("processor").and_then(|v| v.as_table()) else {
         return Vec::new();
@@ -1987,6 +2043,7 @@ impl Config {
         config.processor.resolve_scan_defaults();
         config.processor.apply_output_dir_defaults(&config.build.output_dir);
         config.apply_span_map(&span_map, &local_span_map);
+        validate_dep_auto_exist(&config.processor.instances, &config.build)?;
         config.populate_global_provenance(&global_span_map, &local_global_span_map)?;
         crate::phases::run_post_config_hooks(&mut config)?;
         Ok(config)
@@ -2036,6 +2093,7 @@ impl Config {
             return Err(crate::exit_code::config_error(
                 format!("Invalid config after CLI overrides:\n{}", errors.join("\n"))));
         }
+        validate_dep_auto_exist(&self.processor.instances, &self.build)?;
         Ok(())
     }
 

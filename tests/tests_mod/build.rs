@@ -1422,3 +1422,58 @@ fn no_mtime_cache_chain_converges() {
     assert!(!stdout3.contains("Processing:"),
         "an unchanged project must be fully cached under --no-mtime-cache: {stdout3}");
 }
+
+/// A `dep_auto` entry the user listed must exist.
+///
+/// Every `dep_auto` entry used to be skipped silently when absent, so a
+/// typo — or a shared config listing files only some repos carry — left a
+/// dependency that tracked nothing and nobody noticed. Now a listed entry
+/// that is missing is a config error naming the processor, the file and the
+/// config line; entries that exist are not reported; `[build]
+/// allow_missing_dep_auto = true` restores the old skip.
+#[test]
+fn user_listed_dep_auto_must_exist() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+    fs::write(project_path.join("config/present.py"), "x = 1\n").unwrap();
+    fs::write(project_path.join("tera.templates/t.txt.tera"), "hello\n").unwrap();
+
+    let strict = "[processor.tera]\nsrc_dirs = [\"tera.templates\"]\n\
+                  dep_auto = [\"config/present.py\", \"config/missing.py\"]\n";
+    fs::write(project_path.join("rsconstruct.toml"), strict).unwrap();
+    let out = run_rsconstruct(project_path, &["build"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(),
+        "a listed dep_auto file that does not exist must fail the build: {stderr}");
+    for needle in ["processor.tera", "config/missing.py", "rsconstruct.toml:3", "allow_missing_dep_auto"] {
+        assert!(stderr.contains(needle), "error must mention {needle}: {stderr}");
+    }
+    assert!(!stderr.contains("config/present.py"),
+        "the entry that exists must not be reported: {stderr}");
+
+    let lenient = format!("[build]\nallow_missing_dep_auto = true\n\n{strict}");
+    fs::write(project_path.join("rsconstruct.toml"), lenient).unwrap();
+    let out = run_rsconstruct(project_path, &["build"]);
+    assert!(out.status.success(),
+        "allow_missing_dep_auto must restore the skip: stderr={}", String::from_utf8_lossy(&out.stderr));
+    assert!(project_path.join("t.txt").exists(), "the lenient build must still render the template");
+}
+
+/// A processor's default `dep_auto` list stays skip-if-absent.
+///
+/// The defaults name the well-known config files a tool honours when
+/// present (`.yamllint`, `.pylintrc`, ...); a project without them is the
+/// normal case, not a misconfiguration, so the existence check applies only
+/// to lists the user wrote.
+#[test]
+fn default_dep_auto_stays_optional() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+    fs::write(project_path.join("ok.yaml"), "key: value\n").unwrap();
+    fs::write(project_path.join("rsconstruct.toml"), "[processor.yamllint]\nsrc_dirs = [\"\"]\n").unwrap();
+    assert!(!project_path.join(".yamllint").exists());
+
+    let out = run_rsconstruct(project_path, &["build"]);
+    assert!(out.status.success(),
+        "an absent default dep_auto file must not fail the build: stderr={}", String::from_utf8_lossy(&out.stderr));
+}

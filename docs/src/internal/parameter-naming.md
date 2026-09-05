@@ -51,13 +51,20 @@ triggers a rebuild, but the files are not passed as arguments to the tool.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `dep_inputs` | string[] | Explicit dependency files (e.g. config files, schema files). Globs are supported. Fails if a listed file does not exist. |
-| `dep_auto` | string[] | Like `dep_inputs` but silently ignored when the file does not exist. Used for optional config files (e.g. `.pylintrc`, `pyproject.toml`). |
+| `dep_auto` | string[] | Like `dep_inputs`, but a processor's default list is skipped where the files do not exist. Used for optional config files (e.g. `.pylintrc`, `pyproject.toml`). A list written in the config replaces the default and is checked like `dep_inputs` unless `[build] allow_missing_dep_auto` is set. |
 
 ### Why two parameters?
 
 `dep_inputs` is strict — it errors if a file is missing, which catches
-mistakes in configuration. `dep_auto` is lenient — it is for well-known
-config files that may or may not be present in a given project.
+mistakes in configuration. `dep_auto` is where a processor declares the
+well-known config files it honours when present: a project without
+`.pylintrc` is fine, so those defaults are lenient. The leniency stops at
+the processor's defaults. Once a user writes a `dep_auto` list, each entry
+is a claim about the project, and a missing one is a typo or a stale copy
+of a shared config — a dependency that tracks nothing — so it fails at
+config load like a missing `dep_inputs` entry would. `[build]
+allow_missing_dep_auto = true` restores skip-if-absent for listed entries
+too.
 
 ---
 

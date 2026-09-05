@@ -26,7 +26,7 @@ This page defines the terminology used throughout RSConstruct's code, configurat
 | **src_dirs** | Directories to scan for input files. |
 | **src_extensions** | File extensions to match during scanning. |
 | **dep_inputs** | Extra files that trigger a rebuild when their content changes. |
-| **dep_auto** | Config files silently added as dep_inputs when they exist on disk (e.g., `.eslintrc`). |
+| **dep_auto** | Config files added as dep_inputs (e.g., `.eslintrc`). Processor defaults are skipped when absent; entries listed in the config must exist unless `[build] allow_missing_dep_auto` is set. |
 
 ## Cache
 
