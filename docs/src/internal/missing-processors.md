@@ -13,7 +13,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### jshint
 - **What it does:** JavaScript linter — detects errors and potential problems.
-- **Projects:** demos-lang-js, gcp-gemini-cli, gcp-machines, gcp-miflaga, gcp-nikuda, gcp-randomizer, schemas, veltzer.github.io
+- **Projects:** demos-lang-js, gcp-gemini-cli, gcp-machines, gcp-miflaga, gcp-nikuda, gcp-randomizer, web-schemas, veltzer.github.io
 - **Invocation:** `node_modules/.bin/jshint $<`
 - **Processor type:** Checker
 
@@ -25,7 +25,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### check-jsonschema
 - **What it does:** Validates YAML/JSON files against JSON Schema (distinct from rsconstruct's json_schema which validates JSON against schemas found via `$schema` key).
-- **Projects:** data, schemas, veltzer.github.io
+- **Projects:** data, web-schemas, veltzer.github.io
 - **Invocation:** `check-jsonschema --schemafile $(yq -r '.["$schema"]' $<) $<`
 - **Processor type:** Checker
 
@@ -115,7 +115,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### yq
 - **What it does:** YAML/JSON processor (like jq but for YAML).
-- **Projects:** data, demos-lang-yaml, schemas, veltzer.github.io
+- **Projects:** data, demos-lang-yaml, web-schemas, veltzer.github.io
 - **Invocation:** `yq < $< > $@` (format/validate) or `yq -r '.key' $<` (extract)
 - **Processor type:** Checker or Generator
 
@@ -199,7 +199,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### pygmentize
 - **What it does:** Syntax highlighter — converts source code to HTML, SVG, PNG.
-- **Projects:** demos-misc-highlight
+- **Projects:** demos-highlight
 - **Invocation:** `pygmentize -f html -O full -o $@ $<`
 - **Processor type:** Generator (single-file)
 
@@ -223,7 +223,7 @@ Organized by category, with priority based on breadth of usage.
 
 ### wkhtmltoimage
 - **What it does:** Renders HTML to image using WebKit engine.
-- **Projects:** demos-misc-highlight
+- **Projects:** demos-highlight
 - **Invocation:** `wkhtmltoimage $(WK_OPTIONS) $< $@`
 - **Processor type:** Generator (single-file)
 
