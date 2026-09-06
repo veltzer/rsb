@@ -352,6 +352,63 @@ fn excluded_ranges(text: &str) -> Vec<(usize, usize)> {
     ranges
 }
 
+/// Find ranges covering URLs, so terms inside an address are never touched.
+///
+/// Covers markdown link targets — the `(...)` of `[text](target)`, including
+/// the surrounding parentheses — and bare `http://` / `https://` runs.
+fn url_ranges(text: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let bytes = text.as_bytes();
+
+    // Markdown link/image targets: ](...)
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b']' && bytes[i + 1] == b'(' {
+            let start = i + 1;
+            let mut depth = 0usize;
+            let mut j = start;
+            while j < bytes.len() && bytes[j] != b'\n' {
+                if bytes[j] == b'(' {
+                    depth += 1;
+                } else if bytes[j] == b')' {
+                    // j starts on the opening '(', so depth is always >= 1
+                    // here; saturating_sub keeps that explicit rather than
+                    // relying on the invariant to avoid an underflow.
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        ranges.push((start, j + 1));
+                        break;
+                    }
+                }
+                j += 1;
+            }
+            i = j.max(start);
+            continue;
+        }
+        i += 1;
+    }
+
+    // Bare URLs: http:// or https:// up to whitespace or a markdown delimiter.
+    for scheme in ["https://", "http://"] {
+        let mut from = 0;
+        while let Some(off) = text[from..].find(scheme) {
+            let start = from + off;
+            let mut end = start;
+            while end < bytes.len() {
+                let c = bytes[end];
+                if c.is_ascii_whitespace() || c == b')' || c == b']' || c == b'`' || c == b'<' || c == b'>' {
+                    break;
+                }
+                end += 1;
+            }
+            ranges.push((start, end));
+            from = end.max(start + scheme.len());
+        }
+    }
+
+    ranges
+}
+
 /// Find all backtick span ranges (start, end) in text, excluding fenced code blocks.
 /// Returns positions of the opening and closing backtick (inclusive of backticks).
 fn backtick_span_ranges(text: &str, fenced: &[(usize, usize)]) -> Vec<(usize, usize)> {
@@ -491,6 +548,10 @@ fn looks_like_term_reference(inner: &str) -> bool {
 fn find_unquoted_positions(content: &str, sorted_terms: &[&str]) -> Vec<(usize, usize, String)> {
     let fenced = excluded_ranges(content);
     let backtick_spans = backtick_span_ranges(content, &fenced);
+    // A term inside a URL is part of an address, not prose: backticking it
+    // (`https`://example.com/`bash`/) corrupts the link. Computed separately
+    // from `fenced` so that backtick pairing above still sees the real text.
+    let urls = url_ranges(content);
     let mut claimed: Vec<(usize, usize)> = Vec::new();
     let mut results = Vec::new();
 
@@ -500,6 +561,9 @@ fn find_unquoted_positions(content: &str, sorted_terms: &[&str]) -> Vec<(usize, 
                 continue;
             }
             if inside_ranges(start, end, &backtick_spans) {
+                continue;
+            }
+            if inside_ranges(start, end, &urls) {
                 continue;
             }
             if claimed.iter().any(|&(cs, ce)| start < ce && end > cs) {

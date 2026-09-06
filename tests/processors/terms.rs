@@ -279,3 +279,61 @@ fn terms_ambiguous_terms_are_not_flagged() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn terms_inside_urls_are_ignored() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    write_terms_dirs(project_path, &["bash", "jq"], &["server"]);
+
+    // The terms appear only inside URLs (a markdown link target and a bare
+    // URL). Backticking them there would corrupt the address, so the checker
+    // must not ask for it.
+    fs::write(
+        project_path.join("README.md"),
+        "# Doc\n\n\
+         * [Bash Manual](https://www.gnu.org/software/bash/manual/)\n\
+         * [Manual](https://stedolan.github.io/jq/manual/)\n\
+         * https://example.com/bash/jq/index.html\n",
+    ).unwrap();
+
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.terms]\ndir_terms_unambiguous = \"terms.unambiguous\"\ndir_terms_ambiguous = \"terms.ambiguous\"\nsrc_dirs = [\".\"]\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(
+        output.status.success(),
+        "Terms inside URLs must not be flagged: stdout={}, stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn terms_in_prose_still_flagged_alongside_urls() {
+    let temp_dir = setup_test_project();
+    let project_path = temp_dir.path();
+
+    write_terms_dirs(project_path, &["bash"], &["server"]);
+
+    // Same term in a URL (ignored) and in prose (must still be flagged).
+    fs::write(
+        project_path.join("README.md"),
+        "# Doc\n\n\
+         See [manual](https://www.gnu.org/software/bash/manual/) for bash usage.\n",
+    ).unwrap();
+
+    fs::write(
+        project_path.join("rsconstruct.toml"),
+        "[processor.terms]\ndir_terms_unambiguous = \"terms.unambiguous\"\ndir_terms_ambiguous = \"terms.ambiguous\"\nsrc_dirs = [\".\"]\n",
+    ).unwrap();
+
+    let output = run_rsconstruct_with_env(project_path, &["build"], &[("NO_COLOR", "1")]);
+    assert!(
+        !output.status.success(),
+        "Unbackticked term in prose must still fail"
+    );
+}
