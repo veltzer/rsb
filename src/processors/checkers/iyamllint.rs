@@ -23,7 +23,7 @@ impl IyamllintProcessor {
         for file in files {
             let contents = std::fs::read_to_string(file)
                 .with_context(|| format!("Failed to read {}", file.display()))?;
-            if let Err(e) = serde_yaml::from_str::<serde_yaml::Value>(&contents) {
+            if let Err(e) = serde_yml::from_str::<serde_yml::Value>(&contents) {
                 errors.push(format!("{}: {}", file.display(), e));
             }
         }
