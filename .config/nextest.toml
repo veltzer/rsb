@@ -1,5 +1,5 @@
 [profile.default]
-# Number of threads to run tests with (matches existing RUST_TEST_THREADS=1)
+# Number of threads to run tests with
 test-threads = 4
 
 # Only show failing tests in output
