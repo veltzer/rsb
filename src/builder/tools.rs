@@ -662,7 +662,12 @@ fn run_tools_command(
                 match crate::tools::run(method, packages, &ctx) {
                     Ok(()) => println!("{} [{}] {}", color::green("OK"), method, packages.join(", ")),
                     Err(e) => {
-                        println!("{} [{}] {}: {}", color::red("FAILED"), method, packages.join(", "), e);
+                        // `{:#}`, not `{}`: the alternate form walks the
+                        // whole anyhow cause chain. Plain Display prints
+                        // only the outermost context, which turns a real
+                        // diagnosis ("... : http status: 403") back into a
+                        // bare "Failed to query GitHub releases API".
+                        println!("{} [{}] {}: {:#}", color::red("FAILED"), method, packages.join(", "), e);
                         any_failed = true;
                     }
                 }

@@ -16,4 +16,9 @@ set -euo pipefail
 # cannot install automatically as a hard error rather than a warning, so a
 # registry entry that loses its install method fails this step instead of
 # quietly shrinking the matrix.
+#
+# drawio's .deb URL is resolved from the GitHub releases API at install time,
+# so this inherits GITHUB_TOKEN from the workflow step to stay under the
+# authenticated rate limit (see the comment on that step in ci.yml). Unset
+# locally, where one machine never approaches the anonymous 60/hour.
 cargo run -- tools install --all

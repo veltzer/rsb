@@ -465,6 +465,30 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
     }
 }
 
+/// The GitHub API token to authenticate release lookups with, if one is set.
+///
+/// `GITHUB_TOKEN` is the name Actions uses and `GH_TOKEN` the one the `gh`
+/// CLI uses; accepting both means the same binary is authenticated on a
+/// runner and on a developer machine that has `gh` set up, with no extra
+/// configuration in either place. An empty value is treated as unset —
+/// `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` expands to the empty
+/// string rather than disappearing when the secret is unavailable, and
+/// sending `Bearer ` with no token earns a 401 instead of the anonymous
+/// access that would otherwise still work.
+fn github_token() -> Option<String> {
+    github_token_from(|name| std::env::var(name).ok())
+}
+
+/// The variable-selection half of [`github_token`], split out so it can be
+/// tested without mutating the process environment — `set_var` is global
+/// state and the test harness runs threads in parallel.
+fn github_token_from(lookup: impl Fn(&str) -> Option<String>) -> Option<String> {
+    // The emptiness filter is inside find_map, not after it: an empty
+    // GITHUB_TOKEN must fall through to GH_TOKEN rather than mask it.
+    ["GITHUB_TOKEN", "GH_TOKEN"].iter()
+        .find_map(|name| lookup(name).filter(|token| !token.trim().is_empty()))
+}
+
 /// Resolve the browser-download URL of the newest release asset in `repo`
 /// whose name contains `asset_pattern` and ends in `.deb`. Resolving at
 /// install time (instead of pinning a URL in the recipe) is what keeps the
@@ -472,14 +496,27 @@ fn describe_binary(pkg: &str) -> Vec<Vec<String>> {
 fn resolve_latest_deb_asset(repo: &str, asset_pattern: &str) -> anyhow::Result<String> {
     use anyhow::Context as _;
     let api = format!("https://api.github.com/repos/{repo}/releases/latest");
+    // Authenticate when a token is available. Unauthenticated api.github.com
+    // allows 60 requests/hour *per source IP*, and GitHub-hosted runners
+    // share egress IPs — so a busy runner pool exhausts the budget and this
+    // call fails instantly with 403 (CI run 33967438754). A token raises the
+    // limit to 5000/hour for the account it belongs to. Absent locally, where
+    // one machine never approaches 60/hour, so this stays optional.
+    //
+    // Read once, outside the retry closure: the environment cannot change
+    // between attempts, and re-reading it per attempt would only repeat work.
+    let token = github_token();
     // Retried via download::with_retry for the same reason downloads are:
     // a connection reset here fails the whole install. See
     // docs/src/internal/download-policy.md.
     let body = crate::download::with_retry(|| {
-        ureq::get(&api)
+        let mut req = ureq::get(&api)
             // GitHub rejects API requests without a User-Agent.
-            .header("User-Agent", "rsconstruct")
-            .call()
+            .header("User-Agent", "rsconstruct");
+        if let Some(token) = &token {
+            req = req.header("Authorization", &format!("Bearer {token}"));
+        }
+        req.call()
             .with_context(|| format!("Failed to query GitHub releases API for {repo}"))?
             .body_mut()
             .read_to_string()
@@ -917,6 +954,35 @@ pub fn tool_runtime(tool: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `GITHUB_TOKEN` wins when both are set, an empty value falls through
+    /// to the next name rather than masking it (Actions expands a missing
+    /// secret to the empty string), and all-unset means anonymous access.
+    #[test]
+    fn github_token_prefers_github_token_and_skips_empty() {
+        let lookup = |vars: &[(&str, &str)], name: &str| {
+            vars.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_string())
+        };
+
+        assert_eq!(
+            github_token_from(|n| lookup(&[("GITHUB_TOKEN", "a"), ("GH_TOKEN", "b")], n)),
+            Some("a".to_string())
+        );
+        assert_eq!(
+            github_token_from(|n| lookup(&[("GH_TOKEN", "b")], n)),
+            Some("b".to_string())
+        );
+        // The masking case: empty GITHUB_TOKEN must not hide GH_TOKEN.
+        assert_eq!(
+            github_token_from(|n| lookup(&[("GITHUB_TOKEN", ""), ("GH_TOKEN", "b")], n)),
+            Some("b".to_string())
+        );
+        assert_eq!(
+            github_token_from(|n| lookup(&[("GITHUB_TOKEN", "   ")], n)),
+            None
+        );
+        assert_eq!(github_token_from(|n| lookup(&[], n)), None);
+    }
 
     /// `sudo_argv()` returns either `["sudo"]` or `[]` based on runtime
     /// state. Empty when running as root or when `sudo` isn't on PATH.
