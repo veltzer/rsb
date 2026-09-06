@@ -619,7 +619,7 @@ enum DebSource {
 fn binary_recipe(pkg: &str) -> Option<BinaryRecipe> {
     match pkg {
         "rumdl" => Some(BinaryRecipe {
-            url: "https://github.com/rvben/rumdl/releases/download/v0.1.81/rumdl-v0.1.81-x86_64-unknown-linux-gnu.tar.gz",
+            url: "https://github.com/rvben/rumdl/releases/download/v0.2.66/rumdl-v0.2.66-x86_64-unknown-linux-gnu.tar.gz",
             archive: ArchiveKind::TarGz { inner: "rumdl" },
             dest: "rumdl",
         }),
